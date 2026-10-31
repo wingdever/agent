@@ -1,0 +1,46 @@
+# ===== 依赖（体积大，由 npm/pnpm 重新安装生成） =====
+node_modules/
+.pnp/
+.pnp.js
+
+# ===== 本地数据库（含私有数据，运行时生成） =====
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.sqlite
+data/*.sqlite3
+
+# ===== 环境变量 / 密钥 =====
+.env
+.env.*
+*.env
+.envrc
+
+# ===== 构建产物（Electron / 前端打包输出） =====
+dist/
+out/
+release/
+build/
+.vite/
+*.exe
+*.dmg
+*.AppImage
+*.snap
+*.deb
+*.rpm
+
+# ===== 日志 =====
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ===== 操作系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# ===== 第三方参考副本（自带 .git，非本项目源码；需要可删除此行） =====
+reference/

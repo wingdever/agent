@@ -1,0 +1,16 @@
+{
+  "name": "agent-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron 默认界面 + 可插拔多界面 + 函数调用式底层架构",
+  "main": "launcher.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.9.3"
+  },
+  "dependencies": {
+    "pg-micro": "^0.0.5"
+  }
+}

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<!-- shell: 整体界面外壳（三栏并排） -->
+<div class="shell" data-name="shell">
+
+  <!-- thread-sidebar: 左侧会话栏 -->
+  <aside class="thread-sidebar" id="sidebar" data-name="thread-sidebar">
+    <div class="sidebar-header" data-name="sidebar-header">
+      <span class="agent-badge" data-name="agent-badge">Agent</span>
+    </div>
+    <button class="new-session-button" data-name="new-session-button">+ 新建会话</button>
+    <div class="workspace-bar" data-name="workspace-bar">
+      <button class="search-btn" data-name="search-btn" title="搜索">搜索</button>
+      <button class="view-options-btn" data-name="view-options-btn" title="视图选项">视图</button>
+      <button class="add-workspace-btn" data-name="add-workspace-btn">+ 工作区</button>
+    </div>
+    <div class="workspace-session-tree-list" data-name="workspace-session-tree-list">
+      <!-- 空：暂无会话 -->
+    </div>
+  </aside>
+
+  <!-- chat-viewport: 中间聊天主视口 -->
+  <main class="chat-viewport" id="viewport" data-name="chat-viewport">
+    <div class="chat-header" data-name="chat-header">
+      <button class="left-collapse-button" id="leftCollapse" data-name="left-collapse-button" title="折叠">«</button>
+      <span class="session-name" data-name="session-name"></span>
+      <div class="tab-icons" data-name="tab-icons">
+        <button class="chat-tab-icon active" data-target="chat-tab" data-name="chat-tab-icon">聊天</button>
+        <button class="trajectory-icon" data-target="trajectory-tab" data-name="trajectory-icon">轨迹</button>
+      </div>
+      <button class="right-collapse-button" id="rightCollapse" data-name="right-collapse-button" title="折叠右栏">»</button>
+    </div>
+
+    <div class="tab-body" data-name="tab-body">
+      <!-- chat-tab: 聊天标签页（空状态） -->
+      <div class="chat-tab" id="chatTab" data-name="chat-tab">
+        <div class="request-prompt" data-name="request-prompt"></div>
+        <div class="response-message" data-name="response-message"></div>
+        <div class="empty-hint">还没有对话，发送消息开始吧</div>
+      </div>
+
+      <!-- trajectory-tab: 轨迹标签页（空状态，默认隐藏） -->
+      <div class="trajectory-tab" id="trajectoryTab" data-name="trajectory-tab" hidden>
+        <div class="empty-hint">暂无轨迹</div>
+      </div>
+    </div>
+
+    <!-- composer: 输入区 -->
+    <div class="composer" data-name="composer">
+      <textarea class="input-textarea" data-name="input-textarea" placeholder="输入消息，Enter 发送（Shift+Enter 换行）"></textarea>
+      <button class="cancel-stop-btn" data-name="cancel/stop-btn">停止</button>
+      <div class="composer-footer" data-name="composer-footer">
+        <button class="add-file-btn" id="addFileBtn" data-name="add-file-btn">+ 文件</button>
+        <label class="permission-selector" data-name="permission-selector">权限
+          <select><option>自动</option><option>每次询问</option><option>仅只读</option></select>
+        </label>
+        <label class="model-selector" data-name="model-selector">模型
+          <select><option>qiniu/conatus-free</option><option>gpt-4o</option></select>
+        </label>
+        <button class="send-btn" data-name="send-btn">发送</button>
+      </div>
+      <div class="attachment-tray" data-name="attachment-tray">
+        <span class="state ready">ready</span>
+        <span class="state extracting" hidden>extracting…</span>
+        <span class="state fallback" hidden>fallback</span>
+      </div>
+    </div>
+
+    <!-- chat-footer: 聊天底部状态区 -->
+    <div class="chat-footer" data-name="chat-footer">
+      <span class="session-statistics" data-name="session-statistics"></span>
+      <span class="token-usage" data-name="token-usage"></span>
+      <span class="context-used" data-name="context-used"></span>
+    </div>
+  </main>
+
+  <!-- context-panel: 右侧上下文面板（默认隐藏） -->
+  <aside class="context-panel" id="contextPanel" data-name="context-panel" hidden>
+    <div class="context-default">点击左侧任意 <b>tool-call</b> 卡片查看其参数与结果摘要。</div>
+    <div class="context-detail" id="contextDetail" hidden>
+      <div class="ctx-title" id="ctxTitle"></div>
+      <div class="ctx-section"><h4>参数</h4><pre id="ctxArgs"></pre></div>
+      <div class="ctx-section"><h4>结果</h4><pre id="ctxResult"></pre></div>
+      <div class="ctx-section"><h4>引用来源</h4><div id="ctxRefs">—</div></div>
+    </div>
+  </aside>
+
+</div>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
