@@ -345,6 +345,12 @@ document.addEventListener("DOMContentLoaded", function () {
   var currentSessionId = null;
   var currentAssistantBubble = null;
   var toolCards = {};
+  var bareHistory = [];  // bare-chat 模式：纯内存对话历史，不落库
+
+  function getComposerMode() {
+    var sel = document.querySelector(".mode-selector select");
+    return sel ? sel.value : "turn-step";
+  }
 
   function hideEmptyHint() { var h = chatTab.querySelector(".empty-hint"); if (h) h.remove(); }
   function showEmptyHint() {
@@ -408,6 +414,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var c = toolCards[evt.id];
       if (c) setToolResult(c, evt.result);
     } else if (evt.type === "done") {
+      if (getComposerMode() === "bare-chat" && evt.message) bareHistory.push({ role: "assistant", content: evt.message.content || "" });
       currentAssistantBubble = null;
     } else if (evt.type === "error") {
       appendMessage("assistant", "[出错] " + (evt.error || "未知错误"));
@@ -454,9 +461,23 @@ document.addEventListener("DOMContentLoaded", function () {
     renderSessionMessages(sess.id);
     if (input) input.focus();
   }
+  async function runBareChat(text) {
+    input.value = "";
+    appendMessage("user", text);
+    bareHistory.push({ role: "user", content: text });
+    currentAssistantBubble = null; toolCards = {};
+    try {
+      // bare-chat：不传 sessionId（core 不落库），toolNames 传空以禁用工具调用，历史仅存内存
+      await window.AgentClient.call("chat", { messages: bareHistory.slice(), toolNames: [] }, onChatEvent);
+    } catch (e) {
+      console.error("chat failed:", e);
+      appendMessage("assistant", "[出错] " + (e && e.message ? e.message : e));
+    }
+  }
   async function onSend() {
     var text = input.value.trim();
     if (!text) return;
+    if (getComposerMode() === "bare-chat") { await runBareChat(text); return; }
     if (!currentSessionId) { await uiAlert("请先在左侧选择或新建一个会话"); return; }
     input.value = "";
     appendMessage("user", text);

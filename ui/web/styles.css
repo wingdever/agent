@@ -78,8 +78,8 @@ select, textarea, input { font-family: inherit; }
 .think-switch, .search-switch { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #374151; }
 .think-switch.active, .search-switch.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 .add-files-btn { border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 6px; padding: 4px 10px; }
-.permission-selector, .model-selector { font-size: 12px; display: flex; align-items: center; gap: 4px; color: #374151; }
-.permission-selector select, .model-selector select { padding: 3px 6px; border-radius: 6px; border: 1px solid #d1d5db; }
+.permission-selector, .model-selector, .mode-selector { font-size: 12px; display: flex; align-items: center; gap: 4px; color: #374151; }
+.permission-selector select, .model-selector select, .mode-selector select { padding: 3px 6px; border-radius: 6px; border: 1px solid #d1d5db; }
 .send-or-stop-btn { margin-left: auto; border: none; background: #2563eb; color: #fff; border-radius: 8px; padding: 6px 18px; }
 
 /* attachment-tray */

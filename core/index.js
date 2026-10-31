@@ -1,6 +1,37 @@
 "use strict";
 const https = require("https");
+const fs = require("fs");
+const path = require("path");
 const { URL } = require("url");
+
+// user/providers.json：用户侧供应者配置，含 base_url / api_key / models。
+// 当调用方未显式提供 model 时，作为默认模型来源。
+const PROVIDERS_FILE = path.join(__dirname, "..", "user", "providers.json");
+
+// 调用方未显式指定 model 时，从 user/providers.json 取首个含模型的供应者作为默认：
+// 采用其第一个模型，并在调用方未显式给出 baseUrl/apiKey 时一并继承该供应者配置。
+function resolveDefaultFromProviders(config = {}) {
+  if (config.model) return config;
+  let providers;
+  try {
+    providers = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8"));
+  } catch (_) {
+    return config; // 文件缺失/损坏则退回构造内的内置默认
+  }
+  if (!Array.isArray(providers) || !providers.length) return config;
+  for (const provider of providers) {
+    const models = Array.isArray(provider.models) ? provider.models : [];
+    const model = models.length ? (models[0].name || models[0]) : null;
+    if (!model) continue;
+    return {
+      ...config,
+      model,
+      baseUrl: config.baseUrl || provider.base_url,
+      apiKey: config.apiKey || provider.api_key,
+    };
+  }
+  return config;
+}
 
 // 默认工具：核心内置，注册即进入模型可用列表（UI 无需关心实现）
 const DEFAULT_TOOLS = [
@@ -212,7 +243,7 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
 
 // 创建核心实例，并挂载数据持久化存储（pgmicro，单文件 ./data/store.db）
 async function createCore(config = {}) {
-  const core = new AgentCore(config);
+  const core = new AgentCore(resolveDefaultFromProviders(config));
   const { createStore } = await import("./storage/store.mjs");
   core.store = await createStore();
   return core;

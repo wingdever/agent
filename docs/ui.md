@@ -1,4 +1,4 @@
-以下为按“布局树为第一真值”校正后的 `ui.md`。主要处理：删除布局树中不存在的布局节点（`Header`、`mode-selector`、`debug-switch`、`Context-strip`、`Footer`、`AttachmentDropzone`）；补充布局树新增节点（`chat-tab`、`trajectory-tab`、`ask-user-prompt`、`left/right-collapse-button` 等）；统一为小写连字符命名；横切组件仅作为嵌入/展示组件，锚点必须使用布局树节点。
+以下为按“布局树为第一真值”校正后的 `ui.md`。主要处理：删除布局树中不存在的布局节点（`Header`、`debug-switch`、`Context-strip`、`Footer`、`AttachmentDropzone`）；补充布局树新增节点（`chat-tab`、`trajectory-tab`、`ask-user-prompt`、`left/right-collapse-button` 等）；统一为小写连字符命名；横切组件仅作为嵌入/展示组件，锚点必须使用布局树节点。
 
 ---
 
@@ -64,7 +64,8 @@
 | **search-switch** | 联网搜索开关 |
 | **add-files-btn** | 添加文件按钮 |
 | **permission-selector** | 权限选择器 |
-| **model-selector** | 模型选择器 |
+| **model-selector** | 模型选择器（settings-modal 内） |
+| **mode-selector** | 模式选择器（composer-footer：bare-chat / turn-step / goal-plan） |
 | **send-or-stop-btn** | 发送/停止按钮 |
 | **chat-footer** | 聊天底部状态区 |
 | **session-statistics** | 会话统计 |
@@ -208,7 +209,7 @@ shell
 │  │     ├─ think-switch
 │  │     ├─ search-switch
 │  │     ├─ permission-selector
-│  │     ├─ model-selector
+│  │     ├─ mode-selector
 │  │     ├─ add-files-btn
 │  │     └─ send-or-stop-btn
 │  └─ chat-footer
@@ -365,7 +366,7 @@ add-all-btn -> 对每条未添加 remote-model-item 触发 model.create
 - **`chat-header`**：包含 `session-name`、`tab-icons` 和 `right-collapse-button`；`tab-icons` 包含 `chat-tab-icon` 与 `trajectory-icon`。
 - **`tab-body`**：在 `chat-tab` 与 `trajectory-tab` 之间切换。
 - **`chat-tab` 内部**：`request-prompt` 在上，`response-message` 在下；`response-message` 内按需渲染 `approval-request`、`ask-user-question`、`thought`、`tool-call`、`answer`、`ask-user-prompt`，顺序不固定。
-- **`composer` 位于 `chat-viewport` 底部**：包含 `input-textarea` 与 `composer-footer`；`composer-footer` 放 `think-switch`、`search-switch`、`permission-selector`、`model-selector`、`add-files-btn`、`send-or-stop-btn`；`attachment-tray` 附着于 `composer` 顶部（`input-textarea` 之前）。
+- **`composer` 位于 `chat-viewport` 底部**：包含 `input-textarea` 与 `composer-footer`；`composer-footer` 放 `think-switch`、`search-switch`、`permission-selector`、`mode-selector`、`add-files-btn`、`send-or-stop-btn`；`attachment-tray` 附着于 `composer` 顶部（`input-textarea` 之前）。
 - **`chat-footer`**：展示 `session-statistics`、`token-usage`、`context-used`。
 - **`context-panel` 居右**：默认隐藏，展示选中 `tool-call` 的详情与引用来源。
 - **折叠关系**：`left-collapse-button` 控制 `thread-sidebar` 折叠；`right-collapse-button` 控制 `context-panel` 折叠。

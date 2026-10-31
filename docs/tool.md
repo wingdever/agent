@@ -44,4 +44,4 @@ parts 中各 type 与 ui.md Name 的映射：
 
 `trace` 字段对应 `trajectory-tab` 内的 `sub-agent-tree` / `agent-trace-node`。
 
-配置说明：composer 的 `model-selector` / `permission-selector` 读取 `confs` 表（经 `sessions.conf_id` 关联）的 `model` / `permission` 等字段。
+配置说明：composer 的 `mode-selector` 选择运行模式（bare-chat / turn-step / goal-plan，详见 behavior.md），`permission-selector` 读取 `confs` 表（经 `sessions.conf_id` 关联）的 `permission` 字段；模型选择已移入 settings-modal 的 `model-selector`。
