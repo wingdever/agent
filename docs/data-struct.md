@@ -85,38 +85,6 @@ CREATE TABLE tool_skills (
 ```
 
 
-## confs（配置）
-
-```sql
-CREATE TABLE confs (
-  id    integer      PRIMARY KEY,
-  name  text,
-  description  text,
-  model_id integer not null references models(id) on delete cascade,
-  stream     text        not null default 'true',
-  permission text        NOT NULL DEFAULT 'auto', 
-  mode       text        NOT NULL DEFAULT 'default',
-  system_prompt text,
-  tools      text, -- 可用工具定义/开关
-  params     text, -- temperature、max_tokens 等
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-enum stream: [true,false]
-enum permission: [auto,ask-every-time,read-only]
-enum mode: [default,plan,debug]
-
-## conf_tools (配置与工具关联表)
-```sql
-CREATE TABLE conf_tools (
-  conf_id INTEGER NOT NULL REFERENCES confs(id) ON DELETE CASCADE,
-  tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
-  PRIMARY KEY (conf_id, tool_id)
-);
-```
-
 ## sessions（会话）
 对应 UI `workspace` 下的 `session*` 节点，以及 `chat-viewport` 的 `chat-tab`。通过 `workspace_id` 关联工作区、`conf_id` 关联配置。
 
@@ -124,7 +92,6 @@ CREATE TABLE conf_tools (
 CREATE TABLE sessions (
   id    integer      PRIMARY KEY,                          -- 会话唯一标识（自增整数）
   workspace_id  INTEGER     NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
-  conf_id       INTEGER     NOT NULL REFERENCES confs (id),  -- 所属配置
   name  text    NOT NULL,                             -- 会话名
   description  text,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -211,12 +178,12 @@ create table calls (
   status      text not null default 'pending',
   result_id   integer REFERENCES contents (id),
   error       text,
-  type        text not null,
+  category    text not null,
   created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   unique (reply_id, seq)
 );
 ```
 
-enum name: [read,write,edit,grep,list,file,shell,py,insert,delete,query,select,search,fetch...]
-enum type: [textfile,bash,sql,script,web]
+enum name: [text_read,text_write,text_edit,text_grep,file_touch,file_remove,file_stat,dir_mkdir,dir_rmdir,dir_list,shell_run,python_run,sql_insert,sql_delete,sql_select,sql_update,web_search,web_fetch...]
+enum category: [textfile,bash,sql,script,web]

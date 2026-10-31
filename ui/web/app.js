@@ -303,22 +303,10 @@ document.addEventListener("DOMContentLoaded", function () {
     } catch (e) { /* 静默 */ }
   }
 
-  async function ensureConf() {
-    try {
-      var confs = await window.AgentClient.call("storage", { op: "conf.list", payload: {} });
-      if (confs && confs.length) return confs[0].id;
-      var prov = await window.AgentClient.call("storage", { op: "provider.create", payload: { name: "qiniu" } });
-      var model = await window.AgentClient.call("storage", { op: "model.create", payload: { provider_id: prov.id, name: "conatus-free" } });
-      var conf = await window.AgentClient.call("storage", { op: "conf.create", payload: { model_id: model.id, name: "default" } });
-      return conf.id;
-    } catch (e) { console.error("ensureConf failed:", e); throw e; }
-  }
-
   async function addSession(workspaceId, container, name) {
     if (!name) return;
     try {
-      var confId = await ensureConf();
-      var sess = await window.AgentClient.call("storage", { op: "session.create", payload: { workspace_id: workspaceId, conf_id: confId, name: name } });
+      var sess = await window.AgentClient.call("storage", { op: "session.create", payload: { workspace_id: workspaceId, name: name } });
       var node = renderSession(sess, workspaceId, container);
       selectSession(sess, node);
     } catch (e) { console.error("add session failed:", e); }

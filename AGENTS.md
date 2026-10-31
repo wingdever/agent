@@ -1,0 +1,2 @@
+1. when update database schema just rm db file instead of update.
+2. not edit files data-struct.md and ui.md except let you do so.

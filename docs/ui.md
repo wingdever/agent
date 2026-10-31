@@ -180,6 +180,7 @@ shell
 │  │          ├─ session-name-label
 │  │          ├─ rename-session-btn
 │  │          └─ delete-session-btn
+│  ├─ models-btn
 │  └─ settings-btn
 ├─ chat-viewport
 │  ├─ chat-header
@@ -217,8 +218,8 @@ shell
 └─ context-panel
 ```
 
-settings-modal
-├─ settings-sidebar
+models-modal
+├─ models-sidebar
 │  └─ provider-model-tree-list
 │      ├─ tree-search-input                (可选：按名称过滤 provider/model)
 │      ├─ add-provider-btn                 → 打开 provider-add-tab
@@ -235,7 +236,7 @@ settings-modal
 │              ├─ model-rename-btn         (快捷重命名 → 内联编辑 name)
 │              └─ model-delete-btn
 │
-├─ settings-viewport
+├─ models-viewport
 │  ├─ provider-add-tab
 │  │  ├─ tab-header
 │  │  │  └─ tab-title ("新增供应者")
@@ -306,11 +307,16 @@ settings-modal
 │        ├─ reset-btn
 │        └─ save-btn           (UPDATE models)
 │
-└─ settings-panel              (底部/右侧常驻操作栏, 与具体 tab 无关)
+└─ models-panel              (底部/右侧常驻操作栏, 与具体 tab 无关)
    ├─ import-config-btn        (JSON/文件导入)
    ├─ export-config-btn        (导出 providers+models, apikey 脱敏)
    ├─ danger-zone              (可选: 清空所有配置)
-   └─ close-settings-btn
+   └─ close-models-btn
+
+settings-modal
+├─ stream-switch
+└─ model-selector
+
 
 ### 横切组件
 
@@ -343,7 +349,7 @@ HumanControl（非布局树节点）
 
 add-workspace-btn -> folder-selector -> add-workspace(folder)
 add-session-btn -> name-prompt -> add-session(worksapce,name)
-settings-btn -> settings-modal
+models-btn -> models-modal
 fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote-models-section（渲染 remote-model-item*）
 remote-add-btn -> AgentClient.call("storage", {op:"model.create", payload:{provider_id, name, fee}}) -> model-list-section
 add-all-btn -> 对每条未添加 remote-model-item 触发 model.create

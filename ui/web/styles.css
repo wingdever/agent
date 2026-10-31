@@ -129,12 +129,12 @@ select, textarea, input { font-family: inherit; }
 .modal-buttons button { border-radius: 8px; padding: 6px 14px; font-size: 13px; border: 1px solid #d1d5db; background: #fff; color: #374151; }
 .modal-buttons .modal-ok { background: #2563eb; border-color: #2563eb; color: #fff; }
 
-/* ============ settings-modal ============ */
-.settings-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.settings-window { display: flex; width: 92vw; max-width: 1100px; height: 82vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+/* ============ models-modal ============ */
+.models-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
+.models-window { display: flex; width: 92vw; max-width: 1100px; height: 82vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
 
 /* 侧栏：供应者/模型树 */
-.settings-sidebar { width: 270px; flex: 0 0 270px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
+.models-sidebar { width: 270px; flex: 0 0 270px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
 .provider-model-tree-list { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .tree-search-wrap { position: sticky; top: 0; background: #fafafa; padding-bottom: 6px; z-index: 1; }
 .tree-search-input { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
@@ -165,8 +165,8 @@ select, textarea, input { font-family: inherit; }
 .inline-rename-input { font-size: 13px; padding: 2px 6px; border: 1px solid #2563eb; border-radius: 6px; width: 100%; box-sizing: border-box; }
 
 /* 视口：表单 tab */
-.settings-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-.settings-tab { display: flex; flex-direction: column; height: 100%; }
+.models-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.models-tab { display: flex; flex-direction: column; height: 100%; }
 .tab-header { padding: 12px 18px; border-bottom: 1px solid #e5e7eb; }
 .tab-title { font-weight: 600; font-size: 15px; color: #1f2937; }
 .tab-body-inner { flex: 1; overflow: auto; padding: 16px 18px; }
@@ -203,12 +203,12 @@ select, textarea, input { font-family: inherit; }
 .form-footer .save-btn { background: #2563eb; border-color: #2563eb; color: #fff; }
 
 /* 右侧操作栏 */
-.settings-panel { width: 160px; flex: 0 0 160px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
-.settings-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
+.models-panel { width: 160px; flex: 0 0 160px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
+.models-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
 .import-config-btn, .export-config-btn { color: #1d4ed8; border-color: #bfdbfe; }
 .danger-zone { margin-top: 4px; }
 .danger-zone .clear-all-btn { width: 100%; color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
-.close-settings-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
+.close-models-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
 
 /* 侧栏底部：设置按钮 */
 .thread-sidebar .settings-btn { margin-top: auto; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
@@ -227,3 +227,17 @@ select, textarea, input { font-family: inherit; }
 .remote-add-btn { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 2px 10px; font-size: 12px; }
 .remote-add-btn.added { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; cursor: default; }
 
+/* ============ settings-modal（运行时设置：流式开关 + 模型选择） ============ */
+.settings-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
+.settings-card { width: 380px; max-width: 92vw; background: #fff; border-radius: 12px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.settings-card h3 { margin: 0 0 16px; font-size: 16px; color: #1f2937; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; margin: 12px 0; font-size: 14px; color: #374151; }
+.stream-switch { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 14px; font-size: 13px; color: #6b7280; }
+.stream-switch.active { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.settings-model-select { border: 1px solid #d1d5db; border-radius: 8px; padding: 6px 10px; font-size: 13px; min-width: 180px; }
+.settings-actions { margin-top: 18px; text-align: right; }
+.settings-actions .close-settings-btn { border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 8px; padding: 7px 18px; font-size: 13px; }
+
+/* 侧栏：模型按钮（与设置按钮相邻） */
+.thread-sidebar .models-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
+.thread-sidebar .models-btn:hover, .thread-sidebar .settings-btn:hover { background: #eef2f7; }

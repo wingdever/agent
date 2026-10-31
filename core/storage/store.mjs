@@ -77,8 +77,8 @@ class Store {
 
   listSessions({ workspace_id } = {}) { return this._list("sessions", workspace_id != null ? { workspace_id } : {}, "updated_at DESC"); }
   getSession({ id }) { return this._get("sessions", id); }
-  createSession(data) { return this._create("sessions", data, ["workspace_id", "conf_id", "name", "description"]); }
-  updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description", "conf_id"]); }
+  createSession(data) { return this._create("sessions", data, ["workspace_id", "name", "description"]); }
+  updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description"]); }
   async deleteSession({ id }) {
     const turns = await this._list("turns", { session_id: id });
     for (const t of turns) await this.deleteTurn({ id: t.id });
@@ -207,8 +207,6 @@ class Store {
   createModel(data) { return this._create("models", data, ["provider_id", "name", "description", "fee"]); }
   updateModel({ id, ...d }) { return this._update("models", id, d, ["provider_id", "name", "description", "fee"]); }
   async deleteModel({ id }) {
-    const confs = await this._list("confs", { model_id: id });
-    for (const c of confs) await this.deleteConf({ id: c.id });
     return this._delete("models", id);
   }
 
@@ -217,7 +215,6 @@ class Store {
   updateTool({ id, ...d }) { return this._update("tools", id, d, ["name", "description", "schema_json", "path"]); }
   async deleteTool({ id }) {
     await this.db.prepare("DELETE FROM tool_skills WHERE tool_id=$1").run(id);
-    await this.db.prepare("DELETE FROM conf_tools WHERE tool_id=$1").run(id);
     return this._delete("tools", id);
   }
 
@@ -229,13 +226,6 @@ class Store {
     return this._delete("skills", id);
   }
 
-  listConfs() { return this._list("confs"); }
-  createConf(data) { return this._create("confs", data, ["name", "description", "model_id", "stream", "permission", "mode", "system_prompt", "tools", "params"]); }
-  updateConf({ id, ...d }) { return this._update("confs", id, d, ["name", "description", "model_id", "stream", "permission", "mode", "system_prompt", "tools", "params"]); }
-  async deleteConf({ id }) {
-    await this.db.prepare("DELETE FROM conf_tools WHERE conf_id=$1").run(id);
-    return this._delete("confs", id);
-  }
 
   // ================= 关联表 =================
   async linkToolSkill({ tool_id, skill_id }) {
@@ -247,14 +237,6 @@ class Store {
   listSkillsForTool({ tool_id }) { return this.db.prepare("SELECT skills.id, skills.name, skills.description, skills.prompt, skills.path, skills.created_at, skills.updated_at FROM skills JOIN tool_skills ON tool_skills.skill_id=skills.id WHERE tool_skills.tool_id=$1").all(tool_id); }
   listToolsForSkill({ skill_id }) { return this.db.prepare("SELECT tools.id, tools.name, tools.description, tools.schema_json, tools.path, tools.created_at, tools.updated_at FROM tools JOIN tool_skills ON tool_skills.tool_id=tools.id WHERE tool_skills.skill_id=$1").all(skill_id); }
 
-  async linkConfTool({ conf_id, tool_id }) {
-    try { await this.db.prepare("INSERT INTO conf_tools (conf_id, tool_id) VALUES ($1,$2)").run(conf_id, tool_id); }
-    catch (e) { if (!/unique/i.test(String(e.message))) throw e; }
-    return { conf_id, tool_id };
-  }
-  unlinkConfTool({ conf_id, tool_id }) { return this.db.prepare("DELETE FROM conf_tools WHERE conf_id=$1 AND tool_id=$2").run(conf_id, tool_id); }
-  listToolsForConf({ conf_id }) { return this.db.prepare("SELECT tools.id, tools.name, tools.description, tools.schema_json, tools.path, tools.created_at, tools.updated_at FROM tools JOIN conf_tools ON conf_tools.tool_id=tools.id WHERE conf_tools.conf_id=$1").all(conf_id); }
-  listConfsForTool({ tool_id }) { return this.db.prepare("SELECT confs.id, confs.name, confs.description, confs.model_id, confs.stream, confs.permission, confs.mode, confs.system_prompt, confs.tools, confs.params, confs.created_at, confs.updated_at FROM confs JOIN conf_tools ON conf_tools.conf_id=confs.id WHERE conf_tools.tool_id=$1").all(tool_id); }
 
   // ================= 供 handleCall 调用的操作分发 =================
   async run(op, p = {}) {
@@ -328,21 +310,12 @@ const OPS = {
   "skill.update": (s, p) => s.updateSkill(p),
   "skill.delete": (s, p) => s.deleteSkill(p),
 
-  "conf.list": (s) => s.listConfs(),
-  "conf.get": (s, p) => s._get("confs", p.id),
-  "conf.create": (s, p) => s.createConf(p),
-  "conf.update": (s, p) => s.updateConf(p),
-  "conf.delete": (s, p) => s.deleteConf(p),
 
   "toolSkill.link": (s, p) => s.linkToolSkill(p),
   "toolSkill.unlink": (s, p) => s.unlinkToolSkill(p),
   "toolSkill.listSkills": (s, p) => s.listSkillsForTool(p),
   "toolSkill.listTools": (s, p) => s.listToolsForSkill(p),
 
-  "confTool.link": (s, p) => s.linkConfTool(p),
-  "confTool.unlink": (s, p) => s.unlinkConfTool(p),
-  "confTool.listTools": (s, p) => s.listToolsForConf(p),
-  "confTool.listConfs": (s, p) => s.listConfsForTool(p),
 };
 
 export async function createStore(options = {}) {

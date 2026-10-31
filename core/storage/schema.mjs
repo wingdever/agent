@@ -61,31 +61,9 @@ export const SCHEMA_STATEMENTS = [
     PRIMARY KEY (tool_id, skill_id)
   )`,
 
-  `CREATE TABLE IF NOT EXISTS confs (
-    id    integer      PRIMARY KEY,
-    name  text,
-    description  text,
-    model_id integer not null references models(id) on delete cascade,
-    stream     text        not null default 'true',
-    permission text        NOT NULL DEFAULT 'auto',
-    mode       text        NOT NULL DEFAULT 'default',
-    system_prompt text,
-    tools      text,
-    params     text,
-    created_at TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
-  )`,
-
-  `CREATE TABLE IF NOT EXISTS conf_tools (
-    conf_id INTEGER NOT NULL REFERENCES confs(id) ON DELETE CASCADE,
-    tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
-    PRIMARY KEY (conf_id, tool_id)
-  )`,
-
   `CREATE TABLE IF NOT EXISTS sessions (
     id    integer      PRIMARY KEY,
     workspace_id  INTEGER     NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
-    conf_id       INTEGER     NOT NULL REFERENCES confs (id),
     name  text    NOT NULL,
     description  text,
     created_at    TIMESTAMP NOT NULL DEFAULT now(),
