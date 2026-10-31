@@ -173,6 +173,26 @@ class AgentCore {
     if (persist) await store.run("turn.update", { id: turn.id, status: "failed" });
     return last;
   }
+
+  // 拉取供应者远端模型列表（OpenAI 兼容 /models），用于辅助新增模型；走 Node 侧请求，绕开渲染层 CORS
+  async fetchProviderModels(baseurl, apikey) {
+    if (!baseurl) throw new Error("缺少 baseurl");
+    let u;
+    try { u = new URL(baseurl); } catch (e) { throw new Error("baseurl 不合法"); }
+    const prefix = u.pathname.replace(/\/$/, "");
+    const url = u.origin + prefix + "/models";
+    const headers = { Accept: "application/json" };
+    if (apikey) headers["Authorization"] = "Bearer " + apikey;
+    const res = await fetch(url, { method: "GET", headers });
+    if (!res.ok) {
+      let detail = "";
+      try { detail = (await res.text()).slice(0, 200); } catch (_) {}
+      throw new Error("HTTP " + res.status + (detail ? " " + detail : ""));
+    }
+    const json = await res.json();
+    const list = Array.isArray(json.data) ? json.data : (Array.isArray(json.models) ? json.models : []);
+    return list.map((m) => ({ id: m.id || m.name, owned_by: m.owned_by || "" })).filter((m) => m.id);
+  }
 }
 
 // 统一的「函数分发」：各传输层只负责把通道里的请求转成这次调用
@@ -184,6 +204,8 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
       if (!core.store) throw new Error("storage not initialized");
       return await core.store.run(params.op, params.payload || {});
     }
+    case "fetchModels":
+      return await core.fetchProviderModels(params.baseurl, params.apikey);
     default: throw new Error("unknown fn: " + fn);
   }
 }

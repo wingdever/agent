@@ -24,6 +24,7 @@
     <div class="workspace-session-tree-list" data-name="workspace-session-tree-list">
       <!-- 空：暂无会话 -->
     </div>
+    <button class="settings-btn" id="settingsBtn" data-name="settings-btn">⚙ 设置</button>
   </aside>
 
   <!-- chat-viewport: 中间聊天主视口 -->
@@ -54,22 +55,23 @@
 
     <!-- composer: 输入区 -->
     <div class="composer" data-name="composer">
+      <div class="attachment-tray" data-name="attachment-tray">
+        <span class="state ready">ready</span>
+        <span class="state extracting" hidden>extracting…</span>
+        <span class="state fallback" hidden>fallback</span>
+      </div>
       <textarea class="input-textarea" data-name="input-textarea" placeholder="输入消息，Enter 发送（Shift+Enter 换行）"></textarea>
-      <button class="cancel-stop-btn" data-name="cancel/stop-btn">停止</button>
       <div class="composer-footer" data-name="composer-footer">
-        <button class="add-file-btn" id="addFileBtn" data-name="add-file-btn">+ 文件</button>
+        <button class="think-switch" id="thinkSwitch" data-name="think-switch" title="思考模式">思考</button>
+        <button class="search-switch" id="searchSwitch" data-name="search-switch" title="联网搜索">搜索</button>
         <label class="permission-selector" data-name="permission-selector">权限
           <select><option>自动</option><option>每次询问</option><option>仅只读</option></select>
         </label>
         <label class="model-selector" data-name="model-selector">模型
           <select><option>qiniu/conatus-free</option><option>gpt-4o</option></select>
         </label>
-        <button class="send-btn" data-name="send-btn">发送</button>
-      </div>
-      <div class="attachment-tray" data-name="attachment-tray">
-        <span class="state ready">ready</span>
-        <span class="state extracting" hidden>extracting…</span>
-        <span class="state fallback" hidden>fallback</span>
+        <button class="add-files-btn" id="addFilesBtn" data-name="add-files-btn">+ 文件</button>
+        <button class="send-or-stop-btn" data-name="send-or-stop-btn">发送</button>
       </div>
     </div>
 
@@ -95,5 +97,6 @@
 </div>
 <script src="api.js"></script>
 <script src="app.js"></script>
+<script src="settings.js"></script>
 </body>
 </html>

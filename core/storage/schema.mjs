@@ -24,8 +24,6 @@ export const SCHEMA_STATEMENTS = [
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now()
   )`,
-  // 迁移：已存在的表补列（CREATE TABLE IF NOT EXISTS 不会对既有表加列）
-  `ALTER TABLE providers ADD COLUMN IF NOT EXISTS baseurl text`,
 
   `CREATE TABLE IF NOT EXISTS models (
     id integer primary key,

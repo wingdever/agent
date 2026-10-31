@@ -100,6 +100,10 @@ document.addEventListener("DOMContentLoaded", function () {
   function uiAlert(message) {
     return showModal({ kind: "alert", title: "提示", message: message, okText: "确定" });
   }
+  // 暴露给 settings.js 等后续模块复用（替代原生 prompt/confirm/alert）
+  window.uiPrompt = uiPrompt;
+  window.uiConfirm = uiConfirm;
+  window.uiAlert = uiAlert;
 
   // 1) 标签切换：chat-tab / trajectory-tab
   var tabBtns = document.querySelectorAll(".tab-icons [data-target]");
@@ -348,7 +352,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // 7) composer: 发送按钮 + 流式渲染（驱动 harness chat loop，并落库到当前会话）
   var chatTab = document.getElementById("chatTab");
   var input = document.querySelector(".input-textarea");
-  var sendBtn = document.querySelector(".send-btn");
+  var sendBtn = document.querySelector(".send-or-stop-btn");
   var sessionNameLabel = document.querySelector(".session-name");
   var currentSessionId = null;
   var currentAssistantBubble = null;
@@ -485,11 +489,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
   loadWorkspaces();
 
-  // 5) add-file-btn -> 演示 attachment-tray 状态变化（ready/extracting/fallback）
-  var addFileBtn = document.getElementById("addFileBtn");
+  // 5) add-files-btn -> 演示 attachment-tray 状态变化（ready/extracting/fallback）
+  var addFilesBtn = document.getElementById("addFilesBtn");
   var tray = document.querySelector(".attachment-tray");
-  if (addFileBtn && tray) {
-    addFileBtn.addEventListener("click", function () {
+  if (addFilesBtn && tray) {
+    addFilesBtn.addEventListener("click", function () {
       var states = tray.querySelectorAll(".state");
       var visible = Array.prototype.find.call(states, function (s) { return !s.hidden; });
       Array.prototype.forEach.call(states, function (s) { s.hidden = true; });
@@ -500,4 +504,10 @@ document.addEventListener("DOMContentLoaded", function () {
       if (el) el.hidden = false;
     });
   }
+
+  // 8) composer: think-switch / search-switch 开关（切换高亮态）
+  var thinkSwitch = document.getElementById("thinkSwitch");
+  var searchSwitch = document.getElementById("searchSwitch");
+  if (thinkSwitch) thinkSwitch.addEventListener("click", function () { thinkSwitch.classList.toggle("active"); });
+  if (searchSwitch) searchSwitch.addEventListener("click", function () { searchSwitch.classList.toggle("active"); });
 });
