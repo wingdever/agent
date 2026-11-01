@@ -1,0 +1,11 @@
+{
+  "name": "bash",
+  "description": "在受控 shell 中执行命令，返回 stdout/stderr/退出码",
+  "parameters": {
+    "type": "object",
+    "properties": { "command": { "type": "string", "description": "要执行的 shell 命令" } },
+    "required": ["command"]
+  },
+  "type": "bash",
+  "entry": "run.js"
+}

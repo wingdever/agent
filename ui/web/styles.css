@@ -241,3 +241,9 @@ select, textarea, input { font-family: inherit; }
 /* 侧栏：模型按钮（与设置按钮相邻） */
 .thread-sidebar .models-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .models-btn:hover, .thread-sidebar .settings-btn:hover { background: #eef2f7; }
+
+.tool-call.approval { border-color: #d97706; background: #fffbeb; }
+.approval-bar { margin-top: 6px; display: flex; gap: 8px; }
+.btn-approve, .btn-deny { padding: 4px 12px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
+.btn-approve { background: #16a34a; color: #fff; border-color: #16a34a; }
+.btn-deny { background: #dc2626; color: #fff; border-color: #dc2626; }

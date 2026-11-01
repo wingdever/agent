@@ -1,0 +1,7 @@
+{
+  "name": "calculator",
+  "description": "对仅含数字与 +-*/() 的算术表达式求值",
+  "parameters": { "type": "object", "properties": { "expression": { "type": "string" } }, "required": ["expression"] },
+  "type": "builtin",
+  "entry": "run.js"
+}

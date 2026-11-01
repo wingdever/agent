@@ -399,6 +399,35 @@ document.addEventListener("DOMContentLoaded", function () {
     r.textContent = "→ " + JSON.stringify(result, null, 2);
     card.appendChild(r);
   }
+  function createApprovalCard(evt) {
+    var card = document.createElement("div");
+    card.className = "tool-call approval";
+    var head = document.createElement("div");
+    head.className = "tool-head";
+    head.textContent = "工具授权请求：" + (evt.name || "tool");
+    var args = document.createElement("div");
+    args.className = "tool-args";
+    args.textContent = JSON.stringify(evt.arguments || {}, null, 2);
+    var bar = document.createElement("div");
+    bar.className = "approval-bar";
+    var allow = document.createElement("button");
+    allow.textContent = "批准"; allow.className = "btn-approve";
+    var deny = document.createElement("button");
+    deny.textContent = "拒绝"; deny.className = "btn-deny";
+    allow.addEventListener("click", function () {
+      AgentClient.call("approval", { id: evt.id, decision: "approve" });
+      allow.disabled = true; deny.disabled = true; allow.textContent = "已批准";
+    });
+    deny.addEventListener("click", function () {
+      AgentClient.call("approval", { id: evt.id, decision: "deny" });
+      allow.disabled = true; deny.disabled = true; deny.textContent = "已拒绝";
+    });
+    bar.appendChild(allow); bar.appendChild(deny);
+    card.appendChild(head); card.appendChild(args); card.appendChild(bar);
+    chatTab.appendChild(card);
+    chatTab.scrollTop = chatTab.scrollHeight;
+  }
+
   function onChatEvent(evt) {
     if (!evt || !evt.type) return;
     if (evt.type === "token") {
@@ -416,6 +445,8 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (evt.type === "done") {
       if (getComposerMode() === "bare-chat" && evt.message) bareHistory.push({ role: "assistant", content: evt.message.content || "" });
       currentAssistantBubble = null;
+    } else if (evt.type === "approval-request") {
+      createApprovalCard(evt);
     } else if (evt.type === "error") {
       appendMessage("assistant", "[出错] " + (evt.error || "未知错误"));
       currentAssistantBubble = null;

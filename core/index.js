@@ -34,32 +34,68 @@ function resolveDefaultFromProviders(config = {}) {
 }
 
 // 默认工具：核心内置，注册即进入模型可用列表（UI 无需关心实现）
-const DEFAULT_TOOLS = [
-  {
-    name: "get_current_time",
-    description: "返回当前日期时间(ISO8601)",
-    parameters: { type: "object", properties: {}, required: [] },
-    async run() { return { iso: new Date().toISOString() }; },
-  },
-  {
-    name: "calculator",
-    description: "对仅含数字与 +-*/() 的算术表达式求值",
-    parameters: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] },
-    async run({ expression }) {
-      if (typeof expression !== "string" || !/^[0-9+\-*/().\s]+$/.test(expression)) throw new Error("非法表达式");
-      return { result: Function('"use strict";return (' + expression + ");")() };
-    },
-  },
-];
+
 
 // 底层核心：UI/传输无关，只认「函数名+参数+onEvent 回调」
+// 工具注册：扫描项目根 tools/ 下各子目录的 registry.json，加载 entry 指向的实现
+const TOOLS_DIR = path.join(__dirname, "..", "tools");
+async function loadTools() {
+  const map = new Map();
+  let dirs;
+  try { dirs = await fs.promises.readdir(TOOLS_DIR, { withFileTypes: true }); }
+  catch (_) { return map; }
+  for (const d of dirs) {
+    if (!d.isDirectory()) continue;
+    let reg;
+    try { reg = JSON.parse(await fs.promises.readFile(path.join(TOOLS_DIR, d.name, "registry.json"), "utf8")); }
+    catch (_) { continue; }
+    if (!reg || !reg.name) continue;
+    const entry = reg.entry || "run.js";
+    let mod;
+    try { mod = require(path.join(TOOLS_DIR, d.name, entry)); }
+    catch (e) { console.error("[tools] 加载失败:", reg.name, e.message); continue; }
+    const run = mod && (mod.run || (mod.default && mod.default.run));
+    if (typeof run !== "function") continue;
+    map.set(reg.name, {
+      name: reg.name,
+      description: reg.description || "",
+      parameters: reg.parameters || { type: "object", properties: {}, required: [] },
+      type: reg.type || d.name,
+      run,
+    });
+  }
+  return map;
+}
+
 class AgentCore {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.QINIU_API_KEY || "sk-e0f0f3ddf37c57bd75b558376bc015575e1c8c4e7246306e6d3a7286f226e35a";
     this.baseUrl = config.baseUrl || process.env.QINIU_BASE_URL || "https://api.qnaigc.com/v1";
     this.model = config.model || process.env.QINIU_MODEL || "qiniu/conatus-free";
-    this.tools = new Map(DEFAULT_TOOLS.map((t) => [t.name, t]));
+    this.tools = new Map();
+    this.pendingApprovals = new Map();
+    this._approvalSeq = 0;
+    this._onEvent = () => {};
   }
+
+  // 请求用户授权执行某工具调用：发 approval-request 事件并挂起，直至 approve() 唤醒
+  requestApproval({ name, args }) {
+    return new Promise((resolve) => {
+      const id = (this._approvalSeq = (this._approvalSeq || 0) + 1);
+      this.pendingApprovals.set(id, resolve);
+      this._onEvent({ type: "approval-request", id, name, arguments: args });
+    });
+  }
+
+  approve(id, decision) {
+    const key = Number(id);
+    const fn = this.pendingApprovals.get(key);
+    if (!fn) return false;
+    this.pendingApprovals.delete(key);
+    fn(decision);
+    return true;
+  }
+
 
   listFunctions() {
     return [...this.tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters }));
@@ -122,12 +158,12 @@ class AgentCore {
   }
 
   async chat({ messages, toolNames, model, onEvent = () => {}, sessionId } = {}) {
+    this._onEvent = onEvent;
     const tools = toolNames ? toolNames.map((n) => this.tools.get(n)).filter(Boolean) : [...this.tools.values()];
     const toolDefs = tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const conv = messages.slice();
     const store = this.store;
     const persist = !!(sessionId && store);
-    const CALL_TYPE = "textfile";
 
     // 开启一轮对话轨迹（持久化）：turn + 首条 step(用户消息)
     let turn = null;
@@ -162,7 +198,7 @@ class AgentCore {
               reply_id: assistantMsg.content_id,
               seq: i,
               name: (tc.function && tc.function.name) || "unknown",
-              type: CALL_TYPE,
+              type: (this.tools.get(tc.function && tc.function.name) || {}).type || "unknown",
               arguments: args,
               status: "pending",
             });
@@ -180,13 +216,30 @@ class AgentCore {
         return a;
       }
 
-      // 执行工具调用并回写结果到持久化轨迹
+      // 执行工具调用（需用户授权）并回写结果到持久化轨迹
       for (let i = 0; i < a.tool_calls.length; i++) {
         const call = a.tool_calls[i];
         const tool = this.tools.get(call.function.name);
+        let args = {};
+        try { args = JSON.parse(call.function.arguments || "{}"); } catch (_) {}
+        const callType = tool ? tool.type : "unknown";
+
+        // 每次工具调用都先请求用户授权（HumanControl 前置）
+        const decision = await this.requestApproval({ name: call.function.name, args });
+        if (decision !== "approve") {
+          const denied = { error: "user denied" };
+          onEvent({ type: "tool_result", id: call.id, name: call.function.name, result: denied });
+          if (persist && callIds[i] != null) {
+            await store.run("call.update", { id: callIds[i], status: "denied", result: denied });
+            await store.run("message.add", { step_id: step.id, seq: i + 1, role: "tool", content: JSON.stringify(denied), tool_call_id: callIds[i] });
+          }
+          conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(denied) });
+          continue;
+        }
+
+        // 授权通过：执行工具
         let result;
         try {
-          const args = JSON.parse(call.function.arguments || "{}");
           onEvent({ type: "tool_call", id: call.id, name: call.function.name, arguments: args });
           result = tool ? await tool.run(args) : { error: "unknown tool" };
           onEvent({ type: "tool_result", id: call.id, name: call.function.name, result });
@@ -194,7 +247,10 @@ class AgentCore {
         if (persist && callIds[i] != null) {
           await store.run("call.update", { id: callIds[i], status: result && result.error ? "failed" : "succeeded", result });
         }
-        conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) }); if (persist && callIds[i] != null) { await store.run("message.add", { step_id: step.id, seq: i + 1, role: "tool", content: JSON.stringify(result), tool_call_id: callIds[i] }); }
+        conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+        if (persist && callIds[i] != null) {
+          await store.run("message.add", { step_id: step.id, seq: i + 1, role: "tool", content: JSON.stringify(result), tool_call_id: callIds[i] });
+        }
       }
       if (persist) await store.run("step.update", { id: step.id, status: "succeeded" });
     }
@@ -237,6 +293,8 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
     }
     case "fetchModels":
       return await core.fetchProviderModels(params.baseurl, params.apikey);
+    case "approval":
+      return core.approve(params.id, params.decision);
     default: throw new Error("unknown fn: " + fn);
   }
 }
@@ -244,9 +302,10 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
 // 创建核心实例，并挂载数据持久化存储（pgmicro，单文件 ./data/store.db）
 async function createCore(config = {}) {
   const core = new AgentCore(resolveDefaultFromProviders(config));
+  core.tools = await loadTools();
   const { createStore } = await import("./storage/store.mjs");
   core.store = await createStore();
   return core;
 }
 
-module.exports = { AgentCore, createCore, DEFAULT_TOOLS, handleCall };
+module.exports = { AgentCore, createCore, handleCall };
