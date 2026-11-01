@@ -165,30 +165,40 @@ class AgentCore {
     const store = this.store;
     const persist = !!(sessionId && store);
 
-    // 开启一轮对话轨迹（持久化）：turn + 首条 step(用户消息)
+    // 开启一轮对话轨迹（持久化）：一个 turn 包含多个 step
+    // 每个 step = 一次模型请求 + 其响应（agent-request? + model-response(thought?/answer?/tool-call-card*)）
+    // request-time：完成上一步全部 tool-call 后，才在下一轮 step 再次请求模型
     let turn = null;
     let stepSeq = 0;
     if (persist) {
       const turns = await store.run("turn.list", { session_id: sessionId });
       turn = await store.run("turn.create", { session_id: sessionId, seq: turns.length, status: "running" });
-      const userStep = await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "succeeded" });
-      const lastUser = [...conv].reverse().find((m) => m.role === "user");
-      if (lastUser) {
-        const content = typeof lastUser.content === "string" ? lastUser.content : JSON.stringify(lastUser.content);
-        await store.run("message.add", { step_id: userStep.id, seq: 0, role: "user", content });
-      }
     }
 
     for (let r = 0; r < 5; r++) {
       const step = persist ? await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "running" }) : null;
+      // 新一轮 step 开始（r=0 由前端 onSend 预建 UI；r>0 由本事件驱动 UI 建立新 step）
+      if (r > 0) onEvent({ type: "step-start", seq: r });
+
+      // step 0：把触发本轮的用户请求作为 agent-request 落入本步骤
+      if (persist && r === 0) {
+        const lastUser = [...conv].reverse().find((m) => m.role === "user");
+        if (lastUser) {
+          const content = typeof lastUser.content === "string" ? lastUser.content : JSON.stringify(lastUser.content);
+          await store.run("message.add", { step_id: step.id, seq: 0, role: "user", content });
+        }
+      }
+
+      // 请求模型（request-time：上一步工具已全部执行完才到这里）
       const a = await this._stream({ messages: conv, toolDefs, model, onEvent });
       conv.push(a);
 
       // 记录本轮助手回复与（可能的）工具调用
+      const assistantSeq = r === 0 ? 1 : 0;
       let assistantMsg = null;
       const callIds = [];
       if (persist) {
-        assistantMsg = await store.run("message.add", { step_id: step.id, seq: 0, role: "assistant", content: a.content || "" });
+        assistantMsg = await store.run("message.add", { step_id: step.id, seq: assistantSeq, role: "assistant", content: a.content || "" });
         if (a.tool_calls) {
           for (let i = 0; i < a.tool_calls.length; i++) {
             const tc = a.tool_calls[i];
@@ -216,12 +226,12 @@ class AgentCore {
         return a;
       }
 
-      // 执行工具调用（需用户授权）并回写结果到持久化轨迹
+      // 执行本轮全部 tool-call（需用户授权），完成后再回到循环顶部请求模型
       for (let i = 0; i < a.tool_calls.length; i++) {
         const call = a.tool_calls[i];
         const tool = this.tools.get(call.function.name);
         let args = {};
-        try { args = JSON.parse(call.function.arguments || "{}"); } catch (_) {}
+        try { args = JSON.parse(call.function.arguments || "{}"); } catch (_) { }
         const callType = tool ? tool.type : "unknown";
 
         // 每次工具调用都先请求用户授权（HumanControl 前置）
@@ -231,7 +241,7 @@ class AgentCore {
           onEvent({ type: "tool_result", id: call.id, name: call.function.name, result: denied });
           if (persist && callIds[i] != null) {
             await store.run("call.update", { id: callIds[i], status: "denied", result: denied });
-            await store.run("message.add", { step_id: step.id, seq: i + 1, role: "tool", content: JSON.stringify(denied), tool_call_id: callIds[i] });
+            await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(denied), tool_call_id: callIds[i] });
           }
           conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(denied) });
           continue;
@@ -249,7 +259,7 @@ class AgentCore {
         }
         conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
         if (persist && callIds[i] != null) {
-          await store.run("message.add", { step_id: step.id, seq: i + 1, role: "tool", content: JSON.stringify(result), tool_call_id: callIds[i] });
+          await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(result), tool_call_id: callIds[i] });
         }
       }
       if (persist) await store.run("step.update", { id: step.id, status: "succeeded" });

@@ -11,6 +11,7 @@ agent-loop: user_input start one turn and loop steps
 save in database
 support tool_call
 continously interact
+request-time: aftern finish all tool-call then request model
 
 # model-selector
 when no model supply or select use model in user/providers.json

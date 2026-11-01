@@ -48,5 +48,106 @@ return Message(
     tool_calls=tuple(tool_calls),
 )
 
+## deepseek-harness参考
+
+所有通过 defineTool 注册的工具，共 55 个，分布在 23 个 tool-*包中。
 
 
+  文件 / Shell 类
+
+  ┌────────────────────┬──────────────────────────────────────────────────┐
+  │        工具        │                     实现文件                     │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ read               │ packages/fs/tool-fs/src/read.ts                  │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ read_image         │ packages/fs/tool-fs/src/read-image.ts            │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ write              │ packages/fs/tool-fs/src/write.ts                 │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ edit               │ packages/fs/tool-fs/src/edit.ts                  │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ str_replace_editor │ packages/fs/tool-str-replace-editor/src/index.ts │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ grep               │ packages/fs/tool-fs-search/src/grep.ts           │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ glob               │ packages/fs/tool-fs-search/src/glob.ts           │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ bash               │ packages/shell/tool-bash/src/index.ts            │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ bash（持久版）     │ packages/shell/tool-bash-persistent/src/index.ts │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ pwsh               │ packages/shell/tool-pwsh/src/index.ts            │
+  ├────────────────────┼──────────────────────────────────────────────────┤
+  │ pwsh（持久版）     │ packages/shell/tool-pwsh-persistent/src/index.ts │
+  └────────────────────┴──────────────────────────────────────────────────┘
+
+  终端 / 任务（jobs）
+
+  ┌────────────────────────────────────────┬──────────────────────────────────────────────┐
+  │                  工具                  │                   实现文件                   │
+  ├────────────────────────────────────────┼──────────────────────────────────────────────┤
+  │ terminal_open / terminal_send /        │ packages/terminal/tool-terminal/src/index.ts │
+  │ terminal_read / terminal_signal /      │                                              │
+  │ terminal_close / terminal_list         │                                              │
+  ├────────────────────────────────────────┼──────────────────────────────────────────────┤
+  │ job_list / job_output / job_kill       │ packages/jobs/tool-jobs/src/index.ts         │
+  └────────────────────────────────────────┴──────────────────────────────────────────────┘
+
+  子代理 / 团队（subagent / agent-team）
+
+  工具: spawn_subagent? 实为 report
+  实现文件: packages/subagent/tool-subagent-report/src/index.ts
+  ────────────────────────────────────────
+  工具: list_subagent_models
+  实现文件: packages/subagent/tool-subagent/src/list-models.ts
+  ────────────────────────────────────────
+  工具: list_agents
+  实现文件: packages/subagent/tool-subagent-control/src/list-agents.ts
+  ────────────────────────────────────────
+  工具: send_message / interrupt_agent
+  实现文件: packages/subagent/tool-subagent-control/src/index.ts
+  ────────────────────────────────────────
+  工具: list_agents / interrupt_agent / spawn_teammate / wait_agent / team_task_create /
+  team_task_get / team_task_list / team_task_update
+  实现文件: packages/experimental/tool-agent-team/src/index.ts
+
+  会话查询 / 上下文
+
+  工具: session_search / session_event_read / session_event_search / session_event_trace /
+  session_trace
+  实现文件: packages/session-query/tool-session-query/src/index.ts
+
+  目标 / 待办 / 技能 / 交互
+
+  ┌─────────────────────────────────────┬─────────────────────────────────────────────────┐
+  │                工具                 │                    实现文件                     │
+  ├─────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ create_goal / get_goal /            │ packages/goal/tool-goal/src/index.ts            │
+  │ update_goal                         │                                                 │
+  ├─────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ todo_write                          │ packages/todo/tool-todo/src/index.ts            │
+  ├─────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ skill                               │ packages/skill/tool-skill/src/index.ts          │
+  ├─────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ ask_user_question                   │ packages/interaction/tool-ask-user/src/index.ts │
+  └─────────────────────────────────────┴─────────────────────────────────────────────────┘
+
+  扩展 / 工作流 / 网络
+
+  ┌───────────────────────────────────────┬───────────────────────────────────────────────┐
+  │                 工具                  │                   实现文件                    │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ cordis_define / cordis_inspect_list / │ packages/extensions/tool-cordis/src/index.ts  │
+  │ cordis_inspect_query /                │                                               │
+  │ cordis_inspect_self / cordis_run /    │                                               │
+  │ cordis_stop / cordis_undefine         │                                               │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ lsp                                   │ packages/lsp/tool-lsp/src/index.ts            │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ ralph                                 │ packages/workflow/tool-ralph/src/index.ts     │
+  ├───────────────────────────────────────┼───────────────────────────────────────────────┤
+  │ web_fetch / web_search                │ packages/web/tool-web/src/fetch.ts、search.ts │
+  └───────────────────────────────────────┴───────────────────────────────────────────────┘
+
+packages/shell/tool-bash/src/index.ts -> ctx.tools.register(defineTool({...})
+ 

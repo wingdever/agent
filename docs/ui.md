@@ -8,6 +8,7 @@
 名称一般采用全单词小写，并通过 `-` 连接。  
 名称后紧跟 `*` 表示布局中可能包含 n 个对应节点的列表。  
 名称后紧跟 `+` 表示布局中可能不固定顺序包含 n 个对应节点。  
+名称后紧跟 `?` 表示布局中该界面元素可能存在或不存在。
 **布局树为第一真值；其它部分与布局树冲突时，以布局树为准。**
 
 ---
@@ -193,14 +194,16 @@ shell
 │  │  └─ right-collapse-button
 │  ├─ tab-body
 │  │  ├─ chat-tab
-│  │  │  ├─ request-prompt
-│  │  │  └─ response-message
-│  │  │     ├─ approval-request+
-│  │  │     ├─ ask-user-question+
-│  │  │     ├─ thought+
-│  │  │     ├─ tool-call+
-│  │  │     ├─ answer+
-│  │  │     └─ ask-user-prompt+
+│  │  │  └─ turn*
+│  │  │     └─ step*
+│  │  │         ├─ agent-request?
+│  │  │         └─ model-response
+│  │  │             ├─ thought?
+│  │  │             ├─ answer?
+│  │  │             └─ tool-call-card*
+│  │  │                 ├─ tool-call-desc
+│  │  │                 ├─ approval-request
+│  │  │                 └─ tool-result
 │  │  └─ trajectory-tab
 │  ├─ composer
 │  │  ├─ attachment-tray

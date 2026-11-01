@@ -41,10 +41,8 @@
     </div>
 
     <div class="tab-body" data-name="tab-body">
-      <!-- chat-tab: 聊天标签页（空状态） -->
+      <!-- chat-tab: 聊天标签页（层级：turn* > step* > (agent-request? + model-response(thought?/answer?/tool-call-card*))） -->
       <div class="chat-tab" id="chatTab" data-name="chat-tab">
-        <div class="request-prompt" data-name="request-prompt"></div>
-        <div class="response-message" data-name="response-message"></div>
         <div class="empty-hint">还没有对话，发送消息开始吧</div>
       </div>
 

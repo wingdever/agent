@@ -35,3 +35,6 @@ instead of hardcode.
 ## subagents
 ## websearch
 ## settings
+
+## net-track
+## auto-translate
