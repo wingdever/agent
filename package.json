@@ -5,12 +5,14 @@
   "description": "Electron 默认界面 + 可插拔多界面 + 函数调用式底层架构",
   "main": "launcher.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
   },
   "devDependencies": {
     "electron": "44.9.3"
   },
   "dependencies": {
+    "@vscode/ripgrep": "^1.18.0",
     "pg-micro": "^0.0.5"
   }
 }

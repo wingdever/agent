@@ -124,4 +124,21 @@ export const SCHEMA_STATEMENTS = [
     updated_at  TIMESTAMP NOT NULL DEFAULT now(),
     unique (reply_id, seq)
   )`,
+
+  // One current goal per session (the DSH model keeps goal history; this dev
+  // project only needs the live value plus CAS revision).
+  `CREATE TABLE IF NOT EXISTS goals (
+    session_id       integer  PRIMARY KEY REFERENCES sessions (id) ON DELETE CASCADE,
+    goal_id          text     NOT NULL,
+    revision         integer  NOT NULL,
+    objective        text     NOT NULL,
+    phase            text     NOT NULL,
+    rounds_started   integer  NOT NULL DEFAULT 0,
+    max_goal_rounds  integer  NOT NULL,
+    blocked_code     text,
+    blocked_message  text,
+    activation       text     NOT NULL DEFAULT 'armed',
+    created_at       TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMP NOT NULL DEFAULT now()
+  )`,
 ];

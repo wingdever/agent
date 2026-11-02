@@ -1,7 +1,12 @@
 {
   "name": "get_current_time",
   "description": "return current date and time (ISO8601)",
-  "parameters": { "type": "object", "properties": {}, "required": [] },
+  "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  },
   "type": "builtin",
-  "entry": "run.js"
+  "entry": "run.js",
+  "defaultVisible": false
 }

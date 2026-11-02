@@ -1,5 +1,12 @@
 ## 工具实现方案
 
+> 状态（2026-11-03）：P0 已实现 `read` / `write` / `edit` / `glob` / `grep` / `bash`；
+> P1 已实现 `ask_user_question`（UI 挂起问答）；P2 已实现 `todo_write` 和
+> `create_goal` / `get_goal` / `update_goal`（goal 自动续轮待做）；
+> P5 已提前实现 plan 模式 + `exit_plan_mode`。
+> `write` / `edit` 的观察约束、`bash` 的超时/截断、`glob`/`grep` 的 spill 均已落地。
+> 工具优先级、模型接口约定和后续阶段见 `docs/tool-plan.md`。
+
 ### 目录约定
 - 工具代码：项目根 `tools/`
 - 工具文档：本文件 `docs/tool.md`
@@ -9,16 +16,26 @@
 
 registry.json 字段：
 - `name` / `description` / `parameters` / `type` / `entry`：工具身份与实现入口（`entry` 默认 `run.js`）
-- `prompt`（可选）：该工具贡献到 system prompt 的指引段落，按工具名排序渲染
+- `prompt`（可选）：该工具贡献到 system prompt 的指引段落；order 由工具名查固定表
+- `promptSection`（可选）：多个工具共享同一段指引时使用（goal 三件套用 `goal`）
+- `timeoutMs`（可选）：执行器预算；`concurrencySafe`（可选）：并发标记
+- `defaultVisible`（可选，默认 true）：false 时默认不下发给模型（如 `calculator`）
+- `result`（可选，默认 `text`）：`text` / `json`
 
 工具权限不在 registry 里声明，统一由 `user/permissions.json` 决定（见「工具权限」）。
 
-工具实现导出 `async run(args, exec)`；`exec.cwd` 是本轮会话所属 workspace 的绝对路径，工具据此解析相对路径。
+工具实现导出 `async run(args, exec)`；`exec.cwd` 是本轮会话所属 workspace 的绝对路径，
+`exec.sessionId` 用于 fs observation 等会话态。返回值是模型可见文本（string），或
+`{ text, meta }`；`meta` 只进 UI/DB，不进模型消息。工具抛错统一渲染为 `Error: ...`。
 
-### 等待实现列表
-tools:
-bash, read,
-textfile_write,textfile_etext_grep,file_touch,file_remove,file_stat,dir_mkdir,dir_rmdir,dir_list,python_run,sql_insert,sql_delete,sql_select,sql_update,web_search,web_fetch
+### 工具状态
+- 已实现（P0）：`read`、`write`、`edit`、`glob`、`grep`、`bash`
+- 已实现（P1）：`ask_user_question`
+- 已实现（P2）：`todo_write`、`create_goal`、`get_goal`、`update_goal`
+- 已实现（P5，提前）：plan 模式 + `exit_plan_mode`
+- 默认隐藏：`calculator`、`get_current_time`（`defaultVisible: false`）
+- 再后：jobs、web、plan 模式等；
+  见 `docs/tool-plan.md` 的矩阵与里程碑
 
 ### read（读文本文件）
 - 注册：`tools/read/registry.json`；实现：`tools/read/run.js`

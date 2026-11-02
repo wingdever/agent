@@ -23,7 +23,7 @@ section 按 `order` 升序拼接，同 order 按 name 排序；空文本段落�
 | `harness:identity` | -1000 | `user/settings.json` 的 `identity`，缺省 `You are an AI agent.` |
 | `deployment:persona` | 0 | `user/settings.json` 的 `persona`，缺省空（不渲染） |
 | `harness:language` | 500 | 固定 `Always answer in English.` |
-| `tool:<name>` | 1000+ | 工具 `registry.json` 的 `prompt` 字段，按工具名排序 |
+| `tool:<name>` | 1000+ | 工具 `registry.json` 的 `prompt` 字段；顺序用 DSH 固定表（bash 1000、read 1100、write 1200、edit 1300、glob 1400、grep 1500、goal 2400…）。`promptSection` 可让多个工具共享一段（goal 三件套） |
 | `runtime:context` | 10000 | 自动生成，固定在末尾 |
 
 只有本轮可见的工具（`toolNames`）才贡献 `tool:*` 段落；bare-chat 传 `toolNames: []`，因此只有身份、persona、语言策略和运行时上下文。
@@ -59,3 +59,9 @@ Platform: linux (x64).
 - 布局树：`step* → agent-request? → (system-prompt? + user-input)`。
 - `system-prompt` 用 `<details>` 折叠，summary 为「系统提示词」；有内容才渲染，旧会话没有 system 行则只显示 `user-input`。
 - 只在 session 首轮的 step 0 显示一次；后续轮次的 agent-request 只有 `user-input`。实时由 `system-prompt` 事件插入（仅首轮发出），回放由 DB 的 system 行插入。
+
+### plan 模式
+plan 模式激活时，`core/index.js` 在**每一步请求**的 system 消息末尾追加
+`core/plan-mode.js` 的 `PLAN_POLICY`（不写库、不改变已存 system prompt）；
+`exit_plan_mode` 批准后退出的下一步自动不再追加。页面上的「计划」按钮控制
+session 级状态，状态目前只在内存里（页面刷新保留，app 重启重置）。

@@ -56,3 +56,8 @@ log/network/track/data/
 
 # ===== 临时目录 =====
 tmp/
+test/
+
+# ===== 临时文件 =====
+docs/handoff.md
+docs/tool-plan.md

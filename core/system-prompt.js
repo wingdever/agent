@@ -131,13 +131,31 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
     text: ENGLISH_ONLY_INSTRUCTION,
   });
 
+  // DSH allocates a fixed order per tool instead of alphabetical position.
+  // Keeping the same order preserves the prompt's reading order for the model.
+  const toolOrders = {
+    bash: 1000,
+    pwsh: 1010,
+    read: 1100,
+    write: 1200,
+    edit: 1300,
+    glob: 1400,
+    grep: 1500,
+    jobs: 1600,
+    web_search: 2000,
+    web_fetch: 2100,
+    goal: 2400,
+  };
   const guidance = tools
     .filter((tool) => tool && typeof tool.prompt === "string" && tool.prompt.trim())
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   guidance.forEach((tool, index) => {
+    const sectionName = tool.promptSection || tool.name;
     prompt.section({
-      name: "tool:" + tool.name,
-      order: prompt.getSectionOrder("TOOL_GUIDANCE") + index,
+      name: "tool:" + sectionName,
+      order: toolOrders[sectionName] !== undefined
+        ? toolOrders[sectionName]
+        : prompt.getSectionOrder("TOOL_GUIDANCE") + 100 + index,
       text: tool.prompt,
     });
   });

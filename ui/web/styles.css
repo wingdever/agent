@@ -110,8 +110,9 @@ select, textarea, input { font-family: inherit; }
 .composer { position: relative; border-top: 1px solid #e5e7eb; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: #fff; }
 .input-textarea { width: 100%; min-height: 60px; resize: vertical; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; }
 .composer-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.think-switch, .search-switch { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #374151; }
+.think-switch, .search-switch, .plan-mode-switch { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #374151; }
 .think-switch.active, .search-switch.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.plan-mode-switch.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
 .add-files-btn { border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 6px; padding: 4px 10px; }
 .permission-selector, .model-selector, .mode-selector { font-size: 12px; display: flex; align-items: center; gap: 4px; color: #374151; }
 .permission-selector select, .model-selector select, .mode-selector select { padding: 3px 6px; border-radius: 6px; border: 1px solid #d1d5db; }
@@ -320,6 +321,23 @@ select, textarea, input { font-family: inherit; }
 .btn-deny { background: #dc2626; color: #fff; border-color: #dc2626; }
 .btn-approve:disabled, .btn-deny:disabled { opacity: .55; cursor: default; }
 
+/* ask_user_question：卡内表单 */
+.ask-user-question { margin-top: 8px; padding: 8px 0 0; border: 0; border-top: 1px dashed #ddd6fe; background: transparent; cursor: default; }
+.ask-title { font-size: 12px; font-weight: 600; color: #5b21b6; margin-bottom: 6px; }
+.ask-question { margin: 8px 0; padding: 8px 10px; border: 1px solid #e9e5f8; border-radius: 8px; background: #fff; }
+.ask-header { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 2px; }
+.ask-text { font-size: 13px; color: #111827; line-height: 1.5; white-space: pre-wrap; }
+.ask-option { display: flex; align-items: flex-start; gap: 6px; margin-top: 7px; font-size: 13px; color: #1f2937; cursor: pointer; }
+.ask-option input { margin-top: 2px; flex: 0 0 auto; }
+.ask-option-label { font-weight: 500; }
+.ask-option-desc { color: #6b7280; font-size: 11px; line-height: 1.4; }
+.ask-custom { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; color: #111827; background: #fff; }
+.ask-custom:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139, 92, 246, .15); }
+.ask-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.ask-actions button { padding: 4px 12px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
+.ask-error { flex: 1 1 auto; color: #b91c1c; font-size: 11px; }
+.ask-submitted { color: #166534; font-size: 12px; margin-top: 6px; }
+
 /* agent-request 子节点（ui.md：system-prompt? + user-input） */
 .user-input { white-space: pre-wrap; }
 .system-prompt { margin-bottom: 6px; font-size: 12px; color: #4b5563; }
@@ -337,3 +355,23 @@ select, textarea, input { font-family: inherit; }
 .user-input.translating, .bubble.translating { color: #94a3b8; font-style: italic; }
 .translation-error { margin-top: 4px; font-size: 12px; color: #b45309; }
 .settings-note { margin: -6px 0 10px; font-size: 11px; line-height: 1.55; color: #94a3b8; }
+
+/* todo_write：工具卡内的任务清单 */
+.todo-list { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ddd6fe; display: flex; flex-direction: column; gap: 4px; }
+.todo-item { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 1.45; color: #374151; }
+.todo-mark { flex: 0 0 auto; width: 13px; color: #9ca3af; }
+.todo-status-in_progress .todo-mark { color: #7c3aed; }
+.todo-status-completed .todo-mark { color: #16a34a; }
+.todo-status-completed .todo-label { color: #9ca3af; text-decoration: line-through; }
+.todo-label { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* plan mode：开关 + 计划审批卡 */
+.plan-review { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ddd6fe; cursor: default; }
+.plan-review-title { font-size: 12px; font-weight: 600; color: #5b21b6; margin-bottom: 6px; }
+.plan-review-body { max-height: 380px; overflow: auto; padding: 8px 10px; border: 1px solid #e9e5f8; border-radius: 8px; background: #fff; font-size: 13px; line-height: 1.55; color: #111827; }
+.plan-review-feedback { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font: 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; resize: vertical; }
+.plan-review-feedback:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139, 92, 246, .15); }
+.plan-review-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.plan-review-actions button { padding: 4px 12px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
+.plan-review-error { flex: 1 1 auto; color: #b91c1c; font-size: 11px; }
+.plan-review-done { margin-top: 6px; color: #166534; font-size: 12px; }

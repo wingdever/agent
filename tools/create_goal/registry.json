@@ -1,0 +1,25 @@
+{
+  "name": "create_goal",
+  "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "objective": {
+        "type": "string",
+        "description": "The concrete completion objective inferred from the direct human request."
+      },
+      "max_goal_rounds": {
+        "type": "number",
+        "description": "Optional positive safe-integer limit on automatic continuation rounds."
+      }
+    },
+    "required": [
+      "objective"
+    ]
+  },
+  "type": "goal",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "create_goal may infer goal intent from a direct human request in any language. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
+  "promptSection": "goal"
+}

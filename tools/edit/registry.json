@@ -1,0 +1,30 @@
+{
+  "name": "edit",
+  "description": "Edit an existing UTF-8 text file by replacing literal text.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "file_path": {
+        "type": "string",
+        "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+      },
+      "old_string": {
+        "type": "string",
+        "description": "Literal text to replace."
+      },
+      "new_string": {
+        "type": "string",
+        "description": "Literal replacement text. Use an empty string to delete the match."
+      },
+      "replace_all": {
+        "type": "boolean",
+        "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+      }
+    },
+    "required": ["file_path", "old_string", "new_string"]
+  },
+  "type": "fs",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session."
+}

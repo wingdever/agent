@@ -45,40 +45,20 @@ function resolveDefaultFromProviders(config = {}) {
   return config;
 }
 
-// 默认工具：核心内置，注册即进入模型可用列表（UI 无需关心实现）
+// Tool runtime: registry, argument validation, and text/meta result shaping.
+const { loadTools } = require("./tools/registry");
+const { validateToolArgs, runTool } = require("./tools/executor");
+const { errorResult } = require("./tools/result");
+const { reset: resetTodos } = require("./todo-state");
+const { createGoalService } = require("./goals");
+const planMode = require("./plan-mode");
 
-
-// 底层核心：UI/传输无关，只认「函数名+参数+onEvent 回调」
-// 工具注册：扫描项目根 tools/ 下各子目录的 registry.json，加载 entry 指向的实现
-const TOOLS_DIR = path.join(__dirname, "..", "tools");
-async function loadTools() {
-  const map = new Map();
-  let dirs;
-  try { dirs = await fs.promises.readdir(TOOLS_DIR, { withFileTypes: true }); }
-  catch (_) { return map; }
-  for (const d of dirs) {
-    if (!d.isDirectory()) continue;
-    let reg;
-    try { reg = JSON.parse(await fs.promises.readFile(path.join(TOOLS_DIR, d.name, "registry.json"), "utf8")); }
-    catch (_) { continue; }
-    if (!reg || !reg.name) continue;
-    const entry = reg.entry || "run.js";
-    let mod;
-    try { mod = require(path.join(TOOLS_DIR, d.name, entry)); }
-    catch (e) { console.error("[tools] 加载失败:", reg.name, e.message); continue; }
-    const run = mod && (mod.run || (mod.default && mod.default.run));
-    if (typeof run !== "function") continue;
-    map.set(reg.name, {
-      name: reg.name,
-      description: reg.description || "",
-      parameters: reg.parameters || { type: "object", properties: {}, required: [] },
-      type: reg.type || d.name,
-      // Optional guidance section contributed to the system prompt.
-      prompt: typeof reg.prompt === "string" ? reg.prompt : "",
-      run,
-    });
+function firstHeading(plan) {
+  for (const line of String(plan == null ? "" : plan).split("\n")) {
+    const match = /^#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (match) return match[1];
   }
-  return map;
+  return "";
 }
 
 // 终止原因：把"预期内的结束"（请求失败/截断/空回复）与真正的未知异常区分开，
@@ -125,6 +105,11 @@ class AgentCore {
     this.tools = new Map();
     this.pendingApprovals = new Map();
     this._approvalSeq = 0;
+    this.pendingQuestions = new Map();
+    this._questionSeq = 0;
+    this.pendingPlanReviews = new Map();
+    this._planReviewSeq = 0;
+    this.goals = null;
     this._onEvent = () => {};
   }
 
@@ -145,6 +130,74 @@ class AgentCore {
     if (!fn) return false;
     this.pendingApprovals.delete(key);
     fn(decision);
+    return true;
+  }
+
+  // ask_user_question: emit the questions, then block until the UI submits a
+  // batch. One answer item per question; a skipped question is empty selected
+  // with no custom, matching DSH's answer shape.
+  requestUserQuestion({ callId, questions }) {
+    const list = Array.isArray(questions) ? questions : [];
+    return new Promise((resolve) => {
+      const id = (this._questionSeq = (this._questionSeq || 0) + 1);
+      this.pendingQuestions.set(id, { resolve, questions: list, callId });
+      this._onEvent({ type: "model-http-status", state: "on-wait" });
+      this._onEvent({ type: "ask-user-question", id, callId, name: "ask_user_question", questions: list });
+    });
+  }
+
+  answerQuestions(id, rawAnswers) {
+    const key = Number(id);
+    const pending = this.pendingQuestions.get(key);
+    if (!pending) return false;
+    this.pendingQuestions.delete(key);
+    const submitted = Array.isArray(rawAnswers) ? rawAnswers : [];
+    const answers = pending.questions.map((question) => {
+      const found = submitted.find((answer) => answer && answer.id === question.id) || {};
+      const selected = Array.isArray(found.selected)
+        ? found.selected.filter((value) => typeof value === "string")
+        : [];
+      const custom = typeof found.custom === "string" && found.custom.trim()
+        ? found.custom
+        : undefined;
+      return { id: question.id, selected, ...(custom !== undefined ? { custom } : {}) };
+    });
+    pending.resolve({ answers });
+    return true;
+  }
+
+  setPlanMode(sessionId, active) {
+    const value = planMode.setActive(sessionId, active);
+    this._onEvent({ type: "plan-mode", active: value });
+    return value;
+  }
+
+  // exit_plan_mode: show the markdown plan, then block until the UI approves
+  // (leave plan mode) or keeps planning with optional feedback.
+  requestPlanReview({ callId, plan, sessionId }) {
+    return new Promise((resolve) => {
+      const id = (this._planReviewSeq = (this._planReviewSeq || 0) + 1);
+      this.pendingPlanReviews.set(id, { resolve, sessionId });
+      this._onEvent({ type: "model-http-status", state: "on-wait" });
+      this._onEvent({
+        type: "plan-review",
+        id,
+        callId,
+        plan,
+        title: firstHeading(plan) || "Plan",
+      });
+    });
+  }
+
+  answerPlanReview(id, payload = {}) {
+    const key = Number(id);
+    const pending = this.pendingPlanReviews.get(key);
+    if (!pending) return false;
+    this.pendingPlanReviews.delete(key);
+    const approved = payload.approved === true;
+    const feedback = typeof payload.feedback === "string" ? payload.feedback : "";
+    if (approved) this.setPlanMode(pending.sessionId, false);
+    pending.resolve({ approved, feedback });
     return true;
   }
 
@@ -269,6 +322,8 @@ class AgentCore {
     this._onEvent = onEvent;
     const store = this.store;
     const persist = !!(sessionId && store);
+    // DSH resets the todo projection on turn/start; one chat() call is one turn.
+    resetTodos(sessionId);
     // 每一条退出路径都必须留下终止原因：循环体内只负责抛 TurnError 或返回，
     // 由下面的 catch/finally 统一落一条 [turn] 日志并发 turn-end。
     const startedAt = Date.now();
@@ -312,7 +367,9 @@ class AgentCore {
       }
     }
     // Deterministic schema/guidance order: registration order is a filesystem artifact.
-    const tools = (toolNames ? toolNames.map((n) => this.tools.get(n)).filter(Boolean) : [...this.tools.values()])
+    const tools = (toolNames
+      ? toolNames.map((n) => this.tools.get(n)).filter(Boolean)
+      : [...this.tools.values()].filter((t) => t.defaultVisible !== false))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const toolDefs = tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const permissions = readPermissions();
@@ -380,6 +437,10 @@ class AgentCore {
       }
 
       // 请求模型（request-time：上一步工具已全部执行完才到这里）
+      // Plan-mode guidance is request-scoped: the stored system prompt stays
+      // stable, while every step in plan mode carries the policy. exit_plan_mode
+      // flips the state off before the next step, so the policy disappears then.
+      conv[0].content = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
       // 错误边界：模型请求失败转成 TurnError，由外层统一记录 reason=model-request-error
       let a;
       try {
@@ -462,54 +523,93 @@ class AgentCore {
       // 执行本轮全部 tool-call（需用户授权），完成后再回到循环顶部请求模型
       for (let i = 0; i < message.tool_calls.length; i++) {
         const call = message.tool_calls[i];
+        const name = (call.function && call.function.name) || "unknown";
+        const callId = call.id || "call_" + stepSeq + "_" + i;
         toolsUsed += 1;
-        const tool = this.tools.get(call.function.name);
+        const tool = this.tools.get(name);
+
+        // Parse + validate before approval: malformed arguments never need a
+        // permission prompt. The model still receives a normal tool result.
         let args = {};
-        try { args = JSON.parse(call.function.arguments || "{}"); } catch (_) { }
-        const callType = tool ? tool.type : "unknown";
+        let invalid = null;
+        try {
+          args = JSON.parse((call.function && call.function.arguments) || "{}");
+          if (args === null || typeof args !== "object" || Array.isArray(args)) {
+            invalid = "invalid arguments: arguments must be a JSON object";
+          }
+        } catch (e) {
+          invalid = "invalid arguments: " + (e.message || String(e));
+        }
+        if (!invalid && !tool) invalid = 'tool "' + name + '" not found';
+        if (!invalid) {
+          const violations = validateToolArgs(tool, args);
+          if (violations.length > 0) invalid = "invalid arguments: " + violations.join("; ");
+        }
+
+        const finish = async (result, status) => {
+          onEvent({
+            type: "tool_result",
+            id: callId,
+            name,
+            content: result.text,
+            isError: result.isError === true,
+            meta: result.meta,
+          });
+          conv.push({ role: "tool", tool_call_id: callId, content: result.text });
+          if (persist && callIds[i] != null) {
+            try {
+              await store.run("call.update", {
+                id: callIds[i],
+                status,
+                result: { text: result.text, meta: result.meta, isError: result.isError === true },
+              });
+            } catch (e) { onEvent({ type: "error", error: "call.update failed: " + (e.message || e) }); }
+            try {
+              await store.run("message.add", {
+                step_id: step.id,
+                seq: assistantSeq + 1 + i,
+                role: "tool",
+                content: result.text,
+              });
+            } catch (e) { onEvent({ type: "error", error: "message.add failed: " + (e.message || e) }); }
+          }
+        };
+
+        if (invalid) {
+          onEvent({ type: "tool_call", id: callId, name, arguments: args });
+          await finish(errorResult(invalid), "failed");
+          continue;
+        }
 
         // Permissions come from user/permissions.json: allow executes directly,
         // deny refuses without asking, ask waits for the user. Every path emits
         // approval-request so the UI always has the card's approval element.
-        const permission = permissionFor(permissions, call.function.name);
+        const permission = permissionFor(permissions, name);
         let decision;
         if (permission === "ask") {
-          decision = await this.requestApproval({ callId: call.id, name: call.function.name, args, permission });
+          decision = await this.requestApproval({ callId, name, args, permission });
         } else {
-          onEvent({ type: "approval-request", callId: call.id, name: call.function.name, arguments: args, permission });
+          onEvent({ type: "approval-request", callId, name, arguments: args, permission });
           decision = permission === "allow" ? "approve" : "deny";
         }
         if (decision !== "approve") {
-          const denied = { error: permission === "deny" ? "permission denied" : "user denied" };
-          onEvent({ type: "tool_result", id: call.id, name: call.function.name, result: denied });
-          if (persist && callIds[i] != null) {
-            try { await store.run("call.update", { id: callIds[i], status: "denied", result: denied }); }
-            catch (e) { onEvent({ type: "error", error: "call.update failed: " + (e.message || e) }); }
-            try { await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(denied) }); }
-            catch (e) { onEvent({ type: "error", error: "message.add failed: " + (e.message || e) }); }
-          }
-          conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(denied) });
+          await finish(errorResult(permission === "deny" ? "permission denied" : "user denied"), "denied");
           continue;
         }
 
-        // 授权通过：执行工具
-        let result;
-        try {
-          onEvent({ type: "tool_call", id: call.id, name: call.function.name, arguments: args });
-          result = tool ? await tool.run(args, { cwd, sessionId }) : { error: "unknown tool" };
-          onEvent({ type: "tool_result", id: call.id, name: call.function.name, result });
-        } catch (e) { result = { error: String(e.message || e) }; onEvent({ type: "tool_result", id: call.id, name: call.function.name, result }); }
-        // 先把结果写进对话历史，确保下一轮 _stream 必带工具结果回传模型（不受持久化失败影响）
-        // 纯文本结果原样回传（read 的模型面向信封）；其余工具继续用 JSON。
-        const toolContent = typeof result === "string" ? result : JSON.stringify(result);
-        conv.push({ role: "tool", tool_call_id: call.id, content: toolContent });
-        // 持久化隔离：单项失败仅告警，不阻断把结果回传模型
-        if (persist && callIds[i] != null) {
-          try { await store.run("call.update", { id: callIds[i], status: result && result.error ? "failed" : "succeeded", result }); }
-          catch (e) { onEvent({ type: "error", error: "call.update failed: " + (e.message || e) }); }
-          try { await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: toolContent }); }
-          catch (e) { onEvent({ type: "error", error: "message.add failed: " + (e.message || e) }); }
-        }
+        // 授权通过：执行工具。结果已经是模型可见文本；meta 只给 UI/DB。
+        onEvent({ type: "tool_call", id: callId, name, arguments: args });
+        const result = await runTool(tool, args, {
+          cwd,
+          sessionId,
+          callId,
+          toolName: name,
+          goals: this.goals,
+          isPlanMode: () => planMode.isActive(sessionId),
+          reviewPlan: (plan) => this.requestPlanReview({ callId, plan, sessionId }),
+          askUserQuestion: (questions) => this.requestUserQuestion({ callId, questions }),
+        });
+        await finish(result, result.isError === true ? "failed" : "succeeded");
       }
       if (persist) { try { await store.run("step.update", { id: step.id, status: "succeeded" }); }
       catch (e) { onEvent({ type: "error", error: "step.update failed: " + (e.message || e) }); } }
@@ -560,6 +660,17 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
       return await core.fetchProviderModels(params.baseurl, params.apikey);
     case "approval":
       return core.approve(params.id, params.decision);
+    case "answerQuestions":
+      return core.answerQuestions(params.id, params.answers);
+    case "answerPlanReview":
+      return core.answerPlanReview(params.id, params);
+    case "planMode": {
+      const sid = params.session_id;
+      if (sid == null || sid === "") throw new Error("planMode requires session_id");
+      if (params.op === "get") return { active: planMode.isActive(sid) };
+      if (params.op === "set") return { active: planMode.setActive(sid, params.active === true) };
+      throw new Error("unknown planMode op: " + params.op);
+    }
     default: throw new Error("unknown fn: " + fn);
   }
 }
@@ -570,6 +681,7 @@ async function createCore(config = {}) {
   core.tools = await loadTools();
   const { createStore } = await import("./storage/store.mjs");
   core.store = await createStore();
+  core.goals = createGoalService(core.store);
 
   return core;
 }

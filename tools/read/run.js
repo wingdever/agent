@@ -12,6 +12,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { record } = require("../../core/tools/fs-observe");
 
 const READ_LIMIT = 2000;
 const READ_MAX_LINE_LENGTH = 2000;
@@ -61,7 +62,7 @@ function assertNotBinary(sample, displayPath) {
   const hasNul = typeof sample === "string"
     ? sample.slice(0, BINARY_SNIFF_BYTES).indexOf("\u0000") !== -1
     : sample.subarray(0, BINARY_SNIFF_BYTES).indexOf(0) !== -1;
-  if (hasNul) throw new Error('cannot read "' + displayPath + '": binary file (NUL byte)');
+  if (hasNul) throw new Error('cannot read "' + displayPath + '": binary file');
 }
 
 // Yield decoded text chunks in file order. Small files are read whole; large
@@ -181,11 +182,20 @@ module.exports = {
       },
       input.displayPath
     );
-    return formatReadOutput(input.displayPath, {
-      offset: input.offset,
-      lines: window.lines,
-      totalLines: window.totalLines,
-      truncatedByBytes: window.truncatedByBytes,
-    });
+    record(exec.sessionId, input.displayPath, info);
+    return {
+      text: formatReadOutput(input.displayPath, {
+        offset: input.offset,
+        lines: window.lines,
+        totalLines: window.totalLines,
+        truncatedByBytes: window.truncatedByBytes,
+      }),
+      meta: {
+        path: input.displayPath,
+        offset: input.offset,
+        lines: window.lines,
+        totalLines: window.totalLines,
+      },
+    };
   },
 };

@@ -1,7 +1,18 @@
 {
   "name": "calculator",
   "description": "evaluate arithmetic expressions containing only numbers and +-*/()",
-  "parameters": { "type": "object", "properties": { "expression": { "type": "string" } }, "required": ["expression"] },
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "expression": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "expression"
+    ]
+  },
   "type": "builtin",
-  "entry": "run.js"
+  "entry": "run.js",
+  "defaultVisible": false
 }

@@ -1,0 +1,24 @@
+{
+  "name": "glob",
+  "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "pattern": {
+        "type": "string",
+        "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+      },
+      "path": {
+        "type": "string",
+        "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+      }
+    },
+    "required": ["pattern"]
+  },
+  "type": "fs",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "timeoutMs": 30000,
+  "concurrencySafe": true,
+  "prompt": "Use the glob tool — not shell find — to discover files by path pattern."
+}

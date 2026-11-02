@@ -371,6 +371,24 @@ document.addEventListener("DOMContentLoaded", function () {
   var liveUserTranslation = null;   // 用户消息的中文原文副块
   var liveAssistantTranslation = null; // 助手回答的中文译文副块
 
+  var planModeSwitch = document.getElementById("planModeSwitch");
+  var currentPlanMode = false;
+  function setPlanModeUi(active) {
+    currentPlanMode = active === true;
+    if (planModeSwitch) {
+      planModeSwitch.classList.toggle("active", currentPlanMode);
+      planModeSwitch.textContent = currentPlanMode ? "计划中" : "计划";
+    }
+  }
+  async function refreshPlanMode(sessionId) {
+    if (!sessionId) { setPlanModeUi(false); return; }
+    try {
+      var result = await window.AgentClient.call("planMode", { op: "get", session_id: sessionId });
+      setPlanModeUi(result && result.active === true);
+    } catch (e) {
+      setPlanModeUi(false);
+    }
+  }
   function getComposerMode() {
     var sel = document.querySelector(".mode-selector select");
     return sel ? sel.value : "turn-step";
@@ -553,12 +571,159 @@ document.addEventListener("DOMContentLoaded", function () {
     card.appendChild(head); card.appendChild(args);
     return card;
   }
-  function setToolResult(card, result) {
-    var r = document.createElement("div");
-    r.className = "tool-args";
-    r.style.marginTop = "4px";
-    r.textContent = "→ " + JSON.stringify(result, null, 2);
-    card.appendChild(r);
+  function setToolResult(card, evt) {
+    var text = evt && evt.content != null ? String(evt.content) : "";
+    renderToolResult(card, text, !!(evt && evt.isError));
+    if (evt && evt.name === "todo_write" && evt.meta && Array.isArray(evt.meta.todos)) {
+      renderTodoList(card, evt.meta.todos);
+    }
+  }
+
+  // todo_write: the model-facing text is only a count line; the checklist is
+  // rendered from meta (live) or the tool-call arguments (replay).
+  function renderTodoList(card, todos) {
+    var old = card.querySelector(".todo-list");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    if (!Array.isArray(todos) || !todos.length) return;
+    var list = makeEl("todo-list", "todo-list");
+    todos.forEach(function (todo) {
+      var item = makeEl("todo-item", "todo-item todo-status-" + (todo.status || "pending"));
+      var mark = makeEl("todo-mark", "todo-mark");
+      mark.textContent = todo.status === "completed" ? "●" : todo.status === "in_progress" ? "◐" : "○";
+      var label = makeEl("todo-label", "todo-label");
+      label.textContent = todo.content || "";
+      item.appendChild(mark);
+      item.appendChild(label);
+      list.appendChild(item);
+    });
+    card.appendChild(list);
+  }
+
+  function parseToolArgs(call) {
+    var value = call && call.arguments;
+    if (typeof value === "string") {
+      try { return JSON.parse(value); } catch (e) { return {}; }
+    }
+    return value && typeof value === "object" ? value : {};
+  }
+
+  // ask_user_question: render one form per batch. Submission goes through the
+  // same call channel as approvals; the model's tool call stays blocked until
+  // this POST resolves.
+  function renderAskUserQuestion(card, evt) {
+    if (!card) return;
+    var old = card.querySelector(".ask-user-question");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    var form = makeEl("ask-user-question", "ask-user-question");
+    form.addEventListener("click", function (e) { e.stopPropagation(); });
+    var title = makeEl("ask-title", "ask-title");
+    title.textContent = "需要你的回答";
+    form.appendChild(title);
+
+    var state = {};
+    var questions = Array.isArray(evt.questions) ? evt.questions : [];
+    questions.forEach(function (q, index) {
+      state[q.id] = { selected: [], custom: "" };
+      var section = makeEl("ask-question", "ask-question");
+      var header = makeEl("ask-header", "ask-header");
+      header.textContent = q.header || ("问题 " + (index + 1));
+      var text = makeEl("ask-text", "ask-text");
+      text.textContent = q.question || "";
+      section.appendChild(header);
+      section.appendChild(text);
+
+      if (Array.isArray(q.options) && q.options.length) {
+        q.options.forEach(function (opt) {
+          var label = document.createElement("label");
+          label.className = "ask-option";
+          var input = document.createElement("input");
+          input.type = q.multi_select ? "checkbox" : "radio";
+          input.name = "ask-" + evt.id + "-" + q.id;
+          input.value = opt.label || "";
+          input.addEventListener("change", function () {
+            if (q.multi_select) {
+              state[q.id].selected = Array.prototype.slice.call(
+                section.querySelectorAll('input[type="checkbox"]:checked')
+              ).map(function (node) { return node.value; });
+            } else {
+              state[q.id].selected = input.checked ? [input.value] : [];
+            }
+          });
+          label.appendChild(input);
+          var labelText = makeEl("ask-option-label", "ask-option-label");
+          labelText.textContent = opt.label || "";
+          label.appendChild(labelText);
+          if (opt.description) {
+            var desc = makeEl("ask-option-desc", "ask-option-desc");
+            desc.textContent = opt.description;
+            label.appendChild(desc);
+          }
+          section.appendChild(label);
+        });
+      }
+
+      var custom = document.createElement("input");
+      custom.type = "text";
+      custom.className = "ask-custom";
+      custom.placeholder = (q.options && q.options.length) ? "可选：补充回答" : "输入你的回答";
+      custom.addEventListener("input", function () { state[q.id].custom = custom.value; });
+      section.appendChild(custom);
+      form.appendChild(section);
+    });
+
+    var actions = makeEl("ask-actions", "ask-actions");
+    var error = makeEl("ask-error", "ask-error");
+    error.hidden = true;
+    var skip = document.createElement("button");
+    skip.type = "button";
+    skip.className = "btn-deny";
+    skip.textContent = "全部跳过";
+    var submit = document.createElement("button");
+    submit.type = "button";
+    submit.className = "btn-approve";
+    submit.textContent = "提交回答";
+
+    function collect() {
+      return questions.map(function (q) {
+        var value = state[q.id] || { selected: [], custom: "" };
+        var customText = String(value.custom || "").trim();
+        var answer = { id: q.id, selected: value.selected.slice() };
+        if (customText) answer.custom = customText;
+        return answer;
+      });
+    }
+
+    function send(skipAll) {
+      var answers = skipAll
+        ? questions.map(function (q) { return { id: q.id, selected: [] }; })
+        : collect();
+      submit.disabled = true;
+      skip.disabled = true;
+      error.hidden = true;
+      AgentClient.call("answerQuestions", { id: evt.id, answers: answers }).then(function (ok) {
+        if (ok === false) throw new Error("该问题已失效或本轮已结束");
+        if (ok && ok.error) throw new Error(ok.error);
+        form.querySelectorAll("input,button").forEach(function (node) { node.disabled = true; });
+        var done = makeEl("ask-submitted", "ask-submitted");
+        done.textContent = "已提交回答";
+        form.appendChild(done);
+      }).catch(function (e) {
+        submit.disabled = false;
+        skip.disabled = false;
+        error.hidden = false;
+        error.textContent = "提交失败：" + (e && e.message ? e.message : e);
+      });
+    }
+
+    submit.addEventListener("click", function () { send(false); });
+    skip.addEventListener("click", function () { send(true); });
+    actions.appendChild(error);
+    actions.appendChild(skip);
+    actions.appendChild(submit);
+    form.appendChild(actions);
+    card.appendChild(form);
+    scrollChatToBottom();
   }
   function createApprovalCard(evt) {
     var card = document.createElement("div");
@@ -611,7 +776,7 @@ document.addEventListener("DOMContentLoaded", function () {
       scrollChatToBottom();
     } else if (evt.type === "tool_result") {
       var c = toolCards[evt.id];
-      if (c) setToolResult(c, evt.result);
+      if (c) setToolResult(c, evt);
     } else if (evt.type === "done") {
       if (evt.message) bareHistory.push({ role: "assistant", content: evt.message.content || "" });
       flushMessageBubbles();
@@ -633,6 +798,8 @@ document.addEventListener("DOMContentLoaded", function () {
       currentAssistantBubble = null;
       currentThoughtBubble = null;
       resetFlatTranslationState();
+    } else if (evt.type === "plan-mode") {
+      setPlanModeUi(evt.active === true);
     } else if (evt.type === "approval-request") {
       createApprovalCard(evt);
     } else if (evt.type === "error") {
@@ -807,43 +974,24 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  function resultToText(result) {
-    if (typeof result === "string") return result;
-    if (result === undefined || result === null) return "";
-    try { return JSON.stringify(result, null, 2); } catch (e) { return String(result); }
-  }
-  // read 失败的 error 对象不能藏在折叠面板里。
-  function resultError(result) {
-    var obj = result;
-    if (typeof obj === "string") {
-      try { obj = JSON.parse(obj); } catch (e) { return ""; }
-    }
-    if (obj && typeof obj === "object" && obj.error) return String(obj.error);
-    return "";
-  }
-  function formatBytes(n) {
-    if (n < 1024) return n + " B";
-    var kb = n / 1024;
-    return (kb >= 10 ? Math.round(kb) : kb.toFixed(1)) + " KB";
-  }
-  // read 结果默认折叠；其他工具保持展开。
-  function renderToolResult(card, result) {
-    var text = resultToText(result);
+  // Tool results are model-facing text. `isError` comes from the event (live)
+  // or from calls.status (replay); meta is for future dedicated cards.
+  function renderToolResult(card, text, isError) {
+    text = String(text == null ? "" : text);
     var old = card.querySelector(".tool-result");
     if (old && old.parentNode) old.parentNode.removeChild(old);
     card.setAttribute("data-result", text);
     var isRead = (card.getAttribute("data-tool") || "").toLowerCase() === "read";
+    if (isError) {
+      var err = makeEl("tool-result", "tool-result read-error");
+      err.textContent = "→ " + text;
+      card.appendChild(err);
+      return;
+    }
     if (!isRead) {
       var plain = makeEl("tool-result", "tool-result");
       plain.textContent = "→ " + text;
       card.appendChild(plain);
-      return;
-    }
-    var error = resultError(result);
-    if (error) {
-      var err = makeEl("tool-result", "tool-result read-error");
-      err.textContent = "→ 读取失败：" + error;
-      card.appendChild(err);
       return;
     }
     var details = document.createElement("details");
@@ -864,6 +1012,71 @@ document.addEventListener("DOMContentLoaded", function () {
     details.addEventListener("click", function (e) { e.stopPropagation(); });
     card.appendChild(details);
   }
+  // exit_plan_mode: show the complete plan as markdown, then approve or keep
+  // planning with feedback. The tool call remains blocked until this resolves.
+  function renderPlanReview(card, evt) {
+    if (!card) return;
+    var old = card.querySelector(".plan-review");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    var box = makeEl("plan-review", "plan-review");
+    box.addEventListener("click", function (e) { e.stopPropagation(); });
+    var title = makeEl("plan-review-title", "plan-review-title");
+    title.textContent = "计划审批：" + (evt.title || "Plan");
+    var body = makeEl("plan-review-body", "plan-review-body textcard");
+    AgentMarkdown.set(body, evt.plan || "");
+    var feedback = document.createElement("textarea");
+    feedback.className = "plan-review-feedback";
+    feedback.rows = 2;
+    feedback.placeholder = "不批准时，写下修改意见（可选）";
+    var actions = makeEl("plan-review-actions", "plan-review-actions");
+    var error = makeEl("plan-review-error", "plan-review-error");
+    error.hidden = true;
+    var keep = document.createElement("button");
+    keep.type = "button";
+    keep.className = "btn-deny";
+    keep.textContent = "继续计划";
+    var approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "btn-approve";
+    approve.textContent = "批准并退出计划模式";
+
+    function send(approved) {
+      approve.disabled = true;
+      keep.disabled = true;
+      error.hidden = true;
+      window.AgentClient.call("answerPlanReview", {
+        id: evt.id,
+        approved: approved,
+        feedback: feedback.value,
+      }).then(function (ok) {
+        if (ok === false) throw new Error("该计划审批已失效或本轮已结束");
+        if (ok && ok.error) throw new Error(ok.error);
+        feedback.disabled = true;
+        var done = makeEl("plan-review-done", "plan-review-done");
+        done.textContent = approved ? "已批准，计划模式已退出" : "已退回，继续计划";
+        box.appendChild(done);
+      }).catch(function (e) {
+        approve.disabled = false;
+        keep.disabled = false;
+        error.hidden = false;
+        error.textContent = "提交失败：" + (e && e.message ? e.message : e);
+      });
+    }
+
+    approve.addEventListener("click", function () { send(true); });
+    keep.addEventListener("click", function () { send(false); });
+    actions.appendChild(error);
+    actions.appendChild(keep);
+    actions.appendChild(approve);
+    box.appendChild(title);
+    box.appendChild(body);
+    box.appendChild(feedback);
+    box.appendChild(actions);
+    card.appendChild(box);
+    scrollChatToBottom();
+  }
+
   function resetLive() {
     liveTurn = liveStep = liveResponse = liveAnswer = liveAgentRequest = null;
     liveCards = {};
@@ -968,7 +1181,18 @@ document.addEventListener("DOMContentLoaded", function () {
       scrollChatToBottom();
     } else if (evt.type === "tool_result") {
       var hc = liveCards[evt.id];
-      if (hc) renderToolResult(hc, evt.result);
+      if (hc) {
+        renderToolResult(hc, evt.content, evt.isError);
+        if (evt.name === "todo_write" && evt.meta && Array.isArray(evt.meta.todos)) {
+          renderTodoList(hc, evt.meta.todos);
+        }
+      }
+    } else if (evt.type === "ask-user-question") {
+      renderAskUserQuestion(getToolCard(evt.callId || evt.id), evt);
+    } else if (evt.type === "plan-review") {
+      renderPlanReview(getToolCard(evt.callId || evt.id), evt);
+    } else if (evt.type === "plan-mode") {
+      setPlanModeUi(evt.active === true);
     } else if (evt.type === "approval-request") {
       setApproval(getToolCard(evt.callId || evt.id), evt);
     } else if (evt.type === "system-prompt") {
@@ -1098,7 +1322,11 @@ document.addEventListener("DOMContentLoaded", function () {
             renderApproval(ap, { permission: permission, name: call.name, arguments: call.arguments });
             card.appendChild(ap);
             var tm = toolMsgs[c] || null;
-            if (tm) renderToolResult(card, tm.content || "");
+            if (tm) renderToolResult(card, tm.content || "", call.status === "failed" || call.status === "denied");
+            if (call.name === "todo_write") {
+              var todoArgs = parseToolArgs(call);
+              renderTodoList(card, todoArgs.todos);
+            }
             respNode.appendChild(card);
             (function (cc) { cc.addEventListener("click", function () { showToolDetail(cc); }); })(card);
           }
@@ -1114,6 +1342,7 @@ document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll(".session-item").forEach(function (n) { n.classList.remove("active"); });
     if (node) node.classList.add("active");
     renderSessionMessages(sess.id);
+    refreshPlanMode(sess.id);
     if (input) input.focus();
   }
   async function runBareChat(text) {
@@ -1190,4 +1419,17 @@ document.addEventListener("DOMContentLoaded", function () {
   var searchSwitch = document.getElementById("searchSwitch");
   if (thinkSwitch) thinkSwitch.addEventListener("click", function () { thinkSwitch.classList.toggle("active"); });
   if (searchSwitch) searchSwitch.addEventListener("click", function () { searchSwitch.classList.toggle("active"); });
+  if (planModeSwitch) planModeSwitch.addEventListener("click", async function () {
+    if (!currentSessionId) { await uiAlert("请先在左侧选择或新建一个会话"); return; }
+    try {
+      var result = await window.AgentClient.call("planMode", {
+        op: "set",
+        session_id: currentSessionId,
+        active: !currentPlanMode,
+      });
+      setPlanModeUi(result && result.active === true);
+    } catch (e) {
+      await uiAlert("切换计划模式失败：" + (e && e.message ? e.message : e));
+    }
+  });
 });

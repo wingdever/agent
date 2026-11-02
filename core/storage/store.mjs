@@ -85,6 +85,37 @@ class Store {
     return this._delete("sessions", id);
   }
 
+  // ---- goals（每个 session 一个当前 goal，revision 做 CAS）----
+  _mapGoal(row) {
+    if (!row) return null;
+    return {
+      id: row.goal_id,
+      revision: Number(row.revision),
+      objective: row.objective,
+      phase: row.phase,
+      roundsStarted: Number(row.rounds_started),
+      maxGoalRounds: Number(row.max_goal_rounds),
+      ...(row.blocked_code ? { blockedReason: { code: row.blocked_code, message: row.blocked_message || "" } } : {}),
+      activation: row.activation,
+    };
+  }
+  async getGoal({ session_id }) {
+    const row = await this.db.prepare("SELECT * FROM goals WHERE session_id=$1").get(session_id);
+    return this._mapGoal(row);
+  }
+  async saveGoal({ session_id, goal }) {
+    await this.db.prepare("DELETE FROM goals WHERE session_id=$1").run(session_id);
+    await this._insertRow("goals", [
+      "session_id", "goal_id", "revision", "objective", "phase",
+      "rounds_started", "max_goal_rounds", "blocked_code", "blocked_message", "activation",
+    ], [
+      session_id, goal.id, goal.revision, goal.objective, goal.phase,
+      goal.roundsStarted || 0, goal.maxGoalRounds, goal.blockedReason ? goal.blockedReason.code : null,
+      goal.blockedReason ? goal.blockedReason.message : null, goal.activation || "armed",
+    ]);
+    return this.getGoal({ session_id });
+  }
+
   listTurns({ session_id }) { return this._list("turns", { session_id }, "seq"); }
   getTurn({ id }) { return this._get("turns", id); }
   createTurn(data) { return this._create("turns", data, ["session_id", "seq", "status"]); }
@@ -279,6 +310,9 @@ const OPS = {
   "session.update": (s, p) => s.updateSession(p),
   "session.delete": (s, p) => s.deleteSession(p),
   "session.prompt": (s, p) => s.getSessionPrompt(p),
+
+  "goal.get": (s, p) => s.getGoal(p),
+  "goal.save": (s, p) => s.saveGoal(p),
 
   "turn.list": (s, p) => s.listTurns(p),
   "turn.get": (s, p) => s.getTurn(p),
