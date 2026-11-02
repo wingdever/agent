@@ -22,15 +22,18 @@ section 按 `order` 升序拼接，同 order 按 name 排序；空文本段落�
 |---|---|---|
 | `harness:identity` | -1000 | `user/settings.json` 的 `identity`，缺省 `You are an AI agent.` |
 | `deployment:persona` | 0 | `user/settings.json` 的 `persona`，缺省空（不渲染） |
+| `harness:language` | 500 | 固定 `Always answer in English.` |
 | `tool:<name>` | 1000+ | 工具 `registry.json` 的 `prompt` 字段，按工具名排序 |
 | `runtime:context` | 10000 | 自动生成，固定在末尾 |
 
-只有本轮可见的工具（`toolNames`）才贡献 `tool:*` 段落；bare-chat 传 `toolNames: []`，因此只有身份、persona 和运行时上下文。
+只有本轮可见的工具（`toolNames`）才贡献 `tool:*` 段落；bare-chat 传 `toolNames: []`，因此只有身份、persona、语言策略和运行时上下文。
+
+新 session 在装配时写入 `harness:language`。本项目不做旧会话兼容：旧 session 的 system prompt 不再补这条规则，直接删除旧 session 即可（历史数据不重要）。
 
 ### 变量
 section 文本里的 `{{name}}` 在渲染时替换；未知变量直接抛错，不静默保留。当前提供：
 
-- `{{cwd}}`：本轮 cwd（会话所属 workspace 的 `folder_path`；无会话时 `process.cwd()`）
+- `{{cwd}}`：本轮 cwd（会话所属 workspace 的 `folder_path`；相对路径依次按 app cwd / 项目目录名 / 用户主目录 / 上级目录解析，找不到则回退 `process.cwd()`；无会话时也是 `process.cwd()`）
 - `{{model}}`：本轮实际使用的模型名
 
 ### 运行时上下文

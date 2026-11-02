@@ -13,11 +13,13 @@
 const SECTION_ORDERS = {
   HARNESS_IDENTITY: -1000,
   DEPLOYMENT_PERSONA: 0,
+  LANGUAGE_POLICY: 500,
   TOOL_GUIDANCE: 1000,
   RUNTIME_CONTEXT: 10000,
 };
 
 const DEFAULT_IDENTITY = "You are an AI agent.";
+const ENGLISH_ONLY_INSTRUCTION = "Always answer in English.";
 
 // Variables are referenced from section text as {{name}}. Unknown references
 // throw: a malformed prompt is worse than a loud failure.
@@ -123,6 +125,11 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
 
   prompt.section({ name: "harness:identity", order: prompt.getSectionOrder("HARNESS_IDENTITY"), text: identity });
   prompt.section({ name: "deployment:persona", order: prompt.getSectionOrder("DEPLOYMENT_PERSONA"), text: persona });
+  prompt.section({
+    name: "harness:language",
+    order: prompt.getSectionOrder("LANGUAGE_POLICY"),
+    text: ENGLISH_ONLY_INSTRUCTION,
+  });
 
   const guidance = tools
     .filter((tool) => tool && typeof tool.prompt === "string" && tool.prompt.trim())
@@ -146,6 +153,7 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
 
 module.exports = {
   DEFAULT_IDENTITY,
+  ENGLISH_ONLY_INSTRUCTION,
   SECTION_ORDERS,
   SystemPrompt,
   assembleSystemPrompt,

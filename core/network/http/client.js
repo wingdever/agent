@@ -12,7 +12,7 @@ const { trackCapture, recordCapture } = require("./tracker");
 
 // POST /chat/completions. Resolves with { stream, cap } where stream is the raw
 // (paused) IncomingMessage and cap carries request metadata for the tracker.
-function postChatCompletions({ baseUrl, apiKey, payload, sessionId }) {
+function postChatCompletions({ baseUrl, apiKey, payload, sessionId, timeoutMs }) {
   return new Promise((resolve, reject) => {
     let base;
     try {
@@ -25,20 +25,23 @@ function postChatCompletions({ baseUrl, apiKey, payload, sessionId }) {
     const body = JSON.stringify(payload);
     const t0 = Date.now();
     const httpMod = base.protocol === "http:" ? http : https;
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: payload.stream ? "text/event-stream" : "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    };
+    // Keyless endpoints (e.g. the translation service) must not receive an
+    // "Authorization: Bearer " header with an empty token.
+    if (apiKey) headers.Authorization = "Bearer " + apiKey;
 
     const req = httpMod.request(
       {
         method: "POST",
         hostname: base.hostname,
-        port: base.port || 443,
+        port: base.port || (base.protocol === "http:" ? 80 : 443),
         path: reqPath,
-        headers: {
-          Authorization: "Bearer " + apiKey,
-          "Content-Type": "application/json",
-          Accept: payload.stream ? "text/event-stream" : "application/json",
-          "Content-Length": Buffer.byteLength(body),
-        },
-        timeout: 60000,
+        headers,
+        timeout: timeoutMs || 60000,
       },
       (res) => {
         const status = res.statusCode;
@@ -53,7 +56,7 @@ function postChatCompletions({ baseUrl, apiKey, payload, sessionId }) {
           sessionId: sessionId || "-",
           request: {
             url: base.origin + reqPath,
-            headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+            headers: { ...headers },
             body: payload,
           },
           response: { headers: res.headers, body: "" },

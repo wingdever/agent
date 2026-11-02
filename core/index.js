@@ -1,8 +1,15 @@
 "use strict";
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { DEFAULT_IDENTITY, assembleSystemPrompt } = require("./system-prompt");
 const { readPermissions, permissionFor } = require("./permissions");
+const {
+  resolveConfig: resolveTranslateConfig,
+  shouldTranslateUser,
+  shouldTranslateAssistant,
+  translateText,
+} = require("./translation");
 
 // user/providers.json：用户侧供应者配置，含 base_url / api_key / models。
 // 当调用方未显式提供 model 时，作为默认模型来源。
@@ -84,6 +91,32 @@ class TurnError extends Error {
   }
 }
 
+// Workspaces created through the web folder picker only carry the selected
+// folder name (browsers do not expose its parent path). Resolve such relative
+// names against the app cwd, the project folder name, the home directory, and
+// the parent directory; an unknown folder falls back to the process cwd.
+function isDirectory(folder) {
+  try { return fs.statSync(folder).isDirectory(); } catch (_) { return false; }
+}
+
+function workspaceFolderCandidates(raw) {
+  const text = String(raw == null ? "" : raw).trim();
+  if (!text) return [];
+  if (path.isAbsolute(text)) return [path.resolve(text)];
+  const candidates = [path.resolve(process.cwd(), text)];
+  if (path.basename(process.cwd()) === text) candidates.push(process.cwd());
+  candidates.push(path.resolve(os.homedir(), text));
+  candidates.push(path.resolve(process.cwd(), "..", text));
+  return [...new Set(candidates)];
+}
+
+function resolveWorkspaceFolder(raw) {
+  for (const candidate of workspaceFolderCandidates(raw)) {
+    if (isDirectory(candidate)) return candidate;
+  }
+  return null;
+}
+
 class AgentCore {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.QINIU_API_KEY || "sk-e0f0f3ddf37c57bd75b558376bc015575e1c8c4e7246306e6d3a7286f226e35a";
@@ -140,7 +173,15 @@ class AgentCore {
       if (session && session.workspace_id != null) {
         const workspace = await this.store.run("workspace.get", { id: session.workspace_id });
         if (workspace && typeof workspace.folder_path === "string" && workspace.folder_path.trim()) {
-          return path.resolve(workspace.folder_path);
+          const resolved = resolveWorkspaceFolder(workspace.folder_path);
+          if (resolved) {
+            const literal = path.resolve(workspace.folder_path);
+            if (literal !== resolved) {
+              console.warn("[core] workspace folder resolved heuristically:", workspace.folder_path, "->", resolved);
+            }
+            return resolved;
+          }
+          console.warn("[core] workspace folder not found:", workspace.folder_path, "-> falling back to", process.cwd());
         }
       }
     } catch (e) {
@@ -241,6 +282,25 @@ class AgentCore {
     try {
     // Apply persisted settings (user/settings.json): provider -> baseUrl/apiKey, model, stream.
     const st = readSettings();
+    const translateCfg = resolveTranslateConfig(st);
+    // Input translation: the model must only see English. A failure blocks the
+    // turn before anything is persisted; the UI restores the composer and asks
+    // the user to send English instead.
+    let translatedUser = null;
+    if (translateCfg.enabled && Array.isArray(messages) && messages.length) {
+      const last = messages[messages.length - 1];
+      if (last && last.role === "user" && shouldTranslateUser(last.content, translateCfg)) {
+        onEvent({ type: "translation", role: "user", phase: "start", sourceLang: "zh", targetLang: "en", source: last.content });
+        try {
+          translatedUser = await translateText({ text: last.content, target: "en", config: translateCfg, sessionId, timeoutMs: translateCfg.inputTimeoutMs });
+          onEvent({ type: "translation", role: "user", phase: "done", sourceLang: "zh", targetLang: "en", source: last.content, text: translatedUser });
+        } catch (e) {
+          const message = String((e && e.message) || e);
+          onEvent({ type: "translation", role: "user", phase: "error", sourceLang: "zh", targetLang: "en", source: last.content, error: message });
+          throw new TurnError("translation-error", "input translation failed: " + message);
+        }
+      }
+    }
     const effStream = stream !== undefined ? !!stream : (st.stream === true);
     let effModel = model || st.model || this.model;
     if (st.provider) {
@@ -275,6 +335,12 @@ class AgentCore {
       onEvent({ type: "system-prompt", content: system });
     }
     const conv = [{ role: "system", content: system }, ...messages];
+    // Replace only the last user turn with its English translation. Earlier
+    // turns are already English in the persisted history.
+    if (translatedUser != null && conv.length > 1) {
+      const lastIndex = conv.length - 1;
+      conv[lastIndex] = Object.assign({}, conv[lastIndex], { content: translatedUser });
+    }
 
     // 开启一轮对话轨迹（持久化）：一个 turn 包含多个 step
     // 每个 step = 一次模型请求 + 其响应（agent-request? + model-response(thought?/answer?/tool-call-card*)）
@@ -362,6 +428,26 @@ class AgentCore {
       if (!message.tool_calls) {
         if (!String(message.content || "").trim()) {
           throw new TurnError("empty-response", "model returned no content and no tool calls");
+        }
+        // Output translation: the answer stays English in history; the Chinese
+        // version is display-only and is not persisted. A failure never blocks
+        // the answer — the UI shows the English text plus a notice.
+        if (shouldTranslateAssistant(message.content, translateCfg)) {
+          onEvent({ type: "translation", role: "assistant", phase: "start", sourceLang: "en", targetLang: "zh", source: message.content });
+          try {
+            const translated = await translateText({ text: message.content, target: "zh", config: translateCfg, sessionId, timeoutMs: translateCfg.outputTimeoutMs });
+            onEvent({ type: "translation", role: "assistant", phase: "done", sourceLang: "en", targetLang: "zh", source: message.content, text: translated });
+          } catch (e) {
+            onEvent({
+              type: "translation",
+              role: "assistant",
+              phase: "error",
+              sourceLang: "en",
+              targetLang: "zh",
+              source: message.content,
+              error: String((e && e.message) || e),
+            });
+          }
         }
         onEvent({ type: "done", message });
         if (persist) {
@@ -488,4 +574,4 @@ async function createCore(config = {}) {
   return core;
 }
 
-module.exports = { AgentCore, createCore, handleCall };
+module.exports = { AgentCore, createCore, handleCall, resolveWorkspaceFolder };

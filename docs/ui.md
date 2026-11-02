@@ -199,9 +199,15 @@ shell
 │  │  │         ├─ agent-request?
 │  │  │         │  ├─ system-prompt?
 │  │  │         │  └─ user-input
+│  │  │         │      ├─ chinese-primary-user-input 
+│  │  │         │      └─ english-translate-user-input
 │  │  │         └─ model-response
 │  │  │             ├─ thought?
+│  │  │             │  ├─ english-primary-thought 
+│  │  │             │  └─ chinese-translate-thought
 │  │  │             ├─ answer?
+│  │  │             │  ├─ english-primary-answer 
+│  │  │             │  └─ chinese-translate-answer
 │  │  │             └─ tool-call-card*
 │  │  │                 ├─ tool-call-desc
 │  │  │                 ├─ approval-request

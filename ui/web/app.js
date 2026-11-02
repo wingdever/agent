@@ -352,6 +352,13 @@ document.addEventListener("DOMContentLoaded", function () {
   var currentThoughtBubble = null;
   var toolCards = {};
 
+  // 自动翻译：display-only 的中英对照块（不落库，重载后只剩英文）
+  var flatUserWrap = null;
+  var flatUserBubble = null;
+  var flatUserOriginal = "";
+  var flatUserTranslation = null;
+  var flatAssistantTranslation = null;
+
   // turn-step 流式渲染所依赖的 DOM 锚点
   var liveTurn = null;     // 当前 .turn 节点
   var liveStep = null;     // 当前 .step 节点
@@ -359,6 +366,10 @@ document.addEventListener("DOMContentLoaded", function () {
   var liveAnswer = null;   // 当前 .answer 节点
   var liveCards = {};      // call id -> .tool-call-card 节点
   var liveAgentRequest = null; // 当前 .agent-request 节点
+  var liveUserInput = null;    // 当前 .user-input（英文译文主块）
+  var liveUserOriginal = "";   // 用户输入原文（中文）
+  var liveUserTranslation = null;   // 用户消息的中文原文副块
+  var liveAssistantTranslation = null; // 助手回答的中文译文副块
 
   function getComposerMode() {
     var sel = document.querySelector(".mode-selector select");
@@ -377,6 +388,129 @@ document.addEventListener("DOMContentLoaded", function () {
     n.setAttribute("data-name", name);
     if (cls) n.className = cls;
     return n;
+  }
+
+  // ---------- 自动翻译：中英对照块 ----------
+  // English is the primary block for both roles (the model environment is
+  // English); the Chinese side is a secondary block, open by default and
+  // collapsible. Translations are display-only and never persisted.
+  function makeTranslationBlock(label, text, markdown) {
+    var details = document.createElement("details");
+    details.className = "translation";
+    details.setAttribute("data-name", "translation");
+    details.open = true;
+    var summary = document.createElement("summary");
+    summary.textContent = label;
+    details.appendChild(summary);
+    var body = makeEl("translation-body", "translation-body textcard" + (markdown ? "" : " plain"));
+    if (markdown) AgentMarkdown.set(body, text || "");
+    else body.textContent = text || "";
+    details.appendChild(body);
+    return details;
+  }
+  function setTranslationText(block, text, markdown) {
+    if (!block) return;
+    var body = block.querySelector(".translation-body");
+    if (!body) return;
+    if (markdown) {
+      body.classList.remove("plain");
+      AgentMarkdown.set(body, text || "");
+    } else {
+      body.classList.add("plain");
+      body.textContent = text || "";
+    }
+  }
+  function appendTranslationErrorNotice(container, error) {
+    if (!container) return;
+    var note = makeEl("translation-error", "translation-error");
+    note.textContent = "翻译失败，已显示英文原文：" + (error || "未知错误");
+    container.appendChild(note);
+    scrollChatToBottom();
+  }
+
+  function appendFlatUser(text) {
+    hideEmptyHint();
+    var wrap = document.createElement("div");
+    wrap.className = "msg msg-user";
+    var roleLabel = document.createElement("div");
+    roleLabel.className = "role";
+    roleLabel.textContent = "你";
+    var bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text || "";
+    wrap.appendChild(roleLabel);
+    wrap.appendChild(bubble);
+    chatTab.appendChild(wrap);
+    scrollChatToBottom();
+    return { wrap: wrap, bubble: bubble };
+  }
+
+  function resetFlatTranslationState() {
+    flatUserWrap = flatUserBubble = flatUserTranslation = flatAssistantTranslation = null;
+    flatUserOriginal = "";
+  }
+
+  function ensureFlatUserTranslation(original) {
+    if (!flatUserTranslation && flatUserWrap) {
+      flatUserTranslation = makeTranslationBlock("中文原文", original || "", false);
+      flatUserWrap.appendChild(flatUserTranslation);
+      scrollChatToBottom();
+    }
+    return flatUserTranslation;
+  }
+  function ensureFlatAssistantTranslation() {
+    if (!flatAssistantTranslation && currentAssistantBubble && currentAssistantBubble.parentNode) {
+      flatAssistantTranslation = makeTranslationBlock("中文译文", "翻译中…", true);
+      currentAssistantBubble.parentNode.appendChild(flatAssistantTranslation);
+      scrollChatToBottom();
+    }
+    return flatAssistantTranslation;
+  }
+  function handleTranslationFlat(evt) {
+    if (evt.role === "user") {
+      if (evt.phase === "start") {
+        flatUserOriginal = evt.source || flatUserOriginal || "";
+        if (flatUserBubble) {
+          flatUserBubble.textContent = "翻译中…";
+          flatUserBubble.classList.add("translating");
+        }
+        ensureFlatUserTranslation(flatUserOriginal);
+      } else if (evt.phase === "done") {
+        if (flatUserBubble) {
+          flatUserBubble.textContent = evt.text || "";
+          flatUserBubble.classList.remove("translating");
+        }
+        if (evt.source) ensureFlatUserTranslation(evt.source);
+        // bare-chat 的历史在内存里：下一轮必须把中文原文换成英文译文。
+        var last = bareHistory[bareHistory.length - 1];
+        if (last && last.role === "user") last.content = evt.text || last.content;
+        scrollChatToBottom();
+      } else if (evt.phase === "error") {
+        if (input) { input.value = evt.source || flatUserOriginal || ""; input.focus(); }
+        if (flatUserWrap && flatUserWrap.parentNode) flatUserWrap.parentNode.removeChild(flatUserWrap);
+        if (bareHistory.length && bareHistory[bareHistory.length - 1].role === "user") bareHistory.pop();
+        resetFlatTranslationState();
+        if (!chatTab.querySelector(".msg")) showEmptyHint();
+        if (window.uiAlert) uiAlert("输入翻译失败：" + (evt.error || "未知错误") + "\n请改用英文重新发送。");
+      }
+      return;
+    }
+    if (evt.role !== "assistant") return;
+    if (evt.phase === "start") {
+      ensureFlatAssistantTranslation();
+    } else if (evt.phase === "done") {
+      var block = ensureFlatAssistantTranslation();
+      setTranslationText(block, evt.text || "", true);
+      scrollChatToBottom();
+    } else if (evt.phase === "error") {
+      if (flatAssistantTranslation && flatAssistantTranslation.parentNode) {
+        flatAssistantTranslation.parentNode.removeChild(flatAssistantTranslation);
+      }
+      flatAssistantTranslation = null;
+      if (currentAssistantBubble && currentAssistantBubble.parentNode) {
+        appendTranslationErrorNotice(currentAssistantBubble.parentNode, evt.error);
+      }
+    }
   }
 
   // ---------- bare-chat 扁平渲染（不落库、不支持工具调用） ----------
@@ -483,14 +617,22 @@ document.addEventListener("DOMContentLoaded", function () {
       flushMessageBubbles();
       currentAssistantBubble = null;
       currentThoughtBubble = null;
+      resetFlatTranslationState();
     } else if (evt.type === "turn-end") {
       // 本轮终止原因由 core 统一给出；异常终止不会再发 done
       flushMessageBubbles();
+      if (evt.reason === "translation-error") {
+        currentAssistantBubble = null;
+        currentThoughtBubble = null;
+        resetFlatTranslationState();
+        return;
+      }
       if (evt.status !== "succeeded") {
         appendMessage("assistant", "[本轮终止] " + (evt.reason || "unknown") + (evt.error ? ": " + evt.error : ""));
       }
       currentAssistantBubble = null;
       currentThoughtBubble = null;
+      resetFlatTranslationState();
     } else if (evt.type === "approval-request") {
       createApprovalCard(evt);
     } else if (evt.type === "error") {
@@ -498,6 +640,7 @@ document.addEventListener("DOMContentLoaded", function () {
       appendMessage("assistant", "[出错] " + (evt.error || "未知错误"));
       currentAssistantBubble = null;
       currentThoughtBubble = null;
+      resetFlatTranslationState();
     }
   }
 
@@ -544,11 +687,15 @@ document.addEventListener("DOMContentLoaded", function () {
   function addAgentRequest(text) {
     ensureLiveStep();
     var req = makeEl("agent-request", "agent-request");
-    var input = makeEl("user-input", "user-input");
-    input.textContent = text || "";
-    req.appendChild(input);
+    var userInput = makeEl("user-input", "user-input");
+    userInput.textContent = text || "";
+    req.appendChild(userInput);
     liveStep.insertBefore(req, liveResponse); // agent-request 位于 model-response 之前
     liveAgentRequest = req;
+    liveUserInput = userInput;
+    liveUserOriginal = text || "";
+    liveUserTranslation = null;
+    liveAssistantTranslation = null;
     return req;
   }
   function getToolCard(id) {
@@ -717,7 +864,73 @@ document.addEventListener("DOMContentLoaded", function () {
     details.addEventListener("click", function (e) { e.stopPropagation(); });
     card.appendChild(details);
   }
-  function resetLive() { liveTurn = liveStep = liveResponse = liveAnswer = liveAgentRequest = null; liveCards = {}; }
+  function resetLive() {
+    liveTurn = liveStep = liveResponse = liveAnswer = liveAgentRequest = null;
+    liveCards = {};
+    liveUserInput = null;
+    liveUserOriginal = "";
+    liveUserTranslation = null;
+    liveAssistantTranslation = null;
+  }
+
+  // ---------- turn-step 的中英对照渲染 ----------
+  function ensureUserTranslation(original) {
+    if (!liveUserTranslation && liveAgentRequest) {
+      liveUserTranslation = makeTranslationBlock("中文原文", original || "", false);
+      liveAgentRequest.appendChild(liveUserTranslation);
+      scrollChatToBottom();
+    }
+    return liveUserTranslation;
+  }
+  function ensureAssistantTranslation() {
+    if (!liveAssistantTranslation) {
+      ensureLiveStep();
+      ensureAnswer();
+      liveAssistantTranslation = makeTranslationBlock("中文译文", "翻译中…", true);
+      liveResponse.appendChild(liveAssistantTranslation);
+      scrollChatToBottom();
+    }
+    return liveAssistantTranslation;
+  }
+  function handleTranslationTurn(evt) {
+    if (evt.role === "user") {
+      if (evt.phase === "start") {
+        if (!liveUserInput) return;
+        liveUserOriginal = evt.source || liveUserOriginal || "";
+        liveUserInput.textContent = "翻译中…";
+        liveUserInput.classList.add("translating");
+        ensureUserTranslation(liveUserOriginal);
+      } else if (evt.phase === "done") {
+        if (!liveUserInput) return;
+        liveUserInput.textContent = evt.text || "";
+        liveUserInput.classList.remove("translating");
+        if (evt.source) ensureUserTranslation(evt.source);
+        scrollChatToBottom();
+      } else if (evt.phase === "error") {
+        // 输入翻译失败：本轮不发送。恢复输入框并移除未发送的气泡。
+        if (input) { input.value = evt.source || liveUserOriginal || ""; input.focus(); }
+        if (liveTurn && liveTurn.parentNode) liveTurn.parentNode.removeChild(liveTurn);
+        resetLive();
+        if (!chatTab.querySelector(".turn")) showEmptyHint();
+        if (window.uiAlert) uiAlert("输入翻译失败：" + (evt.error || "未知错误") + "\n请改用英文重新发送。");
+      }
+      return;
+    }
+    if (evt.role !== "assistant") return;
+    if (evt.phase === "start") {
+      ensureAssistantTranslation();
+    } else if (evt.phase === "done") {
+      var block = ensureAssistantTranslation();
+      setTranslationText(block, evt.text || "", true);
+      scrollChatToBottom();
+    } else if (evt.phase === "error") {
+      if (liveAssistantTranslation && liveAssistantTranslation.parentNode) {
+        liveAssistantTranslation.parentNode.removeChild(liveAssistantTranslation);
+      }
+      liveAssistantTranslation = null;
+      if (liveResponse) appendTranslationErrorNotice(liveResponse, evt.error);
+    }
+  }
 
   // composer 内 model-http-status 状态切换（on-wait / on-post / on-get）
   var HTTP_STATUS_LABEL = { "on-wait": "wait", "on-post": "post", "on-get": "get" };
@@ -734,6 +947,11 @@ document.addEventListener("DOMContentLoaded", function () {
   function onChatEvent(evt) {
     if (!evt || !evt.type) return;
     if (evt.type === "model-http-status") { setModelHttpStatus(evt.state, evt.status); return; }
+    if (evt.type === "translation") {
+      if (getComposerMode() === "bare-chat") handleTranslationFlat(evt);
+      else handleTranslationTurn(evt);
+      return;
+    }
     if (getComposerMode() === "bare-chat") { onChatEventFlat(evt); return; }
     // turn-step：按层级渲染
     if (evt.type === "reasoning") {
@@ -769,11 +987,14 @@ document.addEventListener("DOMContentLoaded", function () {
       liveResponse = makeEl("model-response", "model-response");
       liveStep.appendChild(liveResponse);
       liveAnswer = null; liveCards = {}; liveAgentRequest = null;
+      liveUserInput = null; liveUserTranslation = null; liveAssistantTranslation = null;
       scrollChatToBottom();
     } else if (evt.type === "done") {
       flushLiveMarkdown();
       resetLive();
     } else if (evt.type === "turn-end") {
+      // 输入翻译失败已经在 translation 事件里恢复输入框并移除气泡，这里只收尾。
+      if (evt.reason === "translation-error") { flushLiveMarkdown(); resetLive(); return; }
       // 异常终止不经过 done：把原因写进本 step 的 answer 再收尾
       if (evt.status !== "succeeded") {
         AgentMarkdown.append(ensureAnswer(), "[本轮终止] " + (evt.reason || "unknown") + (evt.error ? ": " + evt.error : ""));
@@ -897,7 +1118,12 @@ document.addEventListener("DOMContentLoaded", function () {
   }
   async function runBareChat(text) {
     input.value = "";
-    appendMessage("user", text);
+    var userNode = appendFlatUser(text);
+    flatUserWrap = userNode.wrap;
+    flatUserBubble = userNode.bubble;
+    flatUserOriginal = text;
+    flatUserTranslation = null;
+    flatAssistantTranslation = null;
     bareHistory.push({ role: "user", content: text });
     currentAssistantBubble = null; toolCards = {};
     try {

@@ -325,3 +325,15 @@ select, textarea, input { font-family: inherit; }
 .system-prompt { margin-bottom: 6px; font-size: 12px; color: #4b5563; }
 .system-prompt summary { cursor: pointer; user-select: none; font-weight: 500; }
 .system-prompt pre { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; margin: 6px 0 0; }
+
+/* ============ 自动翻译：中英对照（副块默认展开，可折叠） ============ */
+.translation { margin-top: 6px; border-top: 1px dashed #dbe3ef; padding-top: 4px; }
+.translation summary { cursor: pointer; user-select: none; font-size: 11px; color: #64748b; }
+.translation summary::-webkit-details-marker { display: none; }
+.translation summary::before { content: "▸ "; }
+.translation[open] summary::before { content: "▾ "; }
+.translation-body.textcard { margin-top: 4px; padding: 6px 8px; border: 1px solid #e8edf5; border-left: 2px solid #cbd5e1; border-radius: 6px; background: #fbfdff; color: #475569; font-size: 13px; }
+.translation-body.plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-input.translating, .bubble.translating { color: #94a3b8; font-style: italic; }
+.translation-error { margin-top: 4px; font-size: 12px; color: #b45309; }
+.settings-note { margin: -6px 0 10px; font-size: 11px; line-height: 1.55; color: #94a3b8; }

@@ -31,18 +31,24 @@
     return e;
   }
 
-  var overlay = null, streamSwitchEl = null, providerSelEl = null, modelSelEl = null;
-  var state = { stream: false, provider: "", model: "" };
+  var overlay = null, streamSwitchEl = null, translateSwitchEl = null, providerSelEl = null, modelSelEl = null;
+  var state = { stream: false, provider: "", model: "", translate: { enabled: true } };
   var providers = [];
 
   function getSettings() { return state; }
   window.getSettings = getSettings;
 
+  function normalizeTranslate() {
+    if (!state.translate || typeof state.translate !== "object") state.translate = { enabled: true };
+    state.translate.enabled = state.translate.enabled !== false;
+  }
+
   async function loadSettings() {
     try {
       var st = await window.AgentClient.call("settings", { op: "get" });
-      state = Object.assign({ stream: false, provider: "", model: "" }, st || {});
+      state = Object.assign({ stream: false, provider: "", model: "", translate: { enabled: true } }, st || {});
     } catch (e) { /* 后端未就绪时用默认 */ }
+    normalizeTranslate();
   }
 
   async function loadProviders() {
@@ -59,6 +65,12 @@
     var on = !!state.stream;
     streamSwitchEl.textContent = on ? "流式输出：开" : "流式输出：关";
     streamSwitchEl.classList.toggle("active", on);
+  }
+
+  function renderTranslateSwitch() {
+    var on = !!(state.translate && state.translate.enabled !== false);
+    translateSwitchEl.textContent = on ? "自动翻译：开" : "自动翻译：关";
+    translateSwitchEl.classList.toggle("active", on);
   }
 
   function populateProviders() {
@@ -99,6 +111,16 @@
     });
     renderStreamSwitch();
 
+    translateSwitchEl = el("button", {
+      className: "stream-switch", dataset: { name: "translate-switch" },
+      onclick: function () {
+        state.translate.enabled = !(state.translate.enabled !== false);
+        renderTranslateSwitch();
+        save();
+      },
+    });
+    renderTranslateSwitch();
+
     providerSelEl = el("select", { className: "settings-provider-select", dataset: { name: "provider-selector" } });
     providerSelEl.addEventListener("change", function () {
       state.provider = providerSelEl.value;
@@ -113,6 +135,10 @@
     var card = el("div", { className: "settings-card" }, [
       el("h3", null, "设置"),
       el("div", { className: "settings-row" }, [el("span", null, "流式输出"), streamSwitchEl]),
+      el("div", { className: "settings-row" }, [el("span", null, "自动翻译"), translateSwitchEl]),
+      el("div", { className: "settings-note" },
+        "开启后：中文输入先翻译成英文再发给模型，英文回答再翻译成中文显示；" +
+        "对话正文会发送至 index-translate.bilibili.com。翻译不落库，重新打开会话后只保留英文。"),
       el("div", { className: "settings-row" }, [el("span", null, "Provider"), providerSelEl]),
       el("div", { className: "settings-row" }, [el("span", null, "模型"), modelSelEl]),
       el("div", { className: "settings-actions" }, [
@@ -133,6 +159,7 @@
     populateProviders();
     populateModels();
     renderStreamSwitch();
+    renderTranslateSwitch();
   }
   function closeSettings() { if (overlay) overlay.style.display = "none"; }
 
