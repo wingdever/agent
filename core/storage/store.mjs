@@ -111,23 +111,29 @@ class Store {
 
   // ---- messages（content 与 thought 分别存于 contents，经 content_id / thought_id 关联）----
   async addMessage({ step_id, seq, role, content, thought }) {
-    const content_id = await this._nextId("contents");
-    await this._insertRow("contents", ["id", "content"], [content_id, content == null ? "" : content]);
-    // thought_id 为 NOT NULL：无论是否有思考内容，都建一条 contents 行（无思考则为空串）
-    const thought_id = await this._nextId("contents");
-    await this._insertRow("contents", ["id", "content"], [thought_id, thought == null ? "" : thought]);
+    // content_id / thought_id 可空：仅当对应内容存在时才建 contents 行
+    let content_id = null;
+    if (content != null) {
+      content_id = await this._nextId("contents");
+      await this._insertRow("contents", ["id", "content"], [content_id, content]);
+    }
+    let thought_id = null;
+    if (thought != null) {
+      thought_id = await this._nextId("contents");
+      await this._insertRow("contents", ["id", "content"], [thought_id, thought]);
+    }
     const id = await this._nextId("messages");
     await this._insertRow("messages", ["id", "step_id", "seq", "role", "content_id", "thought_id"], [id, step_id, seq, role, content_id, thought_id]);
     return this.getMessage({ id });
   }
   async getMessage({ id }) {
     return this.db.prepare(
-      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages JOIN contents ON contents.id=messages.content_id JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.id=$1"
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.id=$1"
     ).get(id);
   }
   async listMessages({ step_id }) {
     return this.db.prepare(
-      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages JOIN contents ON contents.id=messages.content_id JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.step_id=$1 ORDER BY messages.seq"
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.step_id=$1 ORDER BY messages.seq"
     ).all(step_id);
   }
   async deleteMessage({ id }) {
@@ -136,9 +142,9 @@ class Store {
     const callsToDel = await this.db.prepare("SELECT result_id FROM calls WHERE reply_id=$1").all(msg.id);
     for (const c of callsToDel) if (c.result_id != null) await this._delete("contents", c.result_id);
     await this.db.prepare("DELETE FROM calls WHERE reply_id=$1").run(msg.id);
-    await this._delete("contents", msg.thought_id);
+    if (msg.thought_id != null) await this._delete("contents", msg.thought_id);
     await this._delete("messages", id);
-    return this._delete("contents", msg.content_id);
+    if (msg.content_id != null) return this._delete("contents", msg.content_id);
   }
 
   // ---- calls（工具调用，arguments 为 text 原文；result 存于 contents）----

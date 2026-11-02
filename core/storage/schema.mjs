@@ -101,8 +101,8 @@ export const SCHEMA_STATEMENTS = [
     step_id     INTEGER NOT NULL REFERENCES steps (id) ON DELETE CASCADE,
     seq         integer not null,
     role        text  NOT NULL,
-    content_id  integer not null references contents (id) on delete cascade,
-    thought_id  integer not null references contents (id) on delete cascade,
+    content_id  integer references contents (id) on delete cascade,
+    thought_id  integer references contents (id) on delete cascade,
     created_at  TIMESTAMP NOT NULL DEFAULT now(),
     updated_at  TIMESTAMP NOT NULL DEFAULT now(),
     unique(step_id, seq)
