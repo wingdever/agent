@@ -338,6 +338,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var chatTab = document.getElementById("chatTab");
   var input = document.querySelector(".input-textarea");
   var sendBtn = document.querySelector(".send-or-stop-btn");
+  var modelHttpStatus = document.querySelector(".model-http-status");
   var sessionNameLabel = document.querySelector(".session-name");
   var currentSessionId = null;
   var bareHistory = [];  // bare-chat 模式：纯内存对话历史，不落库
@@ -548,8 +549,21 @@ document.addEventListener("DOMContentLoaded", function () {
   }
   function resetLive() { liveTurn = liveStep = liveResponse = liveAnswer = null; liveCards = {}; }
 
+  // composer 内 model-http-status 状态切换（on-wait / on-post / on-get）
+  var HTTP_STATUS_LABEL = { "on-wait": "wait", "on-post": "post", "on-get": "get" };
+  function setModelHttpStatus(state, status) {
+    if (!modelHttpStatus || !state) return;
+    var states = modelHttpStatus.querySelectorAll(".state");
+    Array.prototype.forEach.call(states, function (s) { s.hidden = true; });
+    var el = modelHttpStatus.querySelector(".state." + state);
+    if (!el) return;
+    el.textContent = (state === "on-get" && status) ? ("get " + status) : HTTP_STATUS_LABEL[state];
+    el.hidden = false;
+  }
+
   function onChatEvent(evt) {
     if (!evt || !evt.type) return;
+    if (evt.type === "model-http-status") { setModelHttpStatus(evt.state, evt.status); return; }
     if (getComposerMode() === "bare-chat") { onChatEventFlat(evt); return; }
     // turn-step：按层级渲染
     if (evt.type === "reasoning") {

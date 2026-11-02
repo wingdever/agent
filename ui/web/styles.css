@@ -87,6 +87,13 @@ select, textarea, input { font-family: inherit; }
 .attachment-tray .extracting { background: #fef9c3; color: #854d0e; }
 .attachment-tray .fallback { background: #fee2e2; color: #991b1b; }
 
+/* model-http-status: composer 内模型 HTTP 请求状态（on-wait / on-post / on-get） */
+.model-http-status { display: flex; gap: 8px; font-size: 11px; }
+.model-http-status .state { padding: 1px 6px; border-radius: 4px; }
+.model-http-status .on-wait { background: #e5e7eb; color: #374151; }
+.model-http-status .on-post { background: #dbeafe; color: #1e40af; }
+.model-http-status .on-get { background: #dcfce7; color: #166534; }
+
 /* chat-footer */
 .chat-footer { display: flex; gap: 16px; padding: 6px 14px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; background: #fafafa; }
 

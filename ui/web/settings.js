@@ -1,5 +1,6 @@
 "use strict";
-// settings-modal：运行时设置弹窗（流式开关 + 模型选择）。
+// settings-modal：运行时设置弹窗（流式开关 + provider + 模型）。
+// 持久化到 user/settings.json：通过后端 settings op 读写，前端不依赖 localStorage。
 // 依赖 window.AgentClient（api.js）与 window.uiConfirm/uiAlert（app.js）。
 (function () {
   function ready(fn) {
@@ -7,7 +8,6 @@
     else fn();
   }
 
-  // 极简 DOM 构造器
   function el(tag, attrs, children) {
     var e = document.createElement(tag);
     attrs = attrs || {};
@@ -31,62 +31,89 @@
     return e;
   }
 
-  function api(op, payload) {
-    return window.AgentClient.call("storage", { op: op, payload: payload || {} });
+  var overlay = null, streamSwitchEl = null, providerSelEl = null, modelSelEl = null;
+  var state = { stream: false, provider: "", model: "" };
+  var providers = [];
+
+  function getSettings() { return state; }
+  window.getSettings = getSettings;
+
+  async function loadSettings() {
+    try {
+      var st = await window.AgentClient.call("settings", { op: "get" });
+      state = Object.assign({ stream: false, provider: "", model: "" }, st || {});
+    } catch (e) { /* 后端未就绪时用默认 */ }
   }
 
-  var overlay = null, streamSwitchEl = null, modelSelEl = null, saveBtn = null;
-  var LS_STREAM = "agent.stream";
-  var LS_MODEL = "agent.model";
-  var LS_MODE = "agent.mode";
+  async function loadProviders() {
+    try { providers = await window.AgentClient.call("settings", { op: "providers" }); }
+    catch (e) { providers = []; }
+    if (!Array.isArray(providers)) providers = [];
+  }
 
-  function getStream() { return localStorage.getItem(LS_STREAM) !== "false"; }
-  function setStream(on) { localStorage.setItem(LS_STREAM, on ? "true" : "false"); }
-  function getModel() { return localStorage.getItem(LS_MODEL) || ""; }
-  function setModel(v) { if (v) localStorage.setItem(LS_MODEL, v); }
-  function getMode() { return localStorage.getItem(LS_MODE) || "turn-step"; }
-  function setMode(v) { if (v) localStorage.setItem(LS_MODE, v); }
+  function save() {
+    window.AgentClient.call("settings", { op: "set", payload: state }).catch(function () {});
+  }
 
   function renderStreamSwitch() {
-    var on = getStream();
+    var on = !!state.stream;
     streamSwitchEl.textContent = on ? "流式输出：开" : "流式输出：关";
     streamSwitchEl.classList.toggle("active", on);
   }
 
-  function composerModeSelect() {
-    var wrap = document.querySelector(".mode-selector");
-    return wrap ? wrap.querySelector("select") : null;
+  function populateProviders() {
+    providerSelEl.innerHTML = "";
+    providers.forEach(function (p) {
+      providerSelEl.appendChild(el("option", { value: p.name }, p.name));
+    });
+    if (state.provider && providers.some(function (p) { return p.name === state.provider; })) {
+      providerSelEl.value = state.provider;
+    } else if (providers.length) {
+      state.provider = providers[0].name;
+      providerSelEl.value = state.provider;
+    }
   }
 
-  // 用存储中的模型列表填充选择器；失败时回退到 composer 的静态选项
-  async function populateModels() {
+  function modelsOf(providerName) {
+    var p = providers.filter(function (x) { return x.name === providerName; })[0];
+    var ms = p && p.models ? p.models : [];
+    return ms.map(function (m) { return m.name || m; });
+  }
+
+  function populateModels() {
     modelSelEl.innerHTML = "";
-    try {
-      var ps = await api("provider.list", {});
-      var ms = await api("model.list", {});
-      (ms || []).forEach(function (m) {
-        var p = (ps || []).filter(function (x) { return String(x.id) === String(m.provider_id); })[0];
-        var label = (p ? p.name : "?") + "/" + (m.name || ("模型 " + m.id));
-        modelSelEl.appendChild(el("option", { value: String(m.id) }, label));
-      });
-    } catch (e) { /* 后端未就绪时留空，模型选择在 settings-modal 内完成 */ }
-    var saved = getModel();
-    if (saved) modelSelEl.value = saved;
+    var ms = modelsOf(state.provider);
+    ms.forEach(function (m) { modelSelEl.appendChild(el("option", { value: m }, m)); });
+    if (state.model && ms.indexOf(state.model) !== -1) {
+      modelSelEl.value = state.model;
+    } else if (ms.length) {
+      state.model = ms[0];
+      modelSelEl.value = state.model;
+    }
   }
 
   function buildShell() {
     streamSwitchEl = el("button", {
       className: "stream-switch", dataset: { name: "stream-switch" },
-      onclick: function () { setStream(!getStream()); renderStreamSwitch(); },
+      onclick: function () { state.stream = !state.stream; renderStreamSwitch(); save(); },
     });
     renderStreamSwitch();
 
+    providerSelEl = el("select", { className: "settings-provider-select", dataset: { name: "provider-selector" } });
+    providerSelEl.addEventListener("change", function () {
+      state.provider = providerSelEl.value;
+      state.model = "";
+      populateModels();
+      save();
+    });
+
     modelSelEl = el("select", { className: "settings-model-select", dataset: { name: "model-selector" } });
-    modelSelEl.addEventListener("change", function () { setModel(modelSelEl.value); });
+    modelSelEl.addEventListener("change", function () { state.model = modelSelEl.value; save(); });
 
     var card = el("div", { className: "settings-card" }, [
       el("h3", null, "设置"),
       el("div", { className: "settings-row" }, [el("span", null, "流式输出"), streamSwitchEl]),
+      el("div", { className: "settings-row" }, [el("span", null, "Provider"), providerSelEl]),
       el("div", { className: "settings-row" }, [el("span", null, "模型"), modelSelEl]),
       el("div", { className: "settings-actions" }, [
         el("button", { className: "close-settings-btn", dataset: { name: "close-settings-btn" }, onclick: closeSettings }, "关闭"),
@@ -101,11 +128,20 @@
   async function openSettings() {
     if (!overlay) buildShell();
     overlay.style.display = "flex";
+    await loadSettings();
+    await loadProviders();
+    populateProviders();
+    populateModels();
     renderStreamSwitch();
-    await populateModels();
   }
   function closeSettings() { if (overlay) overlay.style.display = "none"; }
 
+  function composerModeSelect() {
+    var wrap = document.querySelector(".mode-selector");
+    return wrap ? wrap.querySelector("select") : null;
+  }
+  function getMode() { return localStorage.getItem("agent.mode") || "turn-step"; }
+  function setMode(v) { if (v) localStorage.setItem("agent.mode", v); }
   function initComposerMode() {
     var sel = composerModeSelect();
     if (!sel) return;
@@ -115,6 +151,7 @@
 
   ready(function () {
     initComposerMode();
+    loadSettings().catch(function () {});
     var btn = document.getElementById("settingsBtn");
     if (btn) btn.addEventListener("click", openSettings);
   });

@@ -206,6 +206,7 @@ shell
 │  │  │                 └─ tool-result
 │  │  └─ trajectory-tab
 │  ├─ composer
+│  │  ├─ model-http-status(on-wait|on-post|on-get)
 │  │  ├─ attachment-tray
 │  │  ├─ input-textarea
 │  │  └─ composer-footer

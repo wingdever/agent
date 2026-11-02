@@ -1,9 +1,9 @@
 {
   "name": "bash",
-  "description": "在受控 shell 中执行命令，返回 stdout/stderr/退出码",
+  "description": "run bash command in shell and return stdout/stderr/exit code",
   "parameters": {
     "type": "object",
-    "properties": { "command": { "type": "string", "description": "要执行的 shell 命令" } },
+    "properties": { "command": { "type": "string", "description": "shell command to execute" } },
     "required": ["command"]
   },
   "type": "bash",

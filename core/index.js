@@ -86,6 +86,7 @@ class AgentCore {
     return new Promise((resolve) => {
       const id = (this._approvalSeq = (this._approvalSeq || 0) + 1);
       this.pendingApprovals.set(id, resolve);
+      this._onEvent({ type: "model-http-status", state: "on-wait" });
       this._onEvent({ type: "approval-request", id, name, arguments: args });
     });
   }
@@ -115,10 +116,12 @@ class AgentCore {
   }
 
   async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false }) {
+    onEvent({ type: "model-http-status", state: "on-post" });
     const { stream: res, cap } = await this._post(
       { model: model || this.model, messages, stream: !!stream, tools: toolDefs },
       sessionId
     );
+    onEvent({ type: "model-http-status", state: "on-get", status: cap.status });
     const { trackCapture } = require("./network/http/client");
     trackCapture(res, cap);
 
@@ -185,6 +188,7 @@ class AgentCore {
 
   async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream } = {}) {
     this._onEvent = onEvent;
+    try {
     // Apply persisted settings (user/settings.json): provider -> baseUrl/apiKey, model, stream.
     const st = readSettings();
     const effStream = stream !== undefined ? !!stream : (st.stream === true);
@@ -308,6 +312,9 @@ class AgentCore {
     onEvent({ type: "done", message: last });
     if (persist) await store.run("turn.update", { id: turn.id, status: "failed" });
     return last;
+    } finally {
+      onEvent({ type: "model-http-status", state: "on-wait" });
+    }
   }
 
   // 拉取供应者远端模型列表（OpenAI 兼容 /models），用于辅助新增模型；走 Node 侧请求，绕开渲染层 CORS
