@@ -74,6 +74,16 @@ async function loadTools() {
   return map;
 }
 
+// 终止原因：把"预期内的结束"（请求失败/截断/空回复）与真正的未知异常区分开，
+// 统一由 chat() 的 catch/finally 记录并对外发 turn-end。
+class TurnError extends Error {
+  constructor(reason, message) {
+    super(message || reason);
+    this.name = "TurnError";
+    this.reason = reason;
+  }
+}
+
 class AgentCore {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.QINIU_API_KEY || "sk-e0f0f3ddf37c57bd75b558376bc015575e1c8c4e7246306e6d3a7286f226e35a";
@@ -176,11 +186,11 @@ class AgentCore {
         : undefined;
       if (reasoning_content) onEvent({ type: "reasoning", delta: reasoning_content });
       if (content) onEvent({ type: "token", delta: content });
-      return { role: "assistant", content, reasoning_content, tool_calls };
+      return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: choice.finish_reason || null };
     }
 
     // Streaming (SSE): parse each data: line into deltas + tool calls.
-    let buf = "", content = "", reasoning_content = "", acc = {};
+    let buf = "", content = "", reasoning_content = "", acc = {}, finishReason = null;
     await new Promise((resolve, reject) => {
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
@@ -192,7 +202,9 @@ class AgentCore {
           const data = line.slice(5).trim();
           if (data === "[DONE]") continue;
           let o; try { o = JSON.parse(data); } catch (_) { continue; }
-          const d = (o.choices && o.choices[0] && o.choices[0].delta) || {};
+          const choice = (o.choices && o.choices[0]) || {};
+          if (choice.finish_reason) finishReason = choice.finish_reason;
+          const d = choice.delta || {};
           if (d.reasoning_content) { reasoning_content += d.reasoning_content; onEvent({ type: "reasoning", delta: d.reasoning_content }); }
           if (d.content) { content += d.content; onEvent({ type: "token", delta: d.content }); }
           if (d.tool_calls) for (const tc of d.tool_calls) {
@@ -209,11 +221,23 @@ class AgentCore {
     const tool_calls = Object.keys(acc).length
       ? Object.keys(acc).map((k) => ({ id: acc[k].id, type: "function", function: { name: acc[k].name, arguments: acc[k].args } }))
       : undefined;
-    return { role: "assistant", content, reasoning_content, tool_calls };
+    return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: finishReason };
   }
 
   async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream } = {}) {
     this._onEvent = onEvent;
+    const store = this.store;
+    const persist = !!(sessionId && store);
+    // 每一条退出路径都必须留下终止原因：循环体内只负责抛 TurnError 或返回，
+    // 由下面的 catch/finally 统一落一条 [turn] 日志并发 turn-end。
+    const startedAt = Date.now();
+    let status = "succeeded";
+    let reason = "no-tool-calls";
+    let errorText = null;
+    let steps = 0;
+    let toolsUsed = 0;
+    let turn = null;
+    let currentStep = null;
     try {
     // Apply persisted settings (user/settings.json): provider -> baseUrl/apiKey, model, stream.
     const st = readSettings();
@@ -231,8 +255,6 @@ class AgentCore {
     const tools = (toolNames ? toolNames.map((n) => this.tools.get(n)).filter(Boolean) : [...this.tools.values()])
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const toolDefs = tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
-    const store = this.store;
-    const persist = !!(sessionId && store);
     const permissions = readPermissions();
 
     // The system prompt belongs to the session's first turn only: it is
@@ -257,82 +279,104 @@ class AgentCore {
     // 开启一轮对话轨迹（持久化）：一个 turn 包含多个 step
     // 每个 step = 一次模型请求 + 其响应（agent-request? + model-response(thought?/answer?/tool-call-card*)）
     // request-time：完成上一步全部 tool-call 后，才在下一轮 step 再次请求模型
-    let turn = null;
     let stepSeq = 0;
     if (persist) {
       const turns = await store.run("turn.list", { session_id: sessionId });
       turn = await store.run("turn.create", { session_id: sessionId, seq: turns.length, status: "running" });
     }
 
-    for (let r = 0; r < 5; r++) {
+    // 终止条件：模型不再返回 tool_calls 才算本轮完成。与 DSH 的 agent loop 一致，
+    // 这里不设步数上限 —— 是否继续由模型决定，而不是被一个硬编码的 5 掐断。
+    for (let r = 0; ; r++) {
+      // 上一轮的 step 不能背锅：step.create 失败时 catch 只应把 turn 标失败。
+      currentStep = null;
       const step = persist ? await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "running" }) : null;
+      currentStep = step;
+      steps = r + 1;
       // 新一轮 step 开始（r=0 由前端 onSend 预建 UI；r>0 由本事件驱动 UI 建立新 step）
       if (r > 0) onEvent({ type: "step-start", seq: r });
 
       // step 0：只有 session 首轮落 system；触发本轮的用户请求始终落入本步骤
+      // （写库失败只告警：对话仍可继续，历史缺一条不应掐断整轮）
       if (persist && r === 0) {
-        if (systemIsNew) {
-          await store.run("message.add", { step_id: step.id, seq: 0, role: "system", content: system });
-        }
-        const lastUser = [...conv].reverse().find((m) => m.role === "user");
-        if (lastUser) {
-          const content = typeof lastUser.content === "string" ? lastUser.content : JSON.stringify(lastUser.content);
-          await store.run("message.add", { step_id: step.id, seq: systemIsNew ? 1 : 0, role: "user", content });
+        try {
+          if (systemIsNew) {
+            await store.run("message.add", { step_id: step.id, seq: 0, role: "system", content: system });
+          }
+          const lastUser = [...conv].reverse().find((m) => m.role === "user");
+          if (lastUser) {
+            const content = typeof lastUser.content === "string" ? lastUser.content : JSON.stringify(lastUser.content);
+            await store.run("message.add", { step_id: step.id, seq: systemIsNew ? 1 : 0, role: "user", content });
+          }
+        } catch (e) {
+          onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
         }
       }
 
       // 请求模型（request-time：上一步工具已全部执行完才到这里）
-      // 错误边界：模型请求失败显式报错并干净收尾，避免冒泡出 chat() 被笼统吞掉
+      // 错误边界：模型请求失败转成 TurnError，由外层统一记录 reason=model-request-error
       let a;
       try {
         a = await this._stream({ messages: conv, toolDefs, model: effModel, onEvent, sessionId, stream: effStream });
       } catch (err) {
-        onEvent({ type: "error", error: String(err.message || err) });
-        if (persist) {
-          try { await store.run("step.update", { id: step.id, status: "failed" }); } catch (_) {}
-          try { await store.run("turn.update", { id: turn.id, status: "failed" }); } catch (_) {}
-        }
-        return { role: "assistant", content: "", error: String(err.message || err) };
+        throw new TurnError("model-request-error", String(err.message || err));
       }
-      conv.push(a);
+      // finish_reason 属于传输层元数据，不能混进后续请求的 messages
+      const message = { role: "assistant", content: a.content, reasoning_content: a.reasoning_content, tool_calls: a.tool_calls };
+      conv.push(message);
 
       // 记录本轮助手回复与（可能的）工具调用（首轮有 system 时整体后移一位）
       const assistantSeq = r === 0 ? (systemIsNew ? 2 : 1) : 0;
       let assistantMsg = null;
       const callIds = [];
       if (persist) {
-        assistantMsg = await store.run("message.add", { step_id: step.id, seq: assistantSeq, role: "assistant", content: a.content || "", thought: a.reasoning_content || "" });
-        if (a.tool_calls) {
-          for (let i = 0; i < a.tool_calls.length; i++) {
-            const tc = a.tool_calls[i];
-            let args = {};
-            try { args = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { args = {}; }
-            const call = await store.run("call.add", {
-              reply_id: assistantMsg.id,
-              seq: i,
-              name: (tc.function && tc.function.name) || "unknown",
-              category: (this.tools.get(tc.function && tc.function.name) || {}).type || "unknown",
-              call_id: tc.id,
-              arguments: (tc.function && tc.function.arguments) || "{}",
-              status: "pending",
-            });
-            callIds.push(call.id);
+        // 持久化隔离：写库失败只告警，不能让已经拿到的模型回复丢掉
+        try {
+          assistantMsg = await store.run("message.add", { step_id: step.id, seq: assistantSeq, role: "assistant", content: message.content || "", thought: message.reasoning_content || "" });
+          if (message.tool_calls) {
+            for (let i = 0; i < message.tool_calls.length; i++) {
+              const tc = message.tool_calls[i];
+              let args = {};
+              try { args = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { args = {}; }
+              const call = await store.run("call.add", {
+                reply_id: assistantMsg.id,
+                seq: i,
+                name: (tc.function && tc.function.name) || "unknown",
+                category: (this.tools.get(tc.function && tc.function.name) || {}).type || "unknown",
+                call_id: tc.id,
+                arguments: (tc.function && tc.function.arguments) || "{}",
+                status: "pending",
+              });
+              callIds.push(call.id);
+            }
           }
+        } catch (e) {
+          onEvent({ type: "error", error: "persist assistant failed: " + (e.message || e) });
         }
       }
 
-      if (!a.tool_calls) {
-        onEvent({ type: "done", message: a });
-        if (persist) {
-          await store.run("step.update", { id: step.id, status: "succeeded" });
-          await store.run("turn.update", { id: turn.id, status: "succeeded" });
+      // 结束判定，顺序很关键：先截断、再空回复，最后才是正常收尾。
+      if (a.finish_reason === "length") {
+        throw new TurnError("truncated", "model response truncated (finish_reason=length)");
+      }
+      if (!message.tool_calls) {
+        if (!String(message.content || "").trim()) {
+          throw new TurnError("empty-response", "model returned no content and no tool calls");
         }
-        return a;
+        onEvent({ type: "done", message });
+        if (persist) {
+          try { await store.run("step.update", { id: step.id, status: "succeeded" }); }
+          catch (e) { onEvent({ type: "error", error: "step.update failed: " + (e.message || e) }); }
+          try { await store.run("turn.update", { id: turn.id, status: "succeeded" }); }
+          catch (e) { onEvent({ type: "error", error: "turn.update failed: " + (e.message || e) }); }
+        }
+        return message;
       }
 
       // 执行本轮全部 tool-call（需用户授权），完成后再回到循环顶部请求模型
-      for (let i = 0; i < a.tool_calls.length; i++) {
-        const call = a.tool_calls[i];
+      for (let i = 0; i < message.tool_calls.length; i++) {
+        const call = message.tool_calls[i];
+        toolsUsed += 1;
         const tool = this.tools.get(call.function.name);
         let args = {};
         try { args = JSON.parse(call.function.arguments || "{}"); } catch (_) { }
@@ -353,8 +397,10 @@ class AgentCore {
           const denied = { error: permission === "deny" ? "permission denied" : "user denied" };
           onEvent({ type: "tool_result", id: call.id, name: call.function.name, result: denied });
           if (persist && callIds[i] != null) {
-            await store.run("call.update", { id: callIds[i], status: "denied", result: denied });
-            await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(denied) });
+            try { await store.run("call.update", { id: callIds[i], status: "denied", result: denied }); }
+            catch (e) { onEvent({ type: "error", error: "call.update failed: " + (e.message || e) }); }
+            try { await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(denied) }); }
+            catch (e) { onEvent({ type: "error", error: "message.add failed: " + (e.message || e) }); }
           }
           conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(denied) });
           continue;
@@ -382,12 +428,26 @@ class AgentCore {
       if (persist) { try { await store.run("step.update", { id: step.id, status: "succeeded" }); }
       catch (e) { onEvent({ type: "error", error: "step.update failed: " + (e.message || e) }); } }
     }
-
-    const last = conv[conv.length - 1];
-    onEvent({ type: "done", message: last });
-    if (persist) await store.run("turn.update", { id: turn.id, status: "failed" });
-    return last;
+    // 循环只能从内部 return / throw 退出，这里不需要（也不应该）再有兜底分支。
+    } catch (err) {
+      // 预期内的终止（请求失败/截断/空回复）与真正的未知异常在这里汇合，
+      // 都由 reason 区分；异常终止不再发 done，避免把失败伪装成正常回答。
+      status = "failed";
+      reason = err instanceof TurnError ? err.reason : "unexpected-exception";
+      errorText = String((err && err.message) || err);
+      if (persist && turn) {
+        try { if (currentStep) await store.run("step.update", { id: currentStep.id, status: "failed" }); } catch (_) {}
+        try { await store.run("turn.update", { id: turn.id, status: "failed" }); } catch (_) {}
+      }
+      return { role: "assistant", content: "", error: errorText, stopReason: reason };
     } finally {
+      const durationMs = Date.now() - startedAt;
+      // 每个 turn 结束都留一行原因：正常收尾也打，才能分清"答完了"和"被掐断"。
+      console.log("[turn] session=" + (sessionId || "none") + " turn=" + (turn ? turn.id : "-") +
+        " status=" + status + " reason=" + reason +
+        " steps=" + steps + " tools=" + toolsUsed + " duration=" + durationMs + "ms" +
+        (errorText ? " error=" + JSON.stringify(errorText.slice(0, 300)) : ""));
+      onEvent({ type: "turn-end", status, reason, steps, tools: toolsUsed, durationMs, error: errorText || undefined });
       onEvent({ type: "model-http-status", state: "on-wait" });
     }
   }

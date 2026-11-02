@@ -52,3 +52,6 @@ user/*
 # ===== 网络通信抓包（仅忽略抓取数据；tracker 源码保留在 core/network/http/） =====
 log/
 log/network/track/data/
+
+# ===== 用户信息 =====
+tmp/

@@ -34,6 +34,28 @@ while has_next_user_input():              -- turn
                 result = "refuse"
             history.append(tool_result(call.provider_call_id, result))
         step += 1
+
+# turn termination
+The step loop is unbounded (same as DSH's agent loop): it continues while the
+model keeps returning tool_calls, and only the model ending its tool use (or an
+abnormal end) closes the turn. There is no hard-coded step cap.
+
+Every turn end leaves exactly one log line:
+
+    [turn] session=… turn=… status=… reason=… steps=… tools=… duration=…ms
+
+reason is one of:
+
+| reason | status | meaning |
+| --- | --- | --- |
+| `no-tool-calls` | succeeded | normal end: the model returned content and no tool_calls |
+| `truncated` | failed | `finish_reason=length`: the response was cut off |
+| `empty-response` | failed | no content and no tool_calls |
+| `model-request-error` | failed | the model request itself failed |
+| `unexpected-exception` | failed | anything else thrown while running the turn |
+
+Abnormal ends emit `turn-end {status, reason, steps, tools, durationMs, error}`
+instead of `done`, so a failed turn is never rendered as an answer.
         
 
 

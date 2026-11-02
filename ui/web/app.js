@@ -472,6 +472,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (evt.message) bareHistory.push({ role: "assistant", content: evt.message.content || "" });
       currentAssistantBubble = null;
       currentThoughtBubble = null;
+    } else if (evt.type === "turn-end") {
+      // 本轮终止原因由 core 统一给出；异常终止不会再发 done
+      if (evt.status !== "succeeded") {
+        appendMessage("assistant", "[本轮终止] " + (evt.reason || "unknown") + (evt.error ? ": " + evt.error : ""));
+      }
+      currentAssistantBubble = null;
+      currentThoughtBubble = null;
     } else if (evt.type === "approval-request") {
       createApprovalCard(evt);
     } else if (evt.type === "error") {
@@ -649,6 +656,12 @@ document.addEventListener("DOMContentLoaded", function () {
       liveAnswer = null; liveCards = {}; liveAgentRequest = null;
       chatTab.scrollTop = chatTab.scrollHeight;
     } else if (evt.type === "done") {
+      resetLive();
+    } else if (evt.type === "turn-end") {
+      // 异常终止不经过 done：把原因写进本 step 的 answer 再收尾
+      if (evt.status !== "succeeded") {
+        ensureAnswer().textContent += "[本轮终止] " + (evt.reason || "unknown") + (evt.error ? ": " + evt.error : "");
+      }
       resetLive();
     } else if (evt.type === "error") {
       ensureAnswer().textContent += "[出错] " + (evt.error || "未知错误");
