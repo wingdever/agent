@@ -380,3 +380,19 @@ add-all-btn -> 对每条未添加 remote-model-item 触发 model.create
 - **Process 嵌入**：`thought`、`tool-call` 显示在 `response-message` 中；`sub-agent-tree`、`agent-trace-node` 在 `trajectory-tab` 中展示。
 - **HumanControl 嵌入**：`approval-request` 显示在 `response-message` 中；`action-bar`、`branch-picker` 附着在消息或工具卡片旁；`attachment-tray` 附着在 `composer` 附近。
 - **附件交互**：附件上传由 `add-files-btn` 触发，附件状态通过 `attachment-tray` 展示；不单独设置 `AttachmentDropzone` 布局节点。
+
+---
+
+## 5. 元素样式
+textcard
+   line-number column
+   markdown render
+
+thought inherit textcard
+answer inherit textcard
+
+approval-request
+   single-line
+
+tool-result
+   if read default collapse

@@ -33,6 +33,7 @@ build/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+/harness-trace
 
 # ===== 操作系统 / 编辑器 =====
 .DS_Store
@@ -53,5 +54,5 @@ user/*
 log/
 log/network/track/data/
 
-# ===== 用户信息 =====
+# ===== 临时目录 =====
 tmp/

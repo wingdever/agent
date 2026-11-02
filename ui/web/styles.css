@@ -48,13 +48,50 @@ select, textarea, input { font-family: inherit; }
 
 .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #e5e7eb; color: #374151; margin-right: 6px; }
 .tag.warn { background: #fef3c7; color: #92400e; }
-.thought, .answer, .approval-request, .ask-user-question, .ask-user-prompt { padding: 8px 10px; border-radius: 8px; border: 1px solid #e5e7eb; background: #f9fafb; line-height: 1.5; }
-.thought { border-left: 3px solid #8b5cf6; }
-.answer { border-left: 3px solid #10b981; }
-.approval-request { border-left: 3px solid #f59e0b; }
-.ask-user-question, .ask-user-prompt { border-left: 3px solid #3b82f6; }
+.ask-user-question, .ask-user-prompt { padding: 8px 10px; border-radius: 8px; border: 1px solid #e5e7eb; border-left: 3px solid #3b82f6; background: #f9fafb; line-height: 1.5; }
 .approval-actions { margin-top: 6px; display: flex; gap: 6px; }
 .approval-actions button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 2px 10px; }
+
+/* ============ textcard: thought / answer 共用基类 ============ */
+.textcard { display: block; padding: 10px 12px; border-radius: 8px; border: 1px solid #e5e7eb; background: #fff; line-height: 1.65; font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+.textcard.thought { border-left: 3px solid #8b5cf6; }
+.textcard.answer { border-left: 3px solid #10b981; }
+.textcard > :first-child { margin-top: 0; }
+.textcard > :last-child { margin-bottom: 0; }
+.textcard p { margin: 0 0 .72em; }
+.textcard h1, .textcard h2, .textcard h3, .textcard h4, .textcard h5, .textcard h6 { margin: 1em 0 .45em; font-weight: 600; line-height: 1.35; }
+.textcard h1 { font-size: 1.4em; }
+.textcard h2 { font-size: 1.25em; }
+.textcard h3 { font-size: 1.12em; }
+.textcard h4, .textcard h5, .textcard h6 { font-size: 1em; }
+.textcard ul, .textcard ol { margin: .4em 0 .72em; padding-left: 1.5em; }
+.textcard li { margin: .18em 0; }
+.textcard li > p { margin: 0; }
+.textcard blockquote { margin: .7em 0; padding: .3em .9em; border-left: 3px solid #cbd5e1; border-radius: 0 6px 6px 0; background: #f1f5f9; color: #475569; }
+.textcard blockquote > :last-child { margin-bottom: 0; }
+.textcard hr { border: 0; border-top: 1px solid #e2e8f0; margin: 14px 0; }
+.textcard a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+.textcard a:hover { color: #1d4ed8; }
+.textcard strong { font-weight: 600; }
+.textcard del { color: #94a3b8; }
+.textcard :not(pre) > code { padding: 1px 5px; border: 1px solid #e2e8f0; border-radius: 4px; background: #eef2f7; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+.textcard table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: .72em 0; font-size: 13px; }
+.textcard th, .textcard td { border: 1px solid #e2e8f0; padding: 5px 9px; text-align: left; }
+.textcard thead th { background: #f1f5f9; }
+.textcard tbody tr:nth-child(even) { background: #fbfdff; }
+.textcard img { max-width: 100%; height: auto; border-radius: 6px; }
+
+/* 未套 code-block 包裹的 pre（降级/非围栏代码） */
+.textcard pre { margin: .75em 0; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f6f8fa; overflow-x: auto; font-size: 12.5px; line-height: 1.6; }
+.textcard pre code { padding: 0; border: 0; background: none; font-size: inherit; }
+/* 围栏代码块：语言标签 + 行号列（CSS counter，行号不参与复制） */
+.textcard .code-block { margin: .75em 0; border: 1px solid #e2e8f0; border-radius: 8px; background: #f6f8fa; overflow: hidden; }
+.textcard .code-lang { padding: 4px 10px; border-bottom: 1px solid #e2e8f0; background: #eef2f7; color: #64748b; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .02em; }
+.textcard .code-block pre { margin: 0; padding: 8px 0; border: 0; border-radius: 0; background: transparent; }
+.textcard .code-block code { display: block; width: max-content; min-width: 100%; counter-reset: code-line; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.textcard .code-line { display: block; position: relative; min-height: 1.6em; padding: 0 12px 0 3.6em; white-space: pre; }
+.textcard .code-line::before { counter-increment: code-line; content: counter(code-line); position: sticky; left: 0; display: inline-block; width: 3.6em; margin-left: -3.6em; padding-right: 1em; text-align: right; color: #9aa7b8; background: #f6f8fa; user-select: none; }
+.textcard-plain { white-space: pre-wrap; word-break: break-word; font-family: inherit; }
 
 .tool-call { border: 1px solid #ede9fe; background: #f5f3ff; border-radius: 8px; padding: 8px 10px; cursor: pointer; margin-bottom: 8px; }
 .tool-call:hover { background: #ede9fe; }
@@ -258,19 +295,33 @@ select, textarea, input { font-family: inherit; }
 .agent-request { padding: 6px 10px; border-radius: 8px; background: #eff6ff; border-left: 3px solid #2563eb; margin-bottom: 8px; line-height: 1.5; white-space: normal; }
 .tool-call-card { border: 1px solid #ede9fe; background: #f5f3ff; border-radius: 8px; padding: 8px 10px; cursor: pointer; margin-bottom: 8px; }
 .tool-call-card:hover { background: #ede9fe; }
-.tool-call-desc { font-size: 12px; color: #4b5563; font-family: ui-monospace, monospace; }
-.tool-result { font-size: 12px; color: #374151; margin-top: 4px; font-family: ui-monospace, monospace; white-space: pre-wrap; }
-.approval-bar { margin-top: 6px; display: flex; gap: 8px; }
-.btn-approve, .btn-deny { padding: 4px 12px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
+.tool-call-desc { font-size: 12px; color: #4b5563; font-family: ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-result { margin-top: 6px; font-size: 12px; color: #374151; font-family: ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-result pre { margin: 6px 0 0; padding: 8px 10px; max-height: 320px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; white-space: pre-wrap; word-break: break-word; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.read-error { color: #b91c1c; }
+.read-result { border-top: 1px dashed #ddd6fe; padding-top: 5px; }
+.read-result summary { display: block; cursor: pointer; color: #6d28d9; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 12px; user-select: none; }
+.read-result summary::-webkit-details-marker { display: none; }
+.read-result summary::before { content: "▸ "; }
+.read-result[open] summary::before { content: "▾ "; }
+
+/* approval-request：单行（状态 + 工具名 [+ 参数摘要] + 按钮） */
+.approval-request { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 6px; padding: 5px 8px; border: 1px solid #e5e7eb; border-left: 3px solid #f59e0b; border-radius: 6px; background: #fffbeb; font-size: 12px; line-height: 1.4; }
+.approval-request.allow { border-left-color: #10b981; background: #f0fdf4; }
+.approval-request.deny { border-left-color: #ef4444; background: #fef2f2; }
+.approval-status { flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 500; }
+.approval-request.allow .approval-status { background: #dcfce7; color: #166534; }
+.approval-request.deny .approval-status { background: #fee2e2; color: #991b1b; }
+.approval-tool { flex: 0 0 auto; font-family: ui-monospace, monospace; font-weight: 600; color: #374151; }
+.approval-args { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #6b7280; font-family: ui-monospace, monospace; }
+.approval-bar { flex: 0 0 auto; margin-left: auto; display: flex; gap: 6px; }
+.approval-bar button { padding: 2px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
 .btn-approve { background: #16a34a; color: #fff; border-color: #16a34a; }
 .btn-deny { background: #dc2626; color: #fff; border-color: #dc2626; }
+.btn-approve:disabled, .btn-deny:disabled { opacity: .55; cursor: default; }
 
 /* agent-request 子节点（ui.md：system-prompt? + user-input） */
 .user-input { white-space: pre-wrap; }
 .system-prompt { margin-bottom: 6px; font-size: 12px; color: #4b5563; }
 .system-prompt summary { cursor: pointer; user-select: none; font-weight: 500; }
 .system-prompt pre { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; margin: 6px 0 0; }
-
-/* tool-call-card > approval-request 三态（ask / allow / deny） */
-.approval-request.allow { border-left-color: #10b981; }
-.approval-request.deny { border-left-color: #ef4444; }

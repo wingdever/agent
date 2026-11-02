@@ -1,5 +1,5 @@
 "use strict";
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const { createCore } = require("../../core");
 const { startTransport } = require("../../core/transport");
@@ -36,6 +36,11 @@ function createWindow() {
       TRANSPORT === "ipc"
         ? { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
         : { contextIsolation: true, nodeIntegration: false },
+  });
+  // Markdown links open in the system browser instead of a new Electron window.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+    return { action: "deny" };
   });
   win.loadFile(path.join(__dirname, "..", "web", "index.html"));
   win.once("ready-to-show", () => { win.show(); win.focus(); });

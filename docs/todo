@@ -1,4 +1,0 @@
-1. replace model-selector to mode-selector in composer-footer
-2. impl bare-chat mode in behavior.md
-
-add feature: save raw data for llm http in log/network/track/raw
