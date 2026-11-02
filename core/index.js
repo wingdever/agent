@@ -232,7 +232,18 @@ class AgentCore {
       }
 
       // 请求模型（request-time：上一步工具已全部执行完才到这里）
-      const a = await this._stream({ messages: conv, toolDefs, model: effModel, onEvent, sessionId, stream: effStream });
+      // 错误边界：模型请求失败显式报错并干净收尾，避免冒泡出 chat() 被笼统吞掉
+      let a;
+      try {
+        a = await this._stream({ messages: conv, toolDefs, model: effModel, onEvent, sessionId, stream: effStream });
+      } catch (err) {
+        onEvent({ type: "error", error: String(err.message || err) });
+        if (persist) {
+          try { await store.run("step.update", { id: step.id, status: "failed" }); } catch (_) {}
+          try { await store.run("turn.update", { id: turn.id, status: "failed" }); } catch (_) {}
+        }
+        return { role: "assistant", content: "", error: String(err.message || err) };
+      }
       conv.push(a);
 
       // 记录本轮助手回复与（可能的）工具调用
@@ -297,15 +308,18 @@ class AgentCore {
           result = tool ? await tool.run(args) : { error: "unknown tool" };
           onEvent({ type: "tool_result", id: call.id, name: call.function.name, result });
         } catch (e) { result = { error: String(e.message || e) }; onEvent({ type: "tool_result", id: call.id, name: call.function.name, result }); }
-        if (persist && callIds[i] != null) {
-          await store.run("call.update", { id: callIds[i], status: result && result.error ? "failed" : "succeeded", result });
-        }
+        // 先把结果写进对话历史，确保下一轮 _stream 必带工具结果回传模型（不受持久化失败影响）
         conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+        // 持久化隔离：单项失败仅告警，不阻断把结果回传模型
         if (persist && callIds[i] != null) {
-          await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(result) });
+          try { await store.run("call.update", { id: callIds[i], status: result && result.error ? "failed" : "succeeded", result }); }
+          catch (e) { onEvent({ type: "error", error: "call.update failed: " + (e.message || e) }); }
+          try { await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(result) }); }
+          catch (e) { onEvent({ type: "error", error: "message.add failed: " + (e.message || e) }); }
         }
       }
-      if (persist) await store.run("step.update", { id: step.id, status: "succeeded" });
+      if (persist) { try { await store.run("step.update", { id: step.id, status: "succeeded" }); }
+      catch (e) { onEvent({ type: "error", error: "step.update failed: " + (e.message || e) }); } }
     }
 
     const last = conv[conv.length - 1];
