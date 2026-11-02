@@ -1,12 +1,15 @@
 "use strict";
-const https = require("https");
 const fs = require("fs");
 const path = require("path");
-const { URL } = require("url");
 
 // user/providers.json：用户侧供应者配置，含 base_url / api_key / models。
 // 当调用方未显式提供 model 时，作为默认模型来源。
 const PROVIDERS_FILE = path.join(__dirname, "..", "user", "providers.json");
+const SETTINGS_FILE = path.join(__dirname, "..", "user", "settings.json");
+
+function readSettings() {  try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch (_) { return {}; }}
+function writeSettings(patch) {  const cur = readSettings();  const next = Object.assign({}, cur, patch || {});  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));  return next;}
+function resolveProvider(name) {  if (!name) return null;  let providers;  try { providers = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8")); } catch (_) { return null; }  if (!Array.isArray(providers)) return null;  const p = providers.find((x) => x.name === name);  if (!p) return null;  const models = Array.isArray(p.models) ? p.models : [];  const model = models.length ? (models[0].name || models[0]) : null;  return { baseUrl: p.base_url, apiKey: p.api_key, model };}
 
 // 调用方未显式指定 model 时，从 user/providers.json 取首个含模型的供应者作为默认：
 // 采用其第一个模型，并在调用方未显式给出 baseUrl/apiKey 时一并继承该供应者配置。
@@ -101,32 +104,54 @@ class AgentCore {
     return [...this.tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters }));
   }
 
-  _post(payload) {
-    return new Promise((resolve, reject) => {
-      const base = new URL(this.baseUrl);
-      const prefix = base.pathname.replace(/\/$/, "");
-      const body = JSON.stringify(payload);
-      const req = https.request(
-        { method: "POST", hostname: base.hostname, port: base.port || 443, path: prefix + "/chat/completions",
-          headers: { Authorization: "Bearer " + this.apiKey, "Content-Type": "application/json", Accept: "text/event-stream", "Content-Length": Buffer.byteLength(body) }, timeout: 60000 },
-        (res) => {
-          if (res.statusCode < 200 || res.statusCode >= 300) {
-            let d = ""; res.on("data", (c) => (d += c));
-            res.on("end", () => reject(new Error("HTTP " + res.statusCode + " " + d.slice(0, 400))));
-            return;
-          }
-          resolve(res);
-        }
-      );
-      req.on("error", reject);
-      req.on("timeout", () => req.destroy(new Error("超时")));
-      req.write(body); req.end();
+  _post(payload, sessionId) {
+    const { postChatCompletions } = require("./network/http/client");
+    return postChatCompletions({
+      baseUrl: this.baseUrl,
+      apiKey: this.apiKey,
+      payload,
+      sessionId,
     });
   }
 
-  async _stream({ messages, toolDefs, model, onEvent }) {
-    const res = await this._post({ model: model || this.model, messages, stream: true, tools: toolDefs });
-    let buf = "", content = "", acc = {};
+  async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false }) {
+    const { stream: res, cap } = await this._post(
+      { model: model || this.model, messages, stream: !!stream, tools: toolDefs },
+      sessionId
+    );
+    const { trackCapture } = require("./network/http/client");
+    trackCapture(res, cap);
+
+    if (!stream) {
+      // Non-streaming: read the full JSON response and extract the message.
+      let raw = "";
+      await new Promise((resolve, reject) => {
+        res.setEncoding("utf8");
+        res.on("data", (c) => { raw += c; });
+        res.on("end", resolve);
+        res.on("error", reject);
+      });
+      let json;
+      try { json = JSON.parse(raw); }
+      catch (e) { throw new Error("bad JSON response: " + raw.slice(0, 400)); }
+      const choice = (json.choices && json.choices[0]) || {};
+      const msg = choice.message || {};
+      const content = msg.content || "";
+      const reasoning_content = msg.reasoning_content || "";
+      const tool_calls = Array.isArray(msg.tool_calls) && msg.tool_calls.length
+        ? msg.tool_calls.map((tc) => ({
+            id: tc.id,
+            type: "function",
+            function: { name: (tc.function && tc.function.name) || "", arguments: (tc.function && tc.function.arguments) || "" },
+          }))
+        : undefined;
+      if (reasoning_content) onEvent({ type: "reasoning", delta: reasoning_content });
+      if (content) onEvent({ type: "token", delta: content });
+      return { role: "assistant", content, reasoning_content, tool_calls };
+    }
+
+    // Streaming (SSE): parse each data: line into deltas + tool calls.
+    let buf = "", content = "", reasoning_content = "", acc = {};
     await new Promise((resolve, reject) => {
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
@@ -139,6 +164,7 @@ class AgentCore {
           if (data === "[DONE]") continue;
           let o; try { o = JSON.parse(data); } catch (_) { continue; }
           const d = (o.choices && o.choices[0] && o.choices[0].delta) || {};
+          if (d.reasoning_content) { reasoning_content += d.reasoning_content; onEvent({ type: "reasoning", delta: d.reasoning_content }); }
           if (d.content) { content += d.content; onEvent({ type: "token", delta: d.content }); }
           if (d.tool_calls) for (const tc of d.tool_calls) {
             const k = tc.index;
@@ -154,11 +180,23 @@ class AgentCore {
     const tool_calls = Object.keys(acc).length
       ? Object.keys(acc).map((k) => ({ id: acc[k].id, type: "function", function: { name: acc[k].name, arguments: acc[k].args } }))
       : undefined;
-    return { role: "assistant", content, tool_calls };
+    return { role: "assistant", content, reasoning_content, tool_calls };
   }
 
-  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId } = {}) {
+  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream } = {}) {
     this._onEvent = onEvent;
+    // Apply persisted settings (user/settings.json): provider -> baseUrl/apiKey, model, stream.
+    const st = readSettings();
+    const effStream = stream !== undefined ? !!stream : (st.stream === true);
+    let effModel = model || st.model || this.model;
+    if (st.provider) {
+      const p = resolveProvider(st.provider);
+      if (p) {
+        this.baseUrl = p.baseUrl;
+        this.apiKey = p.apiKey;
+        if (!effModel) effModel = p.model;
+      }
+    }
     const tools = toolNames ? toolNames.map((n) => this.tools.get(n)).filter(Boolean) : [...this.tools.values()];
     const toolDefs = tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const conv = messages.slice();
@@ -190,7 +228,7 @@ class AgentCore {
       }
 
       // 请求模型（request-time：上一步工具已全部执行完才到这里）
-      const a = await this._stream({ messages: conv, toolDefs, model, onEvent });
+      const a = await this._stream({ messages: conv, toolDefs, model: effModel, onEvent, sessionId, stream: effStream });
       conv.push(a);
 
       // 记录本轮助手回复与（可能的）工具调用
@@ -198,18 +236,19 @@ class AgentCore {
       let assistantMsg = null;
       const callIds = [];
       if (persist) {
-        assistantMsg = await store.run("message.add", { step_id: step.id, seq: assistantSeq, role: "assistant", content: a.content || "" });
+        assistantMsg = await store.run("message.add", { step_id: step.id, seq: assistantSeq, role: "assistant", content: a.content || "", thought: a.reasoning_content || "" });
         if (a.tool_calls) {
           for (let i = 0; i < a.tool_calls.length; i++) {
             const tc = a.tool_calls[i];
             let args = {};
             try { args = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { args = {}; }
             const call = await store.run("call.add", {
-              reply_id: assistantMsg.content_id,
+              reply_id: assistantMsg.id,
               seq: i,
               name: (tc.function && tc.function.name) || "unknown",
-              type: (this.tools.get(tc.function && tc.function.name) || {}).type || "unknown",
-              arguments: args,
+              category: (this.tools.get(tc.function && tc.function.name) || {}).type || "unknown",
+              call_id: tc.id,
+              arguments: (tc.function && tc.function.arguments) || "{}",
               status: "pending",
             });
             callIds.push(call.id);
@@ -241,7 +280,7 @@ class AgentCore {
           onEvent({ type: "tool_result", id: call.id, name: call.function.name, result: denied });
           if (persist && callIds[i] != null) {
             await store.run("call.update", { id: callIds[i], status: "denied", result: denied });
-            await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(denied), tool_call_id: callIds[i] });
+            await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(denied) });
           }
           conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(denied) });
           continue;
@@ -259,7 +298,7 @@ class AgentCore {
         }
         conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
         if (persist && callIds[i] != null) {
-          await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(result), tool_call_id: callIds[i] });
+          await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(result) });
         }
       }
       if (persist) await store.run("step.update", { id: step.id, status: "succeeded" });
@@ -274,21 +313,8 @@ class AgentCore {
   // 拉取供应者远端模型列表（OpenAI 兼容 /models），用于辅助新增模型；走 Node 侧请求，绕开渲染层 CORS
   async fetchProviderModels(baseurl, apikey) {
     if (!baseurl) throw new Error("缺少 baseurl");
-    let u;
-    try { u = new URL(baseurl); } catch (e) { throw new Error("baseurl 不合法"); }
-    const prefix = u.pathname.replace(/\/$/, "");
-    const url = u.origin + prefix + "/models";
-    const headers = { Accept: "application/json" };
-    if (apikey) headers["Authorization"] = "Bearer " + apikey;
-    const res = await fetch(url, { method: "GET", headers });
-    if (!res.ok) {
-      let detail = "";
-      try { detail = (await res.text()).slice(0, 200); } catch (_) {}
-      throw new Error("HTTP " + res.status + (detail ? " " + detail : ""));
-    }
-    const json = await res.json();
-    const list = Array.isArray(json.data) ? json.data : (Array.isArray(json.models) ? json.models : []);
-    return list.map((m) => ({ id: m.id || m.name, owned_by: m.owned_by || "" })).filter((m) => m.id);
+    const { fetchModels } = require("./network/http/client");
+    return fetchModels(baseurl, apikey);
   }
 }
 
@@ -296,6 +322,7 @@ class AgentCore {
 async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
   switch (fn) {
     case "chat": return await core.chat(Object.assign({ onEvent }, params));
+    case "settings": {      if (params.op === "get") return readSettings();      if (params.op === "set") return writeSettings(params.payload);      if (params.op === "providers") {        try { return JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8")); } catch (_) { return []; }      }      throw new Error("unknown settings op: " + params.op);    }
     case "listFunctions": return core.listFunctions();
     case "storage": {
       if (!core.store) throw new Error("storage not initialized");
@@ -315,6 +342,7 @@ async function createCore(config = {}) {
   core.tools = await loadTools();
   const { createStore } = await import("./storage/store.mjs");
   core.store = await createStore();
+
   return core;
 }
 

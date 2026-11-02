@@ -102,7 +102,7 @@ export const SCHEMA_STATEMENTS = [
     seq         integer not null,
     role        text  NOT NULL,
     content_id  integer not null references contents (id) on delete cascade,
-    tool_call_id text,
+    thought_id  integer not null references contents (id) on delete cascade,
     created_at  TIMESTAMP NOT NULL DEFAULT now(),
     updated_at  TIMESTAMP NOT NULL DEFAULT now(),
     unique(step_id, seq)
@@ -110,15 +110,16 @@ export const SCHEMA_STATEMENTS = [
 
   `CREATE TABLE IF NOT EXISTS calls (
     id          integer PRIMARY KEY,
-    reply_id    INTEGER NOT NULL REFERENCES contents (id) ON DELETE CASCADE,
+    reply_id    INTEGER NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
     seq         integer not null,
+    call_id     text,
     name        text  NOT NULL,
+    "arguments"   text,
     description text,
-    "arguments"   jsonb  NOT NULL DEFAULT '{}'::jsonb,
     status      text not null default 'pending',
     result_id   integer REFERENCES contents (id),
     error       text,
-    type        text not null,
+    category    text not null,
     created_at  TIMESTAMP NOT NULL DEFAULT now(),
     updated_at  TIMESTAMP NOT NULL DEFAULT now(),
     unique (reply_id, seq)

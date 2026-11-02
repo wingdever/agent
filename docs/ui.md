@@ -319,6 +319,7 @@ models-modal
 
 settings-modal
 ├─ stream-switch
+├─ provider-selector
 └─ model-selector
 
 

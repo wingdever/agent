@@ -344,6 +344,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // bare-chat 扁平渲染所需的临时状态（turn-step 不使用）
   var currentAssistantBubble = null;
+  var currentThoughtBubble = null;
   var toolCards = {};
 
   // turn-step 流式渲染所依赖的 DOM 锚点
@@ -379,7 +380,7 @@ document.addEventListener("DOMContentLoaded", function () {
     wrap.className = "msg msg-" + role;
     var roleLabel = document.createElement("div");
     roleLabel.className = "role";
-    roleLabel.textContent = role === "user" ? "你" : (role === "assistant" ? "助手" : role);
+    roleLabel.textContent = role === "user" ? "你" : (role === "assistant" ? "助手" : (role === "thought" ? "思考" : role));
     var bubble = document.createElement("div");
     bubble.className = "bubble";
     bubble.textContent = text || "";
@@ -447,6 +448,10 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!currentAssistantBubble) currentAssistantBubble = appendMessage("assistant", evt.delta || "");
       else currentAssistantBubble.textContent += (evt.delta || "");
       chatTab.scrollTop = chatTab.scrollHeight;
+    } else if (evt.type === "reasoning") {
+      if (!currentThoughtBubble) currentThoughtBubble = appendMessage("thought", evt.delta || "");
+      else currentThoughtBubble.textContent += (evt.delta || "");
+      chatTab.scrollTop = chatTab.scrollHeight;
     } else if (evt.type === "tool_call") {
       var card = createToolCard(evt);
       chatTab.appendChild(card);
@@ -458,11 +463,13 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (evt.type === "done") {
       if (evt.message) bareHistory.push({ role: "assistant", content: evt.message.content || "" });
       currentAssistantBubble = null;
+      currentThoughtBubble = null;
     } else if (evt.type === "approval-request") {
       createApprovalCard(evt);
     } else if (evt.type === "error") {
       appendMessage("assistant", "[出错] " + (evt.error || "未知错误"));
       currentAssistantBubble = null;
+      currentThoughtBubble = null;
     }
   }
 
@@ -545,7 +552,13 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!evt || !evt.type) return;
     if (getComposerMode() === "bare-chat") { onChatEventFlat(evt); return; }
     // turn-step：按层级渲染
-    if (evt.type === "token") {
+    if (evt.type === "reasoning") {
+      ensureLiveStep();
+      var thEl = liveResponse.querySelector(".thought");
+      if (!thEl) { thEl = makeEl("thought", "thought"); liveResponse.appendChild(thEl); }
+      thEl.textContent += (evt.delta || "");
+      chatTab.scrollTop = chatTab.scrollHeight;
+    } else if (evt.type === "token") {
       ensureAnswer().textContent += (evt.delta || "");
       chatTab.scrollTop = chatTab.scrollHeight;
     } else if (evt.type === "tool_call") {
@@ -573,6 +586,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
   async function buildMessages(sessionId) {
+    var pendingCallIds = [];
     var turns = await window.AgentClient.call("storage", { op: "turn.list", payload: { session_id: sessionId } });
     var msgs = [];
     for (var i = 0; i < (turns || []).length; i++) {
@@ -585,13 +599,17 @@ document.addEventListener("DOMContentLoaded", function () {
   msgs.push({ role: "user", content: m.content });
 } else if (m.role === "assistant") {
   var am = { role: "assistant", content: m.content || "" };
-  var calls = await window.AgentClient.call("storage", { op: "call.list", payload: { reply_id: m.content_id } });
+  var calls = await window.AgentClient.call("storage", { op: "call.list", payload: { reply_id: m.id } });
+  var callIds = [];
   if (calls && calls.length) {
-    am.tool_calls = calls.map(function (c) { return { id: String(c.id), type: "function", function: { name: c.name, arguments: JSON.stringify(c.arguments || {}) } }; });
+    am.tool_calls = calls.map(function (c) { var cid = String(c.call_id != null ? c.call_id : c.id); callIds.push(cid); return { id: cid, type: "function", function: { name: c.name, arguments: JSON.stringify(c.arguments || {}) } }; });
   }
+  pendingCallIds = callIds;
   msgs.push(am);
 } else if (m.role === "tool") {
-  msgs.push({ role: "tool", tool_call_id: String(m.tool_call_id), content: m.content });
+  // 与同步骤内 assistant 的 tool_calls 按出现顺序配对（messages 表已无 tool_call_id 列）
+  var tcid = (pendingCallIds && pendingCallIds.length) ? pendingCallIds.shift() : "";
+  msgs.push({ role: "tool", tool_call_id: tcid, content: m.content });
 }
         }
       }
@@ -626,12 +644,17 @@ document.addEventListener("DOMContentLoaded", function () {
           stepNode.insertBefore(req, respNode);
         }
         if (asstMsg) {
+          if (asstMsg.thought) {
+            var th = makeEl("thought", "thought");
+            th.textContent = asstMsg.thought;
+            respNode.appendChild(th);
+          }
           if (asstMsg.content) {
             var ans = makeEl("answer", "answer");
             ans.textContent = asstMsg.content || "";
             respNode.appendChild(ans);
           }
-          var calls = await window.AgentClient.call("storage", { op: "call.list", payload: { reply_id: asstMsg.content_id } });
+          var calls = await window.AgentClient.call("storage", { op: "call.list", payload: { reply_id: asstMsg.id } });
           for (var c = 0; c < (calls || []).length; c++) {
             var call = calls[c];
             var card = makeEl("tool-call-card", "tool-call-card tool-call");
@@ -647,10 +670,7 @@ document.addEventListener("DOMContentLoaded", function () {
               ap.textContent = "工具授权：" + call.name + "（" + call.status + "）";
               card.appendChild(ap);
             }
-            var tm = null;
-            for (var ti = 0; ti < toolMsgs.length; ti++) {
-              if (String(toolMsgs[ti].tool_call_id) === String(call.id)) { tm = toolMsgs[ti]; break; }
-            }
+            var tm = toolMsgs[c] || null;
             if (tm) {
               var rr = makeEl("tool-result", "tool-result");
               rr.textContent = "→ " + (tm.content || "");

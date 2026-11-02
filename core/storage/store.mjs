@@ -109,36 +109,40 @@ class Store {
   addContent(data) { return this._create("contents", data, ["content"]); }
   getContent({ id }) { return this._get("contents", id); }
 
-  // ---- messages（消息文本存于 contents，经 content_id 关联）----
-  async addMessage({ step_id, seq, role, content, tool_call_id }) {
+  // ---- messages（content 与 thought 分别存于 contents，经 content_id / thought_id 关联）----
+  async addMessage({ step_id, seq, role, content, thought }) {
     const content_id = await this._nextId("contents");
-    await this._insertRow("contents", ["id", "content"], [content_id, content]);
+    await this._insertRow("contents", ["id", "content"], [content_id, content == null ? "" : content]);
+    // thought_id 为 NOT NULL：无论是否有思考内容，都建一条 contents 行（无思考则为空串）
+    const thought_id = await this._nextId("contents");
+    await this._insertRow("contents", ["id", "content"], [thought_id, thought == null ? "" : thought]);
     const id = await this._nextId("messages");
-    const cols = ["id", "step_id", "seq", "role", "content_id"]; const vals = [id, step_id, seq, role, content_id]; if (tool_call_id !== undefined && tool_call_id !== null) { cols.push("tool_call_id"); vals.push(String(tool_call_id)); } await this._insertRow("messages", cols, vals);
+    await this._insertRow("messages", ["id", "step_id", "seq", "role", "content_id", "thought_id"], [id, step_id, seq, role, content_id, thought_id]);
     return this.getMessage({ id });
   }
   async getMessage({ id }) {
     return this.db.prepare(
-      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.tool_call_id, contents.content, messages.created_at, messages.updated_at FROM messages JOIN contents ON contents.id=messages.content_id WHERE messages.id=$1"
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages JOIN contents ON contents.id=messages.content_id JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.id=$1"
     ).get(id);
   }
   async listMessages({ step_id }) {
     return this.db.prepare(
-      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.tool_call_id, contents.content, messages.created_at, messages.updated_at FROM messages JOIN contents ON contents.id=messages.content_id WHERE messages.step_id=$1 ORDER BY messages.seq"
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages JOIN contents ON contents.id=messages.content_id JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.step_id=$1 ORDER BY messages.seq"
     ).all(step_id);
   }
   async deleteMessage({ id }) {
     const msg = await this._get("messages", id);
     if (!msg) return;
-    const callsToDel = await this.db.prepare("SELECT result_id FROM calls WHERE reply_id=$1").all(msg.content_id);
+    const callsToDel = await this.db.prepare("SELECT result_id FROM calls WHERE reply_id=$1").all(msg.id);
     for (const c of callsToDel) if (c.result_id != null) await this._delete("contents", c.result_id);
-    await this.db.prepare("DELETE FROM calls WHERE reply_id=$1").run(msg.content_id);
+    await this.db.prepare("DELETE FROM calls WHERE reply_id=$1").run(msg.id);
+    await this._delete("contents", msg.thought_id);
     await this._delete("messages", id);
     return this._delete("contents", msg.content_id);
   }
 
-  // ---- calls（工具调用，arguments 为 jsonb；result 存于 contents）----
-  async addCall({ reply_id, seq, name, description, arguments: args, status, type, result, error, id }) {
+  // ---- calls（工具调用，arguments 为 text 原文；result 存于 contents）----
+  async addCall({ reply_id, seq, name, description, arguments: args, status, category, call_id, result, error, id }) {
     let result_id = null;
     if (result !== undefined && result !== null) {
       result_id = await this._nextId("contents");
@@ -148,25 +152,26 @@ class Store {
     const cid = id != null ? id : await this._nextId("calls");
     const argJson = args && typeof args === "object" ? JSON.stringify(args) : (args || "{}");
     const cols = ["id", "reply_id", "seq", "name"]; const vals = [cid, reply_id, seq, name];
+    if (call_id !== undefined && call_id !== null) { cols.push("call_id"); vals.push(String(call_id)); }
     if (description !== undefined) { cols.push("description"); vals.push(description); }
     cols.push('"arguments"'); vals.push(argJson);
     if (status !== undefined) { cols.push("status"); vals.push(status); }
     if (result_id !== null) { cols.push("result_id"); vals.push(result_id); }
     if (error !== undefined) { cols.push("error"); vals.push(error); }
-    cols.push("type"); vals.push(type);
+    cols.push("category"); vals.push(category || "unknown");
     await this._insertRow("calls", cols, vals);
     return this.getCall({ id: cid });
   }
   _callRow(row) { if (row) row.arguments = _j(row.arguments); return row; }
   async getCall({ id }) {
     const row = await this.db.prepare(
-      'SELECT id, reply_id, seq, name, description, "arguments", status, result_id, error, type, created_at, updated_at FROM calls WHERE id=$1'
+      'SELECT id, reply_id, seq, call_id, name, description, "arguments", status, result_id, error, category, created_at, updated_at FROM calls WHERE id=$1'
     ).get(id);
     return this._callRow(row);
   }
   async listCallsByReply({ reply_id }) {
     const rows = await this.db.prepare(
-      'SELECT id, reply_id, seq, name, description, "arguments", status, result_id, error, type, created_at, updated_at FROM calls WHERE reply_id=$1 ORDER BY seq'
+      'SELECT id, reply_id, seq, call_id, name, description, "arguments", status, result_id, error, category, created_at, updated_at FROM calls WHERE reply_id=$1 ORDER BY seq'
     ).all(reply_id);
     return rows.map((r) => this._callRow(r));
   }

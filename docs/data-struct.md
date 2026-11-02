@@ -151,7 +151,8 @@ create table messages  (
   step_id     INTEGER NOT NULL REFERENCES steps (id) ON DELETE CASCADE,
   seq         integer not null,
   role        text  NOT NULL,
-  content_id  integer not null references contents (id) on delete cascade,    
+  content_id  integer not null references contents (id) on delete cascade,
+  thought_id  integer not null references contents (id) on delete cascade,    
   created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   unique(step_id, seq)
@@ -170,11 +171,12 @@ tool - tool_result
 ```sql
 create table calls (
   id          integer PRIMARY KEY,
-  reply_id    INTEGER NOT NULL REFERENCES contents (id) ON DELETE CASCADE,
+  reply_id    INTEGER NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
   seq         integer not null,
+  call_id     text, -- assigned by model reply
   name        text  NOT NULL,
+  arguments   text,
   description text,
-  arguments   jsonb  NOT NULL DEFAULT '{}'::jsonb,
   status      text not null default 'pending',
   result_id   integer REFERENCES contents (id),
   error       text,
