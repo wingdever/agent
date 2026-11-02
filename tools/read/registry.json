@@ -1,0 +1,25 @@
+{
+  "name": "read",
+  "description": "Read a UTF-8 text file and return line-numbered content.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "file_path": {
+        "type": "string",
+        "description": "Path to read. Relative paths resolve against the conversation workspace; absolute paths are used as-is."
+      },
+      "offset": {
+        "type": "number",
+        "description": "1-based first line to return. Defaults to 1."
+      },
+      "limit": {
+        "type": "number",
+        "description": "Maximum number of lines to return. Defaults to 2000 and cannot exceed 2000."
+      }
+    },
+    "required": ["file_path"]
+  },
+  "type": "fs",
+  "entry": "run.js",
+  "prompt": "Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files."
+}

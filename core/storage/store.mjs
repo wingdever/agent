@@ -136,6 +136,14 @@ class Store {
       "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.step_id=$1 ORDER BY messages.seq"
     ).all(step_id);
   }
+  // 会话级 system prompt：返回该 session 最早落库的 system 消息内容。
+  // 每轮都会复制一份同样的内容，因此取任意一份都相同；按 turn/step/message 顺序取最早。
+  async getSessionPrompt({ session_id }) {
+    const row = await this.db.prepare(
+      "SELECT contents.content FROM turns JOIN steps ON steps.turn_id=turns.id JOIN messages ON messages.step_id=steps.id JOIN contents ON contents.id=messages.content_id WHERE turns.session_id=$1 AND messages.role='system' ORDER BY turns.seq ASC, steps.seq ASC, messages.seq ASC LIMIT 1"
+    ).get(session_id);
+    return row ? row.content : null;
+  }
   async deleteMessage({ id }) {
     const msg = await this._get("messages", id);
     if (!msg) return;
@@ -270,6 +278,7 @@ const OPS = {
   "session.create": (s, p) => s.createSession(p),
   "session.update": (s, p) => s.updateSession(p),
   "session.delete": (s, p) => s.deleteSession(p),
+  "session.prompt": (s, p) => s.getSessionPrompt(p),
 
   "turn.list": (s, p) => s.listTurns(p),
   "turn.get": (s, p) => s.getTurn(p),

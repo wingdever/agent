@@ -354,6 +354,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var liveResponse = null; // 当前 .model-response 节点
   var liveAnswer = null;   // 当前 .answer 节点
   var liveCards = {};      // call id -> .tool-call-card 节点
+  var liveAgentRequest = null; // 当前 .agent-request 节点
 
   function getComposerMode() {
     var sel = document.querySelector(".mode-selector select");
@@ -420,26 +421,32 @@ document.addEventListener("DOMContentLoaded", function () {
     card.className = "tool-call approval";
     var head = document.createElement("div");
     head.className = "tool-head";
-    head.textContent = "工具授权请求：" + (evt.name || "tool");
+    var auto = evt.permission === "allow" || evt.permission === "deny";
+    head.textContent = auto
+      ? (evt.permission === "allow" ? "已自动允许：" : "策略拒绝：") + (evt.name || "tool")
+      : "工具授权请求：" + (evt.name || "tool");
     var args = document.createElement("div");
     args.className = "tool-args";
     args.textContent = JSON.stringify(evt.arguments || {}, null, 2);
-    var bar = document.createElement("div");
-    bar.className = "approval-bar";
-    var allow = document.createElement("button");
-    allow.textContent = "批准"; allow.className = "btn-approve";
-    var deny = document.createElement("button");
-    deny.textContent = "拒绝"; deny.className = "btn-deny";
-    allow.addEventListener("click", function () {
-      AgentClient.call("approval", { id: evt.id, decision: "approve" });
-      allow.disabled = true; deny.disabled = true; allow.textContent = "已批准";
-    });
-    deny.addEventListener("click", function () {
-      AgentClient.call("approval", { id: evt.id, decision: "deny" });
-      allow.disabled = true; deny.disabled = true; deny.textContent = "已拒绝";
-    });
-    bar.appendChild(allow); bar.appendChild(deny);
-    card.appendChild(head); card.appendChild(args); card.appendChild(bar);
+    card.appendChild(head); card.appendChild(args);
+    if (!auto) {
+      var bar = document.createElement("div");
+      bar.className = "approval-bar";
+      var allow = document.createElement("button");
+      allow.textContent = "批准"; allow.className = "btn-approve";
+      var deny = document.createElement("button");
+      deny.textContent = "拒绝"; deny.className = "btn-deny";
+      allow.addEventListener("click", function () {
+        AgentClient.call("approval", { id: evt.id, decision: "approve" });
+        allow.disabled = true; deny.disabled = true; allow.textContent = "已批准";
+      });
+      deny.addEventListener("click", function () {
+        AgentClient.call("approval", { id: evt.id, decision: "deny" });
+        allow.disabled = true; deny.disabled = true; deny.textContent = "已拒绝";
+      });
+      bar.appendChild(allow); bar.appendChild(deny);
+      card.appendChild(bar);
+    }
     chatTab.appendChild(card);
     chatTab.scrollTop = chatTab.scrollHeight;
   }
@@ -491,11 +498,32 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!liveAnswer) { liveAnswer = makeEl("answer", "answer"); liveResponse.appendChild(liveAnswer); }
     return liveAnswer;
   }
+  // system-prompt：折叠展示本轮装配结果；data-name 与 ui.md 布局树一致。
+  function makeSystemPrompt(content) {
+    var details = document.createElement("details");
+    details.className = "system-prompt";
+    details.setAttribute("data-name", "system-prompt");
+    var summary = document.createElement("summary");
+    summary.textContent = "系统提示词";
+    var pre = document.createElement("pre");
+    pre.textContent = content || "";
+    details.appendChild(summary);
+    details.appendChild(pre);
+    return details;
+  }
+  function addSystemPrompt(req, content) {
+    if (!req || !content) return;
+    if (req.querySelector(".system-prompt")) return;
+    req.insertBefore(makeSystemPrompt(content), req.firstChild);
+  }
   function addAgentRequest(text) {
     ensureLiveStep();
     var req = makeEl("agent-request", "agent-request");
-    req.textContent = text || "";
+    var input = makeEl("user-input", "user-input");
+    input.textContent = text || "";
+    req.appendChild(input);
     liveStep.insertBefore(req, liveResponse); // agent-request 位于 model-response 之前
+    liveAgentRequest = req;
     return req;
   }
   function getToolCard(id) {
@@ -513,7 +541,10 @@ document.addEventListener("DOMContentLoaded", function () {
     card.setAttribute("data-op", evt.name || "tool");
     card.setAttribute("data-args", JSON.stringify(evt.arguments || {}, null, 2));
     var desc = card.querySelector(".tool-call-desc");
-    if (!desc) { desc = makeEl("tool-call-desc", "tool-call-desc"); card.appendChild(desc); }
+    if (!desc) {
+      desc = makeEl("tool-call-desc", "tool-call-desc");
+      card.insertBefore(desc, card.firstChild);
+    }
     desc.textContent = (evt.name || "tool") + " " + JSON.stringify(evt.arguments || {});
   }
   function setHierToolResult(card, result) {
@@ -523,10 +554,26 @@ document.addEventListener("DOMContentLoaded", function () {
     card.setAttribute("data-result", JSON.stringify(result, null, 2));
   }
   function setApproval(card, evt) {
+    setToolDesc(card, evt);
+    var permission = evt.permission || "ask";
+    card.setAttribute("data-permission", permission);
     var ap = card.querySelector(".approval-request");
-    if (!ap) { ap = makeEl("approval-request", "approval-request"); card.appendChild(ap); }
+    if (!ap) {
+      ap = makeEl("approval-request", "approval-request");
+      // ui.md 顺序：tool-call-desc -> approval-request -> tool-result
+      var result = card.querySelector(".tool-result");
+      card.insertBefore(ap, result || null);
+    }
+    ap.className = "approval-request " + permission;
     ap.innerHTML = "";
     var head = document.createElement("div");
+    if (permission === "allow" || permission === "deny") {
+      head.textContent = permission === "allow"
+        ? "已自动允许：" + (evt.name || "tool")
+        : "策略拒绝：" + (evt.name || "tool");
+      ap.appendChild(head);
+      return;
+    }
     head.textContent = "工具授权请求：" + (evt.name || "tool");
     var args = document.createElement("div");
     args.textContent = JSON.stringify(evt.arguments || {}, null, 2);
@@ -536,18 +583,20 @@ document.addEventListener("DOMContentLoaded", function () {
     allow.textContent = "批准"; allow.className = "btn-approve";
     var deny = document.createElement("button");
     deny.textContent = "拒绝"; deny.className = "btn-deny";
-    allow.addEventListener("click", function () {
+    allow.addEventListener("click", function (e) {
+      if (e) e.stopPropagation();
       AgentClient.call("approval", { id: evt.id, decision: "approve" });
       allow.disabled = true; deny.disabled = true; allow.textContent = "已批准";
     });
-    deny.addEventListener("click", function () {
+    deny.addEventListener("click", function (e) {
+      if (e) e.stopPropagation();
       AgentClient.call("approval", { id: evt.id, decision: "deny" });
       allow.disabled = true; deny.disabled = true; deny.textContent = "已拒绝";
     });
     bar.appendChild(allow); bar.appendChild(deny);
     ap.appendChild(head); ap.appendChild(args); ap.appendChild(bar);
   }
-  function resetLive() { liveTurn = liveStep = liveResponse = liveAnswer = null; liveCards = {}; }
+  function resetLive() { liveTurn = liveStep = liveResponse = liveAnswer = liveAgentRequest = null; liveCards = {}; }
 
   // composer 内 model-http-status 状态切换（on-wait / on-post / on-get）
   var HTTP_STATUS_LABEL = { "on-wait": "wait", "on-post": "post", "on-get": "get" };
@@ -582,7 +631,14 @@ document.addEventListener("DOMContentLoaded", function () {
       var hc = liveCards[evt.id];
       if (hc) setHierToolResult(hc, evt.result);
     } else if (evt.type === "approval-request") {
-      setApproval(getToolCard(evt.id), evt);
+      setApproval(getToolCard(evt.callId || evt.id), evt);
+    } else if (evt.type === "system-prompt") {
+      ensureLiveStep();
+      if (!liveAgentRequest) {
+        liveAgentRequest = makeEl("agent-request", "agent-request");
+        liveStep.insertBefore(liveAgentRequest, liveResponse);
+      }
+      addSystemPrompt(liveAgentRequest, evt.content);
     } else if (evt.type === "step-start") {
       // 上一轮 step 的 tool-call 已全部完成，模型将再次被请求（对应 behavior.md 的 request-time）
       if (!liveTurn) { liveTurn = makeEl("turn", "turn"); chatTab.appendChild(liveTurn); }
@@ -590,7 +646,7 @@ document.addEventListener("DOMContentLoaded", function () {
       liveTurn.appendChild(liveStep);
       liveResponse = makeEl("model-response", "model-response");
       liveStep.appendChild(liveResponse);
-      liveAnswer = null; liveCards = {};
+      liveAnswer = null; liveCards = {}; liveAgentRequest = null;
       chatTab.scrollTop = chatTab.scrollHeight;
     } else if (evt.type === "done") {
       resetLive();
@@ -645,16 +701,20 @@ document.addEventListener("DOMContentLoaded", function () {
         var respNode = makeEl("model-response", "model-response");
         stepNode.appendChild(respNode);
         var msgs = await window.AgentClient.call("storage", { op: "message.list", payload: { step_id: steps[st].id } });
-        var userMsg = null, asstMsg = null, toolMsgs = [];
+        var systemMsg = null, userMsg = null, asstMsg = null, toolMsgs = [];
         for (var k = 0; k < (msgs || []).length; k++) {
           var m = msgs[k];
-          if (m.role === "user") userMsg = m;
+          if (m.role === "system") systemMsg = m;
+          else if (m.role === "user") userMsg = m;
           else if (m.role === "assistant") asstMsg = m;
           else if (m.role === "tool") toolMsgs.push(m);
         }
         if (userMsg) {
           var req = makeEl("agent-request", "agent-request");
-          req.textContent = userMsg.content || "";
+          if (systemMsg && systemMsg.content) req.appendChild(makeSystemPrompt(systemMsg.content));
+          var uiInput = makeEl("user-input", "user-input");
+          uiInput.textContent = userMsg.content || "";
+          req.appendChild(uiInput);
           stepNode.insertBefore(req, respNode);
         }
         if (asstMsg) {
@@ -679,11 +739,14 @@ document.addEventListener("DOMContentLoaded", function () {
             var desc = makeEl("tool-call-desc", "tool-call-desc");
             desc.textContent = call.name + " " + JSON.stringify(call.arguments || {});
             card.appendChild(desc);
-            if (call.status === "pending" || call.status === "denied") {
-              var ap = makeEl("approval-request", "approval-request");
-              ap.textContent = "工具授权：" + call.name + "（" + call.status + "）";
-              card.appendChild(ap);
-            }
+            // ui.md：每个 tool-call-card 都有 approval-request；回放时按 status 展示结果。
+            var ap = makeEl("approval-request", "approval-request");
+            var approvalText = call.status === "pending"
+              ? "等待授权"
+              : call.status === "denied" ? "已拒绝" : "已允许";
+            ap.className += call.status === "pending" ? " ask" : call.status === "denied" ? " deny" : " allow";
+            ap.textContent = "工具授权：" + call.name + "（" + approvalText + "）";
+            card.appendChild(ap);
             var tm = toolMsgs[c] || null;
             if (tm) {
               var rr = makeEl("tool-result", "tool-result");

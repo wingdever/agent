@@ -197,6 +197,8 @@ shell
 │  │  │  └─ turn*
 │  │  │     └─ step*
 │  │  │         ├─ agent-request?
+│  │  │         │  ├─ system-prompt?
+│  │  │         │  └─ user-input
 │  │  │         └─ model-response
 │  │  │             ├─ thought?
 │  │  │             ├─ answer?

@@ -1,6 +1,8 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const { DEFAULT_IDENTITY, assembleSystemPrompt } = require("./system-prompt");
+const { readPermissions, permissionFor } = require("./permissions");
 
 // user/providers.json：用户侧供应者配置，含 base_url / api_key / models。
 // 当调用方未显式提供 model 时，作为默认模型来源。
@@ -64,6 +66,8 @@ async function loadTools() {
       description: reg.description || "",
       parameters: reg.parameters || { type: "object", properties: {}, required: [] },
       type: reg.type || d.name,
+      // Optional guidance section contributed to the system prompt.
+      prompt: typeof reg.prompt === "string" ? reg.prompt : "",
       run,
     });
   }
@@ -81,13 +85,14 @@ class AgentCore {
     this._onEvent = () => {};
   }
 
-  // 请求用户授权执行某工具调用：发 approval-request 事件并挂起，直至 approve() 唤醒
-  requestApproval({ name, args }) {
+  // 请求用户授权执行某工具调用：发 approval-request 事件并挂起，直至 approve() 唤醒。
+  // callId 绑定到对应的 tool call 卡片，id 只用于回传审批结果。
+  requestApproval({ callId, name, args, permission = "ask" }) {
     return new Promise((resolve) => {
       const id = (this._approvalSeq = (this._approvalSeq || 0) + 1);
       this.pendingApprovals.set(id, resolve);
       this._onEvent({ type: "model-http-status", state: "on-wait" });
-      this._onEvent({ type: "approval-request", id, name, arguments: args });
+      this._onEvent({ type: "approval-request", id, callId, name, arguments: args, permission });
     });
   }
 
@@ -113,6 +118,27 @@ class AgentCore {
       payload,
       sessionId,
     });
+  }
+
+  // Tools resolve relative paths against the conversation's workspace folder.
+  // Bare-chat has no session, and a missing/broken workspace link falls back to
+  // the process working directory.
+  async _resolveCwd(sessionId) {
+    if (!sessionId || !this.store) return process.cwd();
+    try {
+      const session = await this.store.run("session.get", { id: sessionId });
+      if (session && session.workspace_id != null) {
+        const workspace = await this.store.run("workspace.get", { id: session.workspace_id });
+        if (workspace && typeof workspace.folder_path === "string" && workspace.folder_path.trim()) {
+          return path.resolve(workspace.folder_path);
+        }
+      }
+    } catch (e) {
+      // The read tool reports its own I/O failures; a broken lookup only means
+      // the round runs from the process directory.
+      console.error("[core] resolve cwd failed:", e.message);
+    }
+    return process.cwd();
   }
 
   async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false }) {
@@ -201,11 +227,32 @@ class AgentCore {
         if (!effModel) effModel = p.model;
       }
     }
-    const tools = toolNames ? toolNames.map((n) => this.tools.get(n)).filter(Boolean) : [...this.tools.values()];
+    // Deterministic schema/guidance order: registration order is a filesystem artifact.
+    const tools = (toolNames ? toolNames.map((n) => this.tools.get(n)).filter(Boolean) : [...this.tools.values()])
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const toolDefs = tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
-    const conv = messages.slice();
     const store = this.store;
     const persist = !!(sessionId && store);
+    const permissions = readPermissions();
+
+    // The system prompt belongs to the session's first turn only: it is
+    // assembled once, stored once, and displayed once. Later turns reuse the
+    // stored text and neither persist nor emit it again. Requests still carry
+    // it every time because Chat Completions is stateless.
+    const cwd = await this._resolveCwd(persist ? sessionId : null);
+    let system = persist ? await store.run("session.prompt", { session_id: sessionId }) : null;
+    const systemIsNew = !system;
+    if (systemIsNew) {
+      system = assembleSystemPrompt({
+        identity: typeof st.identity === "string" ? st.identity : DEFAULT_IDENTITY,
+        persona: typeof st.persona === "string" ? st.persona : "",
+        tools,
+        cwd,
+        model: effModel,
+      }).system;
+      onEvent({ type: "system-prompt", content: system });
+    }
+    const conv = [{ role: "system", content: system }, ...messages];
 
     // 开启一轮对话轨迹（持久化）：一个 turn 包含多个 step
     // 每个 step = 一次模型请求 + 其响应（agent-request? + model-response(thought?/answer?/tool-call-card*)）
@@ -222,12 +269,15 @@ class AgentCore {
       // 新一轮 step 开始（r=0 由前端 onSend 预建 UI；r>0 由本事件驱动 UI 建立新 step）
       if (r > 0) onEvent({ type: "step-start", seq: r });
 
-      // step 0：把触发本轮的用户请求作为 agent-request 落入本步骤
+      // step 0：只有 session 首轮落 system；触发本轮的用户请求始终落入本步骤
       if (persist && r === 0) {
+        if (systemIsNew) {
+          await store.run("message.add", { step_id: step.id, seq: 0, role: "system", content: system });
+        }
         const lastUser = [...conv].reverse().find((m) => m.role === "user");
         if (lastUser) {
           const content = typeof lastUser.content === "string" ? lastUser.content : JSON.stringify(lastUser.content);
-          await store.run("message.add", { step_id: step.id, seq: 0, role: "user", content });
+          await store.run("message.add", { step_id: step.id, seq: systemIsNew ? 1 : 0, role: "user", content });
         }
       }
 
@@ -246,8 +296,8 @@ class AgentCore {
       }
       conv.push(a);
 
-      // 记录本轮助手回复与（可能的）工具调用
-      const assistantSeq = r === 0 ? 1 : 0;
+      // 记录本轮助手回复与（可能的）工具调用（首轮有 system 时整体后移一位）
+      const assistantSeq = r === 0 ? (systemIsNew ? 2 : 1) : 0;
       let assistantMsg = null;
       const callIds = [];
       if (persist) {
@@ -288,10 +338,19 @@ class AgentCore {
         try { args = JSON.parse(call.function.arguments || "{}"); } catch (_) { }
         const callType = tool ? tool.type : "unknown";
 
-        // 每次工具调用都先请求用户授权（HumanControl 前置）
-        const decision = await this.requestApproval({ name: call.function.name, args });
+        // Permissions come from user/permissions.json: allow executes directly,
+        // deny refuses without asking, ask waits for the user. Every path emits
+        // approval-request so the UI always has the card's approval element.
+        const permission = permissionFor(permissions, call.function.name);
+        let decision;
+        if (permission === "ask") {
+          decision = await this.requestApproval({ callId: call.id, name: call.function.name, args, permission });
+        } else {
+          onEvent({ type: "approval-request", callId: call.id, name: call.function.name, arguments: args, permission });
+          decision = permission === "allow" ? "approve" : "deny";
+        }
         if (decision !== "approve") {
-          const denied = { error: "user denied" };
+          const denied = { error: permission === "deny" ? "permission denied" : "user denied" };
           onEvent({ type: "tool_result", id: call.id, name: call.function.name, result: denied });
           if (persist && callIds[i] != null) {
             await store.run("call.update", { id: callIds[i], status: "denied", result: denied });
@@ -305,16 +364,18 @@ class AgentCore {
         let result;
         try {
           onEvent({ type: "tool_call", id: call.id, name: call.function.name, arguments: args });
-          result = tool ? await tool.run(args) : { error: "unknown tool" };
+          result = tool ? await tool.run(args, { cwd, sessionId }) : { error: "unknown tool" };
           onEvent({ type: "tool_result", id: call.id, name: call.function.name, result });
         } catch (e) { result = { error: String(e.message || e) }; onEvent({ type: "tool_result", id: call.id, name: call.function.name, result }); }
         // 先把结果写进对话历史，确保下一轮 _stream 必带工具结果回传模型（不受持久化失败影响）
-        conv.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+        // 纯文本结果原样回传（read 的模型面向信封）；其余工具继续用 JSON。
+        const toolContent = typeof result === "string" ? result : JSON.stringify(result);
+        conv.push({ role: "tool", tool_call_id: call.id, content: toolContent });
         // 持久化隔离：单项失败仅告警，不阻断把结果回传模型
         if (persist && callIds[i] != null) {
           try { await store.run("call.update", { id: callIds[i], status: result && result.error ? "failed" : "succeeded", result }); }
           catch (e) { onEvent({ type: "error", error: "call.update failed: " + (e.message || e) }); }
-          try { await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: JSON.stringify(result) }); }
+          try { await store.run("message.add", { step_id: step.id, seq: assistantSeq + 1 + i, role: "tool", content: toolContent }); }
           catch (e) { onEvent({ type: "error", error: "message.add failed: " + (e.message || e) }); }
         }
       }

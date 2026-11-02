@@ -20,7 +20,7 @@ when no model supply or select use model in user/providers.json
 while has_next_user_input():              -- turn
     history.append(user_message())
     step = 0
-    while step < MAX_STEPS:               -- step
+    while true:               -- step
         response = request(history)       -- 每次都要重新请求
         history.append(response.message)  
 
