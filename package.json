@@ -12,8 +12,11 @@
     "electron": "44.9.3"
   },
   "dependencies": {
+    "@joplin/turndown-plugin-gfm": "^1.0.68",
     "@vscode/ripgrep": "^1.18.0",
+    "ipaddr.js": "^2.5.0",
     "pg-micro": "^0.0.5",
+    "turndown": "^7.2.4",
     "unbash": "^6.0.3"
   }
 }

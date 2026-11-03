@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const { DEFAULT_IDENTITY, assembleSystemPrompt } = require("./system-prompt");
 const { readPermissions, permissionFor } = require("./permissions");
+const { readFsPolicy, resolveFsPermission } = require("./fs-policy");
 const {
   resolveConfig: resolveTranslateConfig,
   shouldTranslateUser,
@@ -448,6 +449,7 @@ class AgentCore {
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const toolDefs = tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const permissions = readPermissions();
+    const fsPolicy = readFsPolicy();
 
     // The system prompt belongs to the session's first turn only: it is
     // assembled once, stored once, and displayed once. Later turns reuse the
@@ -657,9 +659,13 @@ class AgentCore {
         }
 
         // Permissions come from user/permissions.json: allow executes directly,
-        // deny refuses without asking, ask waits for the user. Every path emits
-        // approval-request so the UI always has the card's approval element.
-        const permission = permissionFor(permissions, name);
+        // deny refuses without asking, ask waits for the user. File-writing
+        // tools (write/edit) are additionally narrowed/widened by path rules in
+        // user/fs-policy.json (deny wins, then first match, else tool-level).
+        let permission = permissionFor(permissions, name);
+        if (name === "write" || name === "edit") {
+          permission = resolveFsPermission(permissions, fsPolicy, name, args && args.file_path, cwd);
+        }
         let decision;
         if (permission === "ask") {
           decision = await this.requestApproval({ callId, name, args, permission });

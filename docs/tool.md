@@ -3,6 +3,7 @@
 > 状态（2026-11-03）：P0 已实现 `read` / `write` / `edit` / `glob` / `grep` / `bash`；
 > P1 已实现 `ask_user_question`（UI 挂起问答）；P2 已实现 `todo_write` 和
 > `create_goal` / `get_goal` / `update_goal`（goal 自动续轮待做）；
+> P3 已实现 `web_search`（Tavily）/ `web_fetch`（HTTP + HTML→Markdown）；
 > P5 已提前实现 plan 模式 + `exit_plan_mode`。
 > `write` / `edit` 的观察约束、`bash` 的超时/截断、`glob`/`grep` 的 spill 均已落地。
 > 工具优先级、模型接口约定和后续阶段见 `docs/tool-plan.md`。
@@ -32,9 +33,10 @@ registry.json 字段：
 - 已实现（P0）：`read`、`write`、`edit`、`glob`、`grep`、`bash`
 - 已实现（P1）：`ask_user_question`
 - 已实现（P2）：`todo_write`、`create_goal`、`get_goal`、`update_goal`
+- 已实现（P3）：`web_search`、`web_fetch`
 - 已实现（P5，提前）：plan 模式 + `exit_plan_mode`
 - 默认隐藏：`calculator`、`get_current_time`（`defaultVisible: false`）
-- 再后：jobs、web、plan 模式等；
+- 再后：jobs、present、skill、subagent、workflow 等；
   见 `docs/tool-plan.md` 的矩阵与里程碑
 
 ### read（读文本文件）
@@ -55,6 +57,30 @@ registry.json 字段：
 - 大文件：`stat.size >= 10MB` 走流式扫描，不整文件读入内存
 - 报错：不存在、非普通文件、无权限、offset 超出 EOF、UTF-8 首块含 NUL 判为二进制
 - 审批：由 `user/permissions.json` 的 `read` 档位决定（当前为 `allow`，不弹授权）；绝对路径照读，不做 workspace 包含性限制
+
+### web_search（联网搜索）
+- 注册：`tools/web_search/registry.json`；实现：`tools/web_search/run.js` + `tools/lib/web/`
+- 参数：`queries`（必填，1–4 条，合并去重）
+- provider：Tavily `POST /search`；结果映射为 `{ answer?, sources[], truncated }`
+- 多 query：并发执行、按 rank 轮转合并、按 URL 去重，最多 8 个源；answer 以 `### <query>` 分段
+- 结果文本（与 DSH 一致）：外部内容声明 → answer → `Sources:` markdown 列表（含 snippet 与日期）→ 截断提示 → 引用提示；无结果时为 `No results found.`
+- 配置：`user/settings.json` 的 `web.tavilyApiKey`（`TAVILY_API_KEY` 兜底）；可选 `web.tavily.{baseUrl,searchDepth,includeAnswer}`
+- 上限：30s 超时；结果数 8、query 数 4 固定在代码里，与 registry 描述保持一致
+- 审批：`web_search` 当前为 `allow`（只读外部请求）；缺 key 时返回 `Error: web_search is unavailable: missing Tavily API key ...`
+
+### web_fetch（抓取网页）
+- 注册：`tools/web_fetch/registry.json`；实现：`tools/web_fetch/run.js` + `tools/lib/web/`
+- 参数：`url`（必填，HTTP(S)）
+- 抓取策略（对齐 DSH `web-fetch-http`）：
+  - URL ≤ 2048 字符、仅 http/https、禁止内嵌凭据
+  - DNS 解析后校验整个地址集，拒绝回环/内网/非公网 IP，并把地址 pin 到连接
+  - 仅跟随同源重定向（最多 5 跳）；跨域重定向报错，要求直接重试目标 URL
+  - 响应体最多 5MB、解码后 10 万字符；超限时截断并标记
+  - `Content-Type`：`text/html`/XHTML → turndown（GFM 表格）转 Markdown；其他 `text/*`、JSON/XML 原样返回；其他类型报 `unsupported content type`
+  - 输出整体上限 20 万字符；截断时追加 `(Content truncated. Fetch a more specific URL or section for the full text.)`
+- 结果文本：`Fetched <url> (HTTP <code>)` + 外部内容声明 + 正文；4xx/5xx 仍返回正文与状态码
+- 依赖：`turndown` + `@joplin/turndown-plugin-gfm`（HTML→Markdown）、`ipaddr.js`（公网地址判定）
+- 审批：`web_fetch` 当前为 `allow`（只读外部请求）
 
 ### 具体约定
 参照deepseek-harness具体的工具与模型通信的约定
@@ -83,6 +109,24 @@ approval-request { id, callId, name, arguments, permission }
 - 档位：`allow` / `ask` / `deny`；未列出的工具取 `default`，`default` 缺省 `ask`
 - 文件缺失、JSON 损坏、`default` 或某工具档位非法：该处按 `ask` 处理并 `console.error`（fail closed）
 - 未注册的工具名允许先写（例如预留的 `write`），运行时只查当前可见工具
+
+### 文件写精细控制（user/fs-policy.json）
+对 `write` / `edit` 两类文件写工具，在工具级档位之上叠加**按路径**的精细控制：可按目录、按文件、按 glob 自动 `allow`（跳过审批）或 `deny`（直接拒绝）。与 `permissions.json` 并列，本机配置，`user/` 不入 git。格式：
+
+```json
+{
+  "rules": [
+    { "path": "docs/**", "permission": "deny" },
+    { "path": "src/**/*.test.js", "permission": "allow" },
+    { "path": "/abs/secrets/**", "permission": "deny" }
+  ]
+}
+```
+
+- 作用域：仅 `write` / `edit`。其他工具完全由 `permissions.json` 决定。
+- 匹配基准：每条 `path` 既按**绝对路径**匹配，也按**相对 workspace 根**匹配（`docs/**` 可匹配任意位置下的 `docs/` 子目录，无需写全绝对前缀）。`**` 跨任意层级，`*` 单段，`?` 单字符。
+- 决策顺序：**先扫 deny，任一 deny 命中即拒绝**（否决更早的 allow）；否则首条命中的 allow/ask 生效；均未命中则回退到 `permissions.json` 的工具级档位。
+- 失败行为：文件缺失、JSON 损坏、某条规则缺 `path` 或档位非法——坏规则被丢弃（含整体损坏时忽略全部规则），完全回退到 `permissions.json`，绝不悄悄放宽或收紧（fail open 到原门控）。
 
 ### 模型通信
 #### 发送工具清单
