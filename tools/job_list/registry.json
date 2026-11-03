@@ -1,0 +1,14 @@
+{
+  "name": "job_list",
+  "description": "List the user jobs (tasks delegated to the human via request_user_job) for this session, with their `job_id`, status, and a short description. Use it to recall what you have asked the user to do.",
+  "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  },
+  "type": "read",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "job_list: list the user jobs (tasks delegated to the human via request_user_job) for this session, each with its `job_id`, status, and a short description.",
+  "promptSection": "job_list"
+}

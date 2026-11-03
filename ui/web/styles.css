@@ -333,6 +333,8 @@ select, textarea, input { font-family: inherit; }
 .ask-option-desc { color: #6b7280; font-size: 11px; line-height: 1.4; }
 .ask-custom { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; color: #111827; background: #fff; }
 .ask-custom:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139, 92, 246, .15); }
+.user-job-result { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; color: #111827; background: #fff; resize: vertical; font-family: inherit; }
+.user-job-result:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139, 92, 246, .15); }
 .ask-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .ask-actions button { padding: 4px 12px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
 .ask-error { flex: 1 1 auto; color: #b91c1c; font-size: 11px; }

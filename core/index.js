@@ -109,6 +109,9 @@ class AgentCore {
     this._questionSeq = 0;
     this.pendingPlanReviews = new Map();
     this._planReviewSeq = 0;
+    this.pendingUserJobs = new Map();
+    this._userJobSeq = 0;
+    this.userJobs = new Map();
     this.goals = null;
     this._onEvent = () => {};
   }
@@ -198,6 +201,78 @@ class AgentCore {
     const feedback = typeof payload.feedback === "string" ? payload.feedback : "";
     if (approved) this.setPlanMode(pending.sessionId, false);
     pending.resolve({ approved, feedback });
+    return true;
+  }
+
+  // request_user_job: create a user job, emit the task card, and block until the
+  // user reports back (or cancels). Mirrors requestUserQuestion but also keeps a
+  // job record so job_output / job_list / job_kill can recall it later. The
+  // record lives in memory (this.userJobs) and, when a session store exists, is
+  // mirrored there.
+  requestUserJob({ callId, description, title, sessionId }) {
+    return new Promise((resolve) => {
+      this._userJobSeq = (this._userJobSeq || 0) + 1;
+      const jobId = "ujob_" + Date.now().toString(36) + "_" + this._userJobSeq.toString(36);
+      const record = {
+        jobId,
+        sessionId: sessionId || null,
+        status: "pending",
+        description: description || "",
+        title: title || "",
+        result: null,
+      };
+      this.userJobs.set(jobId, record);
+      if (this.store) {
+        this.store
+          .run("userJob.create", {
+            job_id: jobId,
+            session_id: sessionId || null,
+            status: "pending",
+            description: description || "",
+            title: title || "",
+          })
+          .catch((e) => console.error("[core] userJob.create failed:", e.message));
+      }
+      this.pendingUserJobs.set(jobId, resolve);
+      this._onEvent({ type: "model-http-status", state: "on-wait" });
+      this._onEvent({ type: "user-job-request", id: jobId, callId, description, title });
+    });
+  }
+
+  // Resolve a pending request_user_job with the user's report or a cancellation.
+  // Returns false when the job id is unknown or already answered.
+  answerUserJob(id, payload = {}) {
+    const key = String(id);
+    const resolve = this.pendingUserJobs.get(key);
+    const record = this.userJobs.get(key);
+    if (!resolve || !record) return false;
+    this.pendingUserJobs.delete(key);
+    const cancelled = payload.cancel === true;
+    const result = typeof payload.result === "string" ? payload.result : "";
+    record.status = cancelled ? "killed" : "completed";
+    record.result = result;
+    if (this.store) {
+      this.store
+        .run(cancelled ? "userJob.kill" : "userJob.complete", {
+          job_id: key,
+          result: cancelled ? undefined : result,
+        })
+        .catch((e) => console.error("[core] userJob update failed:", e.message));
+    }
+    this._onEvent({ type: "user-job-update", id: key, status: record.status });
+    resolve({ jobId: key, cancelled, result });
+    return true;
+  }
+
+  // Explicit cancel path (job_kill tool): if the job is still pending, resolve
+  // its suspension; otherwise just mark it killed. Returns false for unknown ids.
+  killUserJob(jobId) {
+    const key = String(jobId);
+    const record = this.userJobs.get(key);
+    if (!record) return false;
+    if (record.status === "pending") return this.answerUserJob(key, { cancel: true });
+    if (this.store) this.store.run("userJob.kill", { job_id: key }).catch(() => {});
+    record.status = "killed";
     return true;
   }
 
@@ -608,6 +683,9 @@ class AgentCore {
           isPlanMode: () => planMode.isActive(sessionId),
           reviewPlan: (plan) => this.requestPlanReview({ callId, plan, sessionId }),
           askUserQuestion: (questions) => this.requestUserQuestion({ callId, questions }),
+          requestUserJob: (job) => this.requestUserJob({ callId, sessionId, ...job }),
+          killUserJob: (jobId) => this.killUserJob(jobId),
+          store: this.store,
         });
         await finish(result, result.isError === true ? "failed" : "succeeded");
       }

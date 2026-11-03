@@ -1,0 +1,23 @@
+{
+  "name": "request_user_job",
+  "description": "Delegate a task to the human user. The turn pauses until the user completes the task and reports back through an interactive card. Use it when a step needs a real-world action, credentials, a decision, or information only the human can provide. Pass a clear `description` of what to do; the returned text is the user's free-form report. A `job_id` is included so you can recall it later with job_output / job_list.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "description": {
+        "type": "string",
+        "description": "What the user should do. Be specific and self-contained; the user will not see the surrounding conversation."
+      },
+      "title": {
+        "type": "string",
+        "description": "Optional short heading for the task card shown to the user."
+      }
+    },
+    "required": ["description"]
+  },
+  "type": "interaction",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "request_user_job: delegate a real-world task to the human user. The turn pauses until the user completes it and submits a free-text report via the card. Use it only when a step needs an action, credentials, a decision, or information only the human can provide. Pass a clear `description`. The result is the user's report; the `job_id` in it lets you recall the job later with job_output / job_list.",
+  "promptSection": "request_user_job"
+}

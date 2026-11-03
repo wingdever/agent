@@ -1,0 +1,19 @@
+{
+  "name": "job_kill",
+  "description": "Cancel a pending user job by its `job_id` when the human no longer needs to do it. Completed or already-cancelled jobs cannot be killed (job_kill reports the current status). In practice the user cancels a job from its card; this tool is the explicit recall path.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "job_id": {
+        "type": "string",
+        "description": "The job id returned by request_user_job (e.g. ujob_...)."
+      }
+    },
+    "required": ["job_id"]
+  },
+  "type": "read",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "job_kill: cancel a pending user job by `job_id` if the human no longer needs to do it. Completed or already-cancelled jobs cannot be killed.",
+  "promptSection": "job_kill"
+}

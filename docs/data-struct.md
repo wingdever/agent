@@ -189,3 +189,37 @@ create table calls (
 
 enum name: [text_read,text_write,text_edit,text_grep,file_touch,file_remove,file_stat,dir_mkdir,dir_rmdir,dir_list,shell_run,python_run,sql_insert,sql_delete,sql_select,sql_update,web_search,web_fetch...]
 enum category: [textfile,bash,sql,script,web]
+
+
+## goals (目标)
+```sql
+CREATE TABLE goals (
+  session_id       integer  PRIMARY KEY REFERENCES sessions (id) ON DELETE CASCADE,
+  goal_id          text     NOT NULL,
+  revision         integer  NOT NULL,
+  objective        text     NOT NULL,
+  phase            text     NOT NULL,
+  rounds_started   integer  NOT NULL DEFAULT 0,
+  max_goal_rounds  integer  NOT NULL,
+  blocked_code     text,
+  blocked_message  text,
+  activation       text     NOT NULL DEFAULT 'armed',
+  created_at       TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMP NOT NULL DEFAULT now()
+)
+```
+
+## user_jobs (用户任务表)
+```sql
+CREATE TABLE user_jobs (
+  id            integer  PRIMARY KEY,
+  job_id        text     NOT NULL UNIQUE,
+  session_id    integer  REFERENCES sessions (id) ON DELETE CASCADE,
+  status        text     NOT NULL DEFAULT 'pending',
+  description   text     NOT NULL,
+  title         text,
+  result        text,
+  created_at    TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMP NOT NULL DEFAULT now()
+)
+```

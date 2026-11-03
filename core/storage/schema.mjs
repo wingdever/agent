@@ -141,4 +141,21 @@ export const SCHEMA_STATEMENTS = [
     created_at       TIMESTAMP NOT NULL DEFAULT now(),
     updated_at       TIMESTAMP NOT NULL DEFAULT now()
   )`,
+
+  // User jobs: tasks the model delegates to the human user via request_user_job.
+  // The model-facing lifecycle mirrors DSH's job_* (create -> output/list/kill),
+  // but there is no background process — the user completes the task in the real
+  // world and reports back through an interactive card. status is one of
+  // 'pending' | 'completed' | 'killed'.
+  `CREATE TABLE IF NOT EXISTS user_jobs (
+    id            integer  PRIMARY KEY,
+    job_id        text     NOT NULL UNIQUE,
+    session_id    integer  REFERENCES sessions (id) ON DELETE CASCADE,
+    status        text     NOT NULL DEFAULT 'pending',
+    description   text     NOT NULL,
+    title         text,
+    result        text,
+    created_at    TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMP NOT NULL DEFAULT now()
+  )`,
 ];

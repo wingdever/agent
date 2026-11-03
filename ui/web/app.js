@@ -725,6 +725,77 @@ document.addEventListener("DOMContentLoaded", function () {
     card.appendChild(form);
     scrollChatToBottom();
   }
+
+  // request_user_job: render a card describing the human task, with a textarea
+  // for the user's free-text report and submit/cancel. Submission resolves the
+  // suspended tool call through the same channel as answerQuestions.
+  function renderUserJob(card, evt) {
+    if (!card) return;
+    var old = card.querySelector(".user-job");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    var form = makeEl("user-job", "user-job");
+    form.setAttribute("data-job-id", evt.id || "");
+    form.addEventListener("click", function (e) { e.stopPropagation(); });
+    var title = makeEl("ask-title", "ask-title");
+    title.textContent = evt.title || "需要你手动完成一项任务";
+    form.appendChild(title);
+
+    var desc = makeEl("ask-text", "ask-text");
+    desc.textContent = evt.description || "";
+    form.appendChild(desc);
+
+    var hint = makeEl("ask-option-desc", "ask-option-desc");
+    hint.textContent = "请在真实环境中完成上述任务，然后在此填写结果报告：";
+    form.appendChild(hint);
+
+    var textarea = document.createElement("textarea");
+    textarea.className = "user-job-result";
+    textarea.rows = 4;
+    textarea.placeholder = "在此描述你完成的情况与结果……";
+    form.appendChild(textarea);
+
+    var actions = makeEl("ask-actions", "ask-actions");
+    var error = makeEl("ask-error", "ask-error");
+    error.hidden = true;
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn-deny";
+    cancel.textContent = "取消任务";
+    var submit = document.createElement("button");
+    submit.type = "button";
+    submit.className = "btn-approve";
+    submit.textContent = "提交结果";
+
+    function send(cancelOnly) {
+      var result = cancelOnly ? "" : String(textarea.value || "").trim();
+      submit.disabled = true;
+      cancel.disabled = true;
+      error.hidden = true;
+      AgentClient.call("answerUserJob", { id: evt.id, cancel: cancelOnly, result: result }).then(function (ok) {
+        if (ok === false) throw new Error("该任务已失效或本轮已结束");
+        if (ok && ok.error) throw new Error(ok.error);
+        form.querySelectorAll("input,textarea,button").forEach(function (node) { node.disabled = true; });
+        var done = makeEl("ask-submitted", "ask-submitted");
+        done.textContent = cancelOnly ? "已取消任务" : "已提交结果";
+        form.appendChild(done);
+      }).catch(function (e) {
+        submit.disabled = false;
+        cancel.disabled = false;
+        error.hidden = false;
+        error.textContent = "提交失败：" + (e && e.message ? e.message : e);
+      });
+    }
+
+    submit.addEventListener("click", function () { send(false); });
+    cancel.addEventListener("click", function () { send(true); });
+    actions.appendChild(error);
+    actions.appendChild(cancel);
+    actions.appendChild(submit);
+    form.appendChild(actions);
+    card.appendChild(form);
+    scrollChatToBottom();
+  }
   function createApprovalCard(evt) {
     var card = document.createElement("div");
     card.className = "tool-call approval";
@@ -1189,6 +1260,16 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     } else if (evt.type === "ask-user-question") {
       renderAskUserQuestion(getToolCard(evt.callId || evt.id), evt);
+    } else if (evt.type === "user-job-request") {
+      renderUserJob(getToolCard(evt.callId || evt.id), evt);
+    } else if (evt.type === "user-job-update") {
+      document.querySelectorAll(".user-job[data-job-id='" + (evt.id || "") + "']").forEach(function (node) {
+        if (node.querySelector(".ask-submitted")) return;
+        node.querySelectorAll("input,textarea,button").forEach(function (n) { n.disabled = true; });
+        var note = makeEl("ask-submitted", "ask-submitted");
+        note.textContent = evt.status === "killed" ? "任务已被取消" : "任务已结束";
+        node.appendChild(note);
+      });
     } else if (evt.type === "plan-review") {
       renderPlanReview(getToolCard(evt.callId || evt.id), evt);
     } else if (evt.type === "plan-mode") {

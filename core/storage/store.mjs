@@ -116,6 +116,40 @@ class Store {
     return this.getGoal({ session_id });
   }
 
+  // ---- user jobs（模型派给真人用户的任务；status: pending|completed|killed）----
+  _mapUserJob(row) {
+    if (!row) return null;
+    return {
+      jobId: row.job_id,
+      sessionId: row.session_id,
+      status: row.status,
+      description: row.description,
+      title: row.title,
+      result: row.result,
+    };
+  }
+  async createUserJob({ job_id, session_id, status = "pending", description, title }) {
+    const id = await this._nextId("user_jobs");
+    await this._insertRow("user_jobs", ["id", "job_id", "session_id", "status", "description", "title"], [id, job_id, session_id, status, description, title || null]);
+    return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+  }
+  async getUserJob({ job_id }) {
+    const row = await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id);
+    return this._mapUserJob(row);
+  }
+  async listUserJobs({ session_id }) {
+    const rows = await this.db.prepare("SELECT * FROM user_jobs WHERE session_id=$1 ORDER BY created_at DESC").all(session_id);
+    return rows.map((r) => this._mapUserJob(r));
+  }
+  async completeUserJob({ job_id, result }) {
+    await this.db.prepare("UPDATE user_jobs SET status='completed', result=$1, updated_at=now() WHERE job_id=$2").run(result || null, job_id);
+    return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+  }
+  async killUserJob({ job_id }) {
+    await this.db.prepare("UPDATE user_jobs SET status='killed', updated_at=now() WHERE job_id=$1").run(job_id);
+    return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+  }
+
   listTurns({ session_id }) { return this._list("turns", { session_id }, "seq"); }
   getTurn({ id }) { return this._get("turns", id); }
   createTurn(data) { return this._create("turns", data, ["session_id", "seq", "status"]); }
@@ -313,6 +347,12 @@ const OPS = {
 
   "goal.get": (s, p) => s.getGoal(p),
   "goal.save": (s, p) => s.saveGoal(p),
+
+  "userJob.create": (s, p) => s.createUserJob(p),
+  "userJob.get": (s, p) => s.getUserJob(p),
+  "userJob.list": (s, p) => s.listUserJobs(p),
+  "userJob.complete": (s, p) => s.completeUserJob(p),
+  "userJob.kill": (s, p) => s.killUserJob(p),
 
   "turn.list": (s, p) => s.listTurns(p),
   "turn.get": (s, p) => s.getTurn(p),

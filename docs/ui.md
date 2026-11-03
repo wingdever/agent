@@ -149,12 +149,14 @@
 
 ### 人控要素（横切，非布局树节点）
 
-| Name | Desc |
-|---|---|
-| **approval-request** | 审批请求；嵌入 `response-message` |
-| **action-bar** | 消息/任务操作栏；附着于 `response-message` 或 `tool-call` |
-| **branch-picker** | 对话分支选择器；附着于 `response-message` |
-| **attachment-tray** | 附件托盘；附着于 `composer`；状态：ready / extracting / fallback |
+|         Name          |                Desc                       |
+|         ---           |                ---                        |
+| **approval-request**  | 审批请求；嵌入 `response-message`         |
+| **ask-user-question** | 询问用户手动确定信息并填写答案的交互卡片  |
+| **user-job-request**  | 请求用户手动完成任务并回报结果的交互卡片  |
+| **action-bar**        | 消息/任务操作栏；附着于 `response-message` 或 `tool-call` |
+| **branch-picker**     | 对话分支选择器；附着于 `response-message` |
+| **attachment-tray**   | 附件托盘；附着于 `composer`；状态：ready / extracting / fallback |
 
 ---
 
@@ -210,6 +212,8 @@ shell
 │  │  │             │  └─ chinese-translate-answer
 │  │  │             └─ tool-call-card*
 │  │  │                 ├─ tool-call-desc
+│  │  │                 ├─ ask-user-question?
+│  │  │                 ├─ user-job-request?
 │  │  │                 ├─ approval-request
 │  │  │                 └─ tool-result
 │  │  └─ trajectory-tab
@@ -349,6 +353,8 @@ Process（非布局树节点）
 
 HumanControl（非布局树节点）
 ├─ approval-request：嵌入 response-message
+├─ ask-user-question：嵌入 tool-call-card
+├─ user-job-request：嵌入 tool-call-card
 ├─ action-bar：附着 response-message / tool-call
 ├─ branch-picker：附着 response-message
 └─ attachment-tray：附着 composer
@@ -367,6 +373,11 @@ models-btn -> models-modal
 fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote-models-section（渲染 remote-model-item*）
 remote-add-btn -> AgentClient.call("storage", {op:"model.create", payload:{provider_id, name, fee}}) -> model-list-section
 add-all-btn -> 对每条未添加 remote-model-item 触发 model.create
+
+user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文本框 + 提交/取消按钮
+  提交按钮 -> AgentClient.call("answerUserJob", {id, result}) -> 工具结果为用户回报文本
+  取消按钮 -> AgentClient.call("answerUserJob", {id, cancel:true}) -> 工具结果标记为已取消
+  user-job-update(event:{id,status}) -> 将对应 user-job 卡片置为已结束/已取消
 ---
 
 ## 4. 布局关系
@@ -379,6 +390,7 @@ add-all-btn -> 对每条未添加 remote-model-item 触发 model.create
 - **`chat-header`**：包含 `session-name`、`tab-icons` 和 `right-collapse-button`；`tab-icons` 包含 `chat-tab-icon` 与 `trajectory-icon`。
 - **`tab-body`**：在 `chat-tab` 与 `trajectory-tab` 之间切换。
 - **`chat-tab` 内部**：`request-prompt` 在上，`response-message` 在下；`response-message` 内按需渲染 `approval-request`、`ask-user-question`、`thought`、`tool-call`、`answer`、`ask-user-prompt`，顺序不固定。
+- **`user-job-request` 嵌入 `tool-call-card`**：request_user_job 工具触发，展示任务描述与结果输入框，由用户提交或取消后继续本轮。
 - **`composer` 位于 `chat-viewport` 底部**：包含 `input-textarea` 与 `composer-footer`；`composer-footer` 放 `think-switch`、`search-switch`、`permission-selector`、`mode-selector`、`add-files-btn`、`send-or-stop-btn`；`attachment-tray` 附着于 `composer` 顶部（`input-textarea` 之前）。
 - **`chat-footer`**：展示 `session-statistics`、`token-usage`、`context-used`。
 - **`context-panel` 居右**：默认隐藏，展示选中 `tool-call` 的详情与引用来源。
@@ -402,3 +414,8 @@ approval-request
 
 tool-result
    if read default collapse
+
+user-job-request
+   .user-job 卡片（复用 ask-user-question 的标题/正文/按钮样式）
+   .user-job-result 多行文本框（用户填写结果报告）
+   提交/取消按钮分别对应 btn-approve / btn-deny

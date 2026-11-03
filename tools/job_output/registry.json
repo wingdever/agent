@@ -1,0 +1,19 @@
+{
+  "name": "job_output",
+  "description": "Fetch the result or current status of a user job created with request_user_job, by its `job_id`. Returns the user's report if the job is completed, or a status line if it is still pending or was killed.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "job_id": {
+        "type": "string",
+        "description": "The job id returned by request_user_job (e.g. ujob_...)."
+      }
+    },
+    "required": ["job_id"]
+  },
+  "type": "read",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "job_output: read the result or status of a user job (created via request_user_job) by its `job_id`. Returns the user's report when completed, otherwise a status line.",
+  "promptSection": "job_output"
+}
