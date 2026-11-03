@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@vscode/ripgrep": "^1.18.0",
-    "pg-micro": "^0.0.5"
+    "pg-micro": "^0.0.5",
+    "unbash": "^6.0.3"
   }
 }

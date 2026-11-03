@@ -683,6 +683,7 @@ class AgentCore {
           isPlanMode: () => planMode.isActive(sessionId),
           reviewPlan: (plan) => this.requestPlanReview({ callId, plan, sessionId }),
           askUserQuestion: (questions) => this.requestUserQuestion({ callId, questions }),
+          requestApproval: (payload) => this.requestApproval(payload),
           requestUserJob: (job) => this.requestUserJob({ callId, sessionId, ...job }),
           killUserJob: (jobId) => this.killUserJob(jobId),
           store: this.store,
