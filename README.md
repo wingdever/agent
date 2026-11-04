@@ -56,6 +56,16 @@ Each subdirectory under `tools/` is a standalone tool.
 A tool declares its own interface by `registry.json`.
 
 
+### Context compaction
+
+DSH-style context compression. `/compact` condenses older history into one structured
+checkpoint message on demand; automatic pressure compaction runs before every model
+request once the context reaches 80% of the window (prune oversized tool results first).
+Original messages stay in storage; the model-visible history is projected from them.
+
+Implementation details: [docs/context-compact.md](docs/context-compact.md).
+Background on event sourcing and DSH's log/surface split: [docs/event-sourcing.md](docs/event-sourcing.md).
+
 ### Configuration
 
 now config files in `user/` includes:

@@ -28,6 +28,8 @@ instead of hardcode.
 
 
 ## context-compress
+### done
+- DSH 式上下文压缩：手动 `/compact` + 自动压力触发 + context-overflow 恢复 + tool-result pruner。见 `docs/context-compact.md`。
 
 ## shell
 

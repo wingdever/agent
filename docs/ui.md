@@ -113,7 +113,12 @@
 | **chat-footer** | 聊天底部状态栏（DSH 风格三段；活动/权限/自主度由各自控件承载，不重复） |
 | **session-statistics** | 左段：`⟳ N turns M steps · K tok/s`（图标 + 会话累计 turns/steps + 最近一轮 TPS，turns/steps 间空格） |
 | **token-usage** | 中段：`▤ X.XM tok · Cache hit NN%`（图标 + total tokens 人类可读 + 缓存命中率） |
-| **context-used** | 右段：SVG donut（track + 动态 fill 弧）+ `NN%` 文本，按占上下文窗口估算占比实时更新 |
+| **context-used** | 右段：SVG donut（track + 动态 fill 弧）+ `NN%` 文本，按占上下文窗口估算占比实时更新。窗口经 `contextWindow` RPC 解析：providers.json 每模型 `context_window` > settings.contextWindow > 128000（与自动压缩阈值同源） |
+| **compaction-card** | 聊天区 checkpoint 卡：按最新 `compaction/summary` 事件的 `boundaryMessageId` 插在**边界消息之后**（切点可能落在 turn 内部；找不到消息时退回 `boundaryTurnSeq` 的 turn 末尾）；标题显示压缩 turn 数 / `~tokensBefore → ~tokensAfter` / 边界 message / 模型 / 时间，正文为模型写的 8 段 summary（默认展开；preamble 与 `<compacted-summary>` 标签只给模型看，卡片不显示）。原始 turns/steps 仍然全部展示（DSH transcript 语义），卡片只标出模型视角被替换的位置 |
+| **compaction-notice** | 压缩状态提示行（`compaction` 事件驱动）：start / prune / overflow / done / failed 的短文案，压缩完成后由重建的会话视图与 checkpoint 卡取代 |
+| **/compact 斜杠命令** | composer 输入以 `/` 开头时在发送前拦截：`/compact`（无参数）触发手动压缩；bare-chat 提示不可用；未知命令提示可用命令。不进入对话历史 |
+| **auto-compact 设置** | settings-modal 的「自动压缩」开关（`settings.autoCompact`，默认开）：开启后每个 step 请求前按窗口 80% 检查压力，先裁剪超长 tool result，仍超限则写 checkpoint；关闭后只剩手动 `/compact` |
+| **traj-compactions / traj-compaction** | 轨迹面板顶部的压缩标记列表（summary 事件的 trigger / 边界 turn / turns / token 变化）；原始 turns/steps 仍完整保留 |
 | **context-panel** | 右侧上下文面板：**产物预览**（`#artifactPreview`，写文件类工具「预览」按钮触发，按扩展名渲染 md/html/图片/代码 + 在编辑器打开）+ 工具检视器（`#contextDetail`，点击 tool-call 看参数/结果） |
 | **permissions-modal** | 权限配置弹窗（工具档位 + bash 命令策略 + 文件写精细策略） |
 | **permissions-sidebar** | 权限弹窗左侧栏（配置文件切换 + 概要） |

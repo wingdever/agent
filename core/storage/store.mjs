@@ -101,6 +101,232 @@ class Store {
     return this._update("sessions", id, { deleted_at: null }, ["deleted_at"]);
   }
 
+  // ================= 压缩（DSH 事件日志格式） =================
+  // seq 与 messages.surface_seq 共用同一个 per-session 序列：
+  //   compaction/start -> compaction/summary -> user/message(surfaceOp:replace) -> compaction/end
+  // 锁 = 同一 boot 内未闭合的 compaction/start；进程重启后旧 start 自动失效。
+  _mapEvent(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      seq: Number(row.seq),
+      type: row.type,
+      data: _j(row.data) || {},
+      boot: row.boot,
+      createdAt: row.created_at,
+    };
+  }
+  async _nextSessionSeq(sessionId) {
+    const row = await this.db.prepare("SELECT next_seq FROM sessions WHERE id=$1").get(sessionId);
+    const next = Number(row && row.next_seq != null ? row.next_seq : 0) + 1;
+    await this.db.prepare("UPDATE sessions SET next_seq=$1 WHERE id=$2").run(next, sessionId);
+    return next;
+  }
+  async appendSessionEvent({ session_id, type, data, boot }) {
+    const seq = await this._nextSessionSeq(session_id);
+    const id = await this._nextId("session_events");
+    await this._insertRow("session_events", ["id", "session_id", "seq", "type", "data", "boot"], [
+      id, session_id, seq, type, JSON.stringify(data || {}), boot || null,
+    ]);
+    return this._mapEvent(await this._get("session_events", id));
+  }
+  async listSessionEvents({ session_id }) {
+    const rows = await this.db.prepare(
+      "SELECT * FROM session_events WHERE session_id=$1 ORDER BY seq"
+    ).all(session_id);
+    return rows.map((r) => this._mapEvent(r));
+  }
+  // The lock is the newest compaction start/end marker: a trailing start means
+  // the bracket is still open. A start recorded by an earlier process boot is
+  // stale (DSH's session/end-seed boundary).
+  async getActiveCompaction({ session_id, boot }) {
+    const latest = await this.db.prepare(
+      "SELECT * FROM session_events WHERE session_id=$1 AND type IN ('compaction/start','compaction/end') ORDER BY seq DESC LIMIT 1"
+    ).get(session_id);
+    if (!latest || latest.type !== "compaction/start") return null;
+    if (boot != null && latest.boot !== boot) return null;
+    return {
+      id: Number(latest.seq),
+      sessionId: session_id,
+      status: "started",
+      trigger: (_j(latest.data) || {}).trigger || "manual",
+      createdAt: latest.created_at,
+    };
+  }
+  // UI / trajectory view of successful compactions: the summary events.
+  _mapCompactionSummary(event) {
+    const data = event.data || {};
+    return {
+      id: event.seq,
+      sessionId: event.sessionId,
+      status: "succeeded",
+      trigger: data.trigger || "manual",
+      upToMessageId: data.boundaryMessageId == null ? null : Number(data.boundaryMessageId),
+      upToTurnSeq: data.boundaryTurnSeq == null ? null : Number(data.boundaryTurnSeq),
+      turns: data.turns == null ? null : Number(data.turns),
+      summary: data.summary,
+      provider: data.provider,
+      model: data.model,
+      tokensBefore: data.shadowedTokenCount == null ? null : Number(data.shadowedTokenCount),
+      tokensAfter: data.tokensAfter == null ? null : Number(data.tokensAfter),
+      shadowedSeqs: Array.isArray(data.shadowedSeqs) ? data.shadowedSeqs : [],
+      shadowedRange: data.shadowedRange || null,
+      error: null,
+      createdAt: event.createdAt,
+    };
+  }
+  async listCompactions({ session_id }) {
+    const rows = await this.db.prepare(
+      "SELECT * FROM session_events WHERE session_id=$1 AND type='compaction/summary' ORDER BY seq"
+    ).all(session_id);
+    return rows.map((r) => this._mapCompactionSummary(this._mapEvent(r)));
+  }
+
+  // ---- tool-result pruner（模型无关的确定性裁剪，原始消息不动）----
+  async listToolMessages({ session_id }) {
+    return this.db.prepare(
+      "SELECT t.seq AS turn_seq, m.id AS message_id, c.content AS content FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id LEFT JOIN contents c ON c.id=m.content_id WHERE t.session_id=$1 AND m.role='tool' ORDER BY t.seq, s.seq, m.seq"
+    ).all(session_id);
+  }
+  async saveToolResultPrune({ message_id, content, chars_before, chars_after }) {
+    await this.db.prepare("DELETE FROM tool_result_prunes WHERE message_id=$1").run(message_id);
+    await this.db.prepare(
+      "INSERT INTO tool_result_prunes (message_id, content, chars_before, chars_after) VALUES ($1,$2,$3,$4)"
+    ).run(message_id, content, chars_before, chars_after);
+    return { message_id };
+  }
+
+  // 消息投影（含 per-session surface_seq）。原始消息永不改写；tool 结果用
+  // pruned 替换体，assistant 的 tool_calls 从 calls 表还原并按步配对 call_id。
+  async _projectMessages({ session_id }) {
+    const rows = await this.db.prepare(
+      'SELECT t.id AS turn_id, t.seq AS turn_seq, s.id AS step_id, s.seq AS step_seq, m.id AS message_id, m.seq AS msg_seq, m.surface_seq, m.role, c.content AS content, p.content AS pruned FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id LEFT JOIN contents c ON c.id=m.content_id LEFT JOIN tool_result_prunes p ON p.message_id=m.id WHERE t.session_id=$1 ORDER BY t.seq, s.seq, m.seq'
+    ).all(session_id);
+    const callRows = await this.db.prepare(
+      'SELECT c.id, c.reply_id, c.seq, c.call_id, c.name, c."arguments" FROM calls c JOIN messages m ON m.id=c.reply_id JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE t.session_id=$1 ORDER BY c.reply_id, c.seq'
+    ).all(session_id);
+    const callsByReply = new Map();
+    for (const c of callRows) {
+      if (!callsByReply.has(c.reply_id)) callsByReply.set(c.reply_id, []);
+      callsByReply.get(c.reply_id).push(c);
+    }
+    const messages = [];
+    let stepId = null;
+    let pendingCallIds = [];
+    for (const r of rows) {
+      if (r.step_id !== stepId) { stepId = r.step_id; pendingCallIds = []; }
+      if (r.role === "system") {
+        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "system", content: r.content == null ? "" : r.content });
+        continue;
+      }
+      if (r.role === "user") {
+        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "user", content: r.content == null ? "" : r.content });
+      } else if (r.role === "assistant") {
+        const msg = { id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "assistant", content: r.content == null ? "" : r.content };
+        const calls = callsByReply.get(r.message_id) || [];
+        if (calls.length) {
+          pendingCallIds = calls.map((c) => String(c.call_id != null ? c.call_id : c.id));
+          msg.tool_calls = calls.map((c) => ({
+            id: String(c.call_id != null ? c.call_id : c.id),
+            type: "function",
+            function: { name: c.name, arguments: c.arguments == null ? "{}" : String(c.arguments) },
+          }));
+        }
+        messages.push(msg);
+      } else if (r.role === "tool") {
+        const toolCallId = pendingCallIds.length ? pendingCallIds.shift() : "";
+        messages.push({
+          id: r.message_id,
+          surfaceSeq: Number(r.surface_seq),
+          turnSeq: r.turn_seq,
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: r.pruned != null ? r.pruned : (r.content == null ? "" : r.content),
+        });
+      }
+    }
+    return messages;
+  }
+
+  // Surface replay (DSH): append-origin messages with every compaction
+  // `user/message` replace applied in seq order. Nodes keep their event seq, so
+  // shadowedSeqs / surfaceOp ranges are real sequence numbers.
+  async getSurface({ session_id }) {
+    const messages = await this._projectMessages({ session_id });
+    const events = await this.listSessionEvents({ session_id });
+    const nodes = messages
+      .filter((m) => m.role !== "system")
+      .sort((a, b) => a.surfaceSeq - b.surfaceSeq)
+      .map((m) => ({
+        seq: m.surfaceSeq,
+        kind: "message",
+        id: m.id,
+        turnSeq: m.turnSeq == null ? null : Number(m.turnSeq),
+        message: Object.assign(
+          { role: m.role, content: m.content },
+          m.tool_calls ? { tool_calls: m.tool_calls } : {},
+          m.tool_call_id ? { tool_call_id: m.tool_call_id } : {},
+        ),
+      }));
+    for (const event of events) {
+      if (event.type !== "user/message") continue;
+      const data = event.data || {};
+      const op = data.surfaceOp;
+      if (!op || op.op !== "replace") continue;
+      const startIdx = nodes.findIndex((node) => node.seq === op.start);
+      const endIdx = nodes.findIndex((node) => node.seq === op.end);
+      if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) continue;
+      nodes.splice(startIdx, endIdx - startIdx + 1, {
+        seq: event.seq,
+        kind: "checkpoint",
+        id: null,
+        turnSeq: data.boundaryTurnSeq == null ? null : Number(data.boundaryTurnSeq),
+        compactionId: data.source && data.source.compactionId,
+        message: { role: "user", content: data.content == null ? "" : data.content },
+      });
+    }
+    return { nodes, events };
+  }
+
+  // Convenience projection for tests/tools: flat surface messages + latest
+  // successful compaction summary.
+  async getSessionHistory({ session_id }) {
+    const surface = await this.getSurface({ session_id });
+    const compactions = await this.listCompactions({ session_id });
+    return {
+      messages: surface.nodes.map((node) => Object.assign(
+        { id: node.kind === "checkpoint" ? node.seq : node.id, turnSeq: node.turnSeq, checkpoint: node.kind === "checkpoint" },
+        node.message,
+      )),
+      compaction: compactions.length ? compactions[compactions.length - 1] : null,
+    };
+  }
+
+  // ---- token-meter usage anchor ----
+  _mapAnchor(row) {
+    if (!row) return null;
+    return {
+      sessionId: row.session_id,
+      headerKey: row.header_key,
+      headerTokens: Number(row.header_tokens),
+      inputTokens: Number(row.input_tokens),
+      assistantTokens: Number(row.assistant_tokens),
+      usageTotal: Number(row.usage_total),
+    };
+  }
+  async getTokenAnchor({ session_id }) {
+    const row = await this.db.prepare("SELECT * FROM token_anchors WHERE session_id=$1").get(session_id);
+    return this._mapAnchor(row);
+  }
+  async saveTokenAnchor({ session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total }) {
+    await this.db.prepare("DELETE FROM token_anchors WHERE session_id=$1").run(session_id);
+    await this.db.prepare(
+      "INSERT INTO token_anchors (session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total) VALUES ($1,$2,$3,$4,$5,$6)"
+    ).run(session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total);
+    return this.getTokenAnchor({ session_id });
+  }
+
   // ---- goals（每个 session 一个当前 goal，revision 做 CAS）----
   _mapGoal(row) {
     if (!row) return null;
@@ -191,7 +417,17 @@ class Store {
   getContent({ id }) { return this._get("contents", id); }
 
   // ---- messages（content 与 thought 分别存于 contents，经 content_id / thought_id 关联）----
-  async addMessage({ step_id, seq, role, content, thought }) {
+  async addMessage({ step_id, seq, role, content, thought, session_id }) {
+    // surface_seq 与 session_events.seq 共用一个 per-session 序列；调用方通常
+    // 直接传 session_id，测试/旧调用则从 step -> turn 反查。
+    let sid = session_id;
+    if (sid == null) {
+      const owner = await this.db.prepare(
+        "SELECT t.session_id FROM steps s JOIN turns t ON t.id=s.turn_id WHERE s.id=$1"
+      ).get(step_id);
+      sid = owner ? owner.session_id : null;
+    }
+    const surfaceSeq = sid != null ? await this._nextSessionSeq(sid) : 0;
     // content_id / thought_id 可空：仅当对应内容存在时才建 contents 行
     let content_id = null;
     if (content != null) {
@@ -204,7 +440,9 @@ class Store {
       await this._insertRow("contents", ["id", "content"], [thought_id, thought]);
     }
     const id = await this._nextId("messages");
-    await this._insertRow("messages", ["id", "step_id", "seq", "role", "content_id", "thought_id"], [id, step_id, seq, role, content_id, thought_id]);
+    await this._insertRow("messages", ["id", "step_id", "seq", "surface_seq", "role", "content_id", "thought_id"], [
+      id, step_id, seq, surfaceSeq, role, content_id, thought_id,
+    ]);
     return this.getMessage({ id });
   }
   async getMessage({ id }) {
@@ -399,6 +637,19 @@ const OPS = {
   "session.restore": (s, p) => s.restoreSession(p),
   "session.prompt": (s, p) => s.getSessionPrompt(p),
   "session.trajectory": (s, p) => s.getTrajectory(p),
+  "session.history": (s, p) => s.getSessionHistory(p),
+  "session.surface": (s, p) => s.getSurface(p),
+  "session.events": (s, p) => s.listSessionEvents(p),
+  "session.compactions": (s, p) => s.listCompactions(p),
+
+  "compaction.append": (s, p) => s.appendSessionEvent(p),
+  "compaction.active": (s, p) => s.getActiveCompaction(p),
+
+  "toolResultPrune.list": (s, p) => s.listToolMessages(p),
+  "toolResultPrune.save": (s, p) => s.saveToolResultPrune(p),
+
+  "tokenAnchor.get": (s, p) => s.getTokenAnchor(p),
+  "tokenAnchor.save": (s, p) => s.saveTokenAnchor(p),
 
   "goal.get": (s, p) => s.getGoal(p),
   "goal.save": (s, p) => s.saveGoal(p),

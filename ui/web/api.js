@@ -19,6 +19,7 @@
             var reader = res.body.getReader();
             var dec = new TextDecoder();
             var buf = "";
+            var result;
             function pump() {
               return reader.read().then(function (r) {
                 if (r.done) return;
@@ -31,12 +32,18 @@
                   if (!line) continue;
                   var data = line.slice(5).trim();
                   if (data === "[DONE]") continue;
-                  try { var evt = JSON.parse(data); if (onEvent) onEvent(evt); } catch (e) {}
+                  try {
+                    var evt = JSON.parse(data);
+                    if (evt.type === "result") result = evt.result;
+                    if (onEvent) onEvent(evt);
+                  } catch (e) {}
                 }
                 return pump();
               });
             }
-            return pump();
+            // SSE 请求（chat / compact）：流结束后把 result 事件（若有）返回；
+            // chat 没有 result 事件，保持原来的 undefined 行为。
+            return pump().then(function () { return result; });
           }
           return res.json();
         });

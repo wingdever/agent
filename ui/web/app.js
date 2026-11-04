@@ -627,19 +627,35 @@ document.addEventListener("DOMContentLoaded", function () {
     trajectoryTab.innerHTML = '<div class="empty-hint">加载轨迹中…</div>';
     try {
       var tree = await window.AgentClient.call("storage", { op: "session.trajectory", payload: { session_id: sessionId } });
+      var compactions = [];
+      try {
+        compactions = await window.AgentClient.call("storage", { op: "session.compactions", payload: { session_id: sessionId } }) || [];
+      } catch (e) { compactions = []; }
       trajectoryLoadedFor = sessionId;
-      renderTrajectoryTree(tree || []);
+      renderTrajectoryTree(tree || [], compactions || []);
     } catch (e) {
       trajectoryTab.innerHTML = '<div class="empty-hint">轨迹加载失败：' + (e && e.message ? e.message : e) + '</div>';
     }
   }
 
-  function renderTrajectoryTree(turns) {
+  function renderTrajectoryTree(turns, compactions) {
     if (!trajectoryTab) return;
     trajectoryTab.innerHTML = "";
     if (!turns.length) {
       trajectoryTab.innerHTML = '<div class="empty-hint">暂无轨迹</div>';
       return;
+    }
+    // 压缩是本轮之外的元事件：在轨迹顶部单列，原始 turns/steps 全部保留。
+    var done = (compactions || []).filter(function (c) { return c.status === "succeeded"; });
+    if (done.length) {
+      var cWrap = makeEl("traj-compactions", "traj-compactions");
+      done.forEach(function (c) {
+        var row = makeEl("traj-compaction", "traj-compaction");
+        row.textContent = "compaction · " + (c.trigger || "manual") + " · 边界 turn " + c.upToTurnSeq + " · "
+          + (c.turns || 0) + " turns · ~" + (c.tokensBefore || 0) + " → ~" + (c.tokensAfter || 0) + " tokens";
+        cWrap.appendChild(row);
+      });
+      trajectoryTab.appendChild(cWrap);
     }
     turns.forEach(function (turn) {
       var tEl = makeEl("traj-turn", "traj-turn");
@@ -1696,6 +1712,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function onChatEvent(evt) {
     if (!evt || !evt.type) return;
     if (evt.type === "model-http-status") { setModelHttpStatus(evt.state, evt.status); return; }
+    if (evt.type === "compaction") { handleCompactionEvent(evt); return; }
     if (evt.type === "usage") {
       usageState.prompt = evt.promptTokens != null ? evt.promptTokens : usageState.prompt;
       usageState.completion = evt.completionTokens != null ? evt.completionTokens : usageState.completion;
@@ -1788,51 +1805,163 @@ document.addEventListener("DOMContentLoaded", function () {
       renderStatusBar();
       flushLiveMarkdown();
       resetLive();
+      // 自动压缩改写了模型视角的历史：轮次结束后按存储重建一次，标记卡落位。
+      if (compactionHappenedInTurn && currentSessionId) {
+        compactionHappenedInTurn = false;
+        renderSessionMessages(currentSessionId);
+      }
     } else if (evt.type === "error") {
       AgentMarkdown.append(ensureAnswer(), "[出错] " + (evt.error || "未知错误"));
       flushLiveMarkdown();
       resetLive();
     }
   }
-  async function buildMessages(sessionId) {
-    var pendingCallIds = [];
-    var turns = await window.AgentClient.call("storage", { op: "turn.list", payload: { session_id: sessionId } });
-    var msgs = [];
-    for (var i = 0; i < (turns || []).length; i++) {
-      var steps = await window.AgentClient.call("storage", { op: "step.list", payload: { turn_id: turns[i].id } });
-      for (var j = 0; j < (steps || []).length; j++) {
-        var list = await window.AgentClient.call("storage", { op: "message.list", payload: { step_id: steps[j].id } });
-        for (var k = 0; k < (list || []).length; k++) {
-          var m = list[k];
-          if (m.role === "user") {
-  msgs.push({ role: "user", content: m.content });
-} else if (m.role === "assistant") {
-  var am = { role: "assistant", content: m.content || "" };
-  var calls = await window.AgentClient.call("storage", { op: "call.list", payload: { reply_id: m.id } });
-  var callIds = [];
-  if (calls && calls.length) {
-    am.tool_calls = calls.map(function (c) { var cid = String(c.call_id != null ? c.call_id : c.id); callIds.push(cid); return { id: cid, type: "function", function: { name: c.name, arguments: JSON.stringify(c.arguments || {}) } }; });
+  // 历史由 core 从存储投影（压缩边界 + checkpoint + pruned tool results），
+  // 前端只传本轮最后一条 user 消息。
+  // ---------- 上下文压缩（/compact + 自动触发） ----------
+  var compactionHappenedInTurn = false;
+
+  // checkpoint 卡：默认展开全文（原文 turns 仍在下方全部展示，DSH transcript 语义）。
+  function renderCompactionCard(c) {
+    var card = makeEl("compaction-card", "compaction-card");
+    var head = makeEl("compaction-card-head", "compaction-card-head");
+    var meta = ["上下文已压缩"];
+    if (c.turns != null) meta.push(c.turns + " turns");
+    if (c.tokensBefore != null && c.tokensAfter != null) meta.push("~" + c.tokensBefore + " → ~" + c.tokensAfter + " tokens");
+    if (c.upToMessageId != null) meta.push("边界 message #" + c.upToMessageId);
+    if (c.model) meta.push(c.model);
+    if (c.createdAt) meta.push(String(c.createdAt));
+    head.textContent = meta.join(" · ");
+    var body = makeEl("compaction-card-body", "compaction-card-body textcard");
+    AgentMarkdown.set(body, c.summary || "");
+    card.appendChild(head);
+    card.appendChild(body);
+    return card;
   }
-  pendingCallIds = callIds;
-  msgs.push(am);
-} else if (m.role === "tool") {
-  // 与同步骤内 assistant 的 tool_calls 按出现顺序配对（messages 表已无 tool_call_id 列）
-  var tcid = (pendingCallIds && pendingCallIds.length) ? pendingCallIds.shift() : "";
-  msgs.push({ role: "tool", tool_call_id: tcid, content: m.content });
-}
-        }
-      }
+
+  function showCompactionNotice(text) {
+    var old = chatTab.querySelector(".compaction-notice");
+    if (old) old.remove();
+    var n = makeEl("compaction-notice", "compaction-notice");
+    n.textContent = text;
+    chatTab.appendChild(n);
+    scrollChatToBottom();
+  }
+
+  function handleCompactionEvent(evt) {
+    if (evt.phase === "start") {
+      showCompactionNotice("正在压缩上下文（" + (evt.trigger || "manual") + "）…");
+    } else if (evt.phase === "prune") {
+      showCompactionNotice("已裁剪 " + (evt.count || 0) + " 条超长工具结果（~" + (evt.charsRemoved || 0) + " 字符）");
+    } else if (evt.phase === "overflow") {
+      showCompactionNotice("上下文超限，压缩后重试…");
+    } else if (evt.phase === "done") {
+      compactionHappenedInTurn = true;
+      trajectoryLoadedFor = null;
+      showCompactionNotice("上下文已压缩 · " + (evt.turns || 0) + " turns · ~" + (evt.tokensBefore || 0) + " → ~" + (evt.tokensAfter || 0) + " tokens");
+    } else if (evt.phase === "failed") {
+      showCompactionNotice("压缩失败：" + (evt.error || "unknown"));
     }
-    return msgs;
   }
+
+  // 手动 /compact：走后端 compact 事务（与自动触发同一实现）。
+  async function runCompact() {
+    if (!currentSessionId) { await uiAlert("请先选择一个会话。"); return; }
+    if (sendBtn) sendBtn.disabled = true;
+    if (input) input.disabled = true;
+    try {
+      var res = await window.AgentClient.call("compact", {
+        session_id: currentSessionId,
+        model: (modelSelector && modelSelector.value) ? modelSelector.value : undefined,
+      }, handleCompactionEvent);
+      if (res && res.ok) {
+        compactionHappenedInTurn = false;  // 手动压缩已按存储重建，避免下轮 turn-end 再刷一次
+        await renderSessionMessages(currentSessionId);
+        showCompactionNotice("上下文已压缩 · " + (res.turns || 0) + " turns · ~" + (res.tokensBefore || 0) + " → ~" + (res.tokensAfter || 0) + " tokens");
+      } else if (res && /already in progress/.test(String(res.error || ""))) {
+        showCompactionNotice("压缩进行中…");
+      } else if (res && /no compactable history/.test(String(res.error || ""))) {
+        await uiAlert("没有可压缩的历史：至少需要 2 个完整 turn。");
+      } else if (res && /not smaller/.test(String(res.error || ""))) {
+        await uiAlert("压缩未执行：这段历史太短，摘要不会比原文更小。");
+      } else {
+        await uiAlert("压缩未执行：" + (res && res.error ? res.error : "unknown"));
+      }
+    } catch (e) {
+      await uiAlert("压缩失败：" + (e && e.message ? e.message : e));
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+      if (input) input.disabled = false;
+      if (input) input.focus();
+    }
+  }
+
+  // 斜杠命令：目前只有 /compact（与 DSH 的 /command 范式一致）。
+  async function runSlashCommand(raw) {
+    var parts = String(raw || "").trim().split(/\s+/);
+    var name = parts[0];
+    if (name !== "/compact") {
+      input.value = "";
+      await uiAlert("未知命令：" + name + "（可用：/compact）");
+      return;
+    }
+    if (parts.length > 1) {
+      input.value = "";
+      await uiAlert("用法：/compact（无参数）");
+      return;
+    }
+    if (getActivityMode() === "bare-chat") {
+      input.value = "";
+      await uiAlert("bare-chat 不落库，没有可压缩的历史。");
+      return;
+    }
+    input.value = "";
+    await runCompact();
+  }
+
+  // 上下文窗口：providers.json 每模型 context_window > settings.contextWindow > 128k，
+  // 与 core 的自动压缩阈值同源。
+  async function refreshContextWindow() {
+    try {
+      var res = await window.AgentClient.call("contextWindow", {
+        model: (modelSelector && modelSelector.value) ? modelSelector.value : undefined,
+      });
+      if (res && res.contextWindow > 0) {
+        CONTEXT_WINDOW = res.contextWindow;
+        renderStatusBar();
+      }
+    } catch (e) { /* 后端未就绪时沿用 128k */ }
+  }
+
   async function renderSessionMessages(sessionId) {
     chatTab.innerHTML = "";
     resetLive();
     var turns = await window.AgentClient.call("storage", { op: "turn.list", payload: { session_id: sessionId } });
     if (!turns || !turns.length) { showEmptyHint(); return; }
+    // checkpoint 标记按边界 message id 索引（切点可能落在 turn 内部），turn seq
+    // 仅作为兜底；原始 turns 仍然全部展示（DSH transcript）。
+    var compactions = [];
+    try {
+      compactions = await window.AgentClient.call("storage", { op: "session.compactions", payload: { session_id: sessionId } }) || [];
+    } catch (e) { compactions = []; }
+    var markersByMessage = {};
+    var markersByTurn = {};
+    (compactions || []).forEach(function (c) {
+      if (c.status !== "succeeded") return;
+      if (c.upToMessageId != null) {
+        if (!markersByMessage[c.upToMessageId]) markersByMessage[c.upToMessageId] = [];
+        markersByMessage[c.upToMessageId].push(c);
+      } else if (c.upToTurnSeq != null) {
+        if (!markersByTurn[c.upToTurnSeq]) markersByTurn[c.upToTurnSeq] = [];
+        markersByTurn[c.upToTurnSeq].push(c);
+      }
+    });
+    var nodeByMessageId = {};
+    var turnNodeBySeq = {};
     for (var t = 0; t < turns.length; t++) {
       var turnNode = makeEl("turn", "turn");
       chatTab.appendChild(turnNode);
+      turnNodeBySeq[turns[t].seq] = turnNode;
       var steps = await window.AgentClient.call("storage", { op: "step.list", payload: { turn_id: turns[t].id } });
       for (var st = 0; st < (steps || []).length; st++) {
         var stepNode = makeEl("step", "step");
@@ -1855,8 +1984,10 @@ document.addEventListener("DOMContentLoaded", function () {
           uiInput.textContent = userMsg.content || "";
           req.appendChild(uiInput);
           stepNode.insertBefore(req, respNode);
+          if (userMsg.id != null) nodeByMessageId[userMsg.id] = req;
         }
         if (asstMsg) {
+          if (asstMsg.id != null) nodeByMessageId[asstMsg.id] = respNode;
           if (asstMsg.thought) {
             var th = makeEl("thought", "thought textcard");
             AgentMarkdown.set(th, asstMsg.thought);
@@ -1886,7 +2017,10 @@ document.addEventListener("DOMContentLoaded", function () {
             renderApproval(ap, { permission: permission, name: call.name, arguments: call.arguments });
             card.appendChild(ap);
             var tm = toolMsgs[c] || null;
-            if (tm) renderToolResult(card, tm.content || "", call.status === "failed" || call.status === "denied");
+            if (tm) {
+              renderToolResult(card, tm.content || "", call.status === "failed" || call.status === "denied");
+              if (tm.id != null) nodeByMessageId[tm.id] = card;
+            }
             if (call.name === "todo_write") {
               var todoArgs = parseToolArgs(call);
               renderTodoList(card, todoArgs.todos);
@@ -1897,6 +2031,22 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
     }
+    // checkpoint 卡插在边界消息之后；找不到消息时退回边界 turn 末尾。
+    Object.keys(markersByMessage).forEach(function (id) {
+      var node = nodeByMessageId[id];
+      if (!node) return;
+      var cursor = node;
+      markersByMessage[id].forEach(function (c) {
+        var card = renderCompactionCard(c);
+        cursor.parentNode.insertBefore(card, cursor.nextSibling);
+        cursor = card;
+      });
+    });
+    Object.keys(markersByTurn).forEach(function (seq) {
+      var turnNode = turnNodeBySeq[seq];
+      if (!turnNode) return;
+      markersByTurn[seq].forEach(function (c) { turnNode.appendChild(renderCompactionCard(c)); });
+    });
     scrollChatToBottom();
   }
 
@@ -1937,6 +2087,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var text = input.value.trim();
     if (!text) return;
     markUserActivity();
+    // 斜杠命令：以 / 开头且是命令（目前仅 /compact），不进入对话历史。
+    if (text.charAt(0) === "/") { await runSlashCommand(text); return; }
     if (getActivityMode() === "bare-chat") { await runBareChat(text); return; }
     if (!currentSessionId) { await uiAlert("请先在左侧选择或新建一个会话"); return; }
     input.value = "";
@@ -1951,10 +2103,9 @@ document.addEventListener("DOMContentLoaded", function () {
     liveAnswer = null; liveCards = {};
     addAgentRequest(text);
     try {
-      var history = await buildMessages(currentSessionId);
-      history.push({ role: "user", content: text });
       var refs = pendingRefs.slice();
-      await window.AgentClient.call("chat", { messages: history, sessionId: currentSessionId, autonomy: getAutonomyMode(), activity: getActivityMode(), references: refs, effort: computeEffort(), model: (modelSelector && modelSelector.value ? modelSelector.value : undefined) }, onChatEvent);
+      // 历史由 core 从存储投影（含压缩边界与 pruned tool results），只传本轮输入。
+      await window.AgentClient.call("chat", { messages: [{ role: "user", content: text }], sessionId: currentSessionId, autonomy: getAutonomyMode(), activity: getActivityMode(), references: refs, effort: computeEffort(), model: (modelSelector && modelSelector.value ? modelSelector.value : undefined) }, onChatEvent);
       pendingRefs = []; renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);
@@ -2110,8 +2261,10 @@ document.addEventListener("DOMContentLoaded", function () {
     modelSelector.addEventListener("change", function () {
       saveSettings({ model: modelSelector.value });
       refreshEffortLevels(modelSelector.value);
+      refreshContextWindow();
     });
     refreshModelSelector();
+    refreshContextWindow();
   }
 
   // 推理等级选择器：选项由 refreshEffortLevels 从网络动态填充（兜底 low/medium/high），选择持久化到 settings.effort

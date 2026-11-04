@@ -39,6 +39,17 @@ function createHttpTransport(options = {}) {
                 res.write("data: [DONE]\n\n");
                 return res.end();
               }
+              // 压缩既是长任务又要在过程中上报 compaction/prune 事件：与 chat 一样
+              // 走 SSE，末尾用一个 result 事件把最终结果交给前端。
+              if (fn === "compact") {
+                res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+                let result = null;
+                try { result = await handleCall(core, { fn, params, onEvent }); }
+                catch (err) { result = { ok: false, error: String(err.message || err) }; }
+                res.write("data: " + JSON.stringify({ callId, type: "result", result }) + "\n\n");
+                res.write("data: [DONE]\n\n");
+                return res.end();
+              }
               try {
                 const result = await handleCall(core, { fn, params, onEvent });
                 res.writeHead(200, { "Content-Type": "application/json" });

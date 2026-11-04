@@ -31,8 +31,8 @@
     return e;
   }
 
-  var overlay = null, streamSwitchEl = null, translateSwitchEl = null, providerSelEl = null, modelSelEl = null, reasoningControlSel = null;
-  var state = { stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch" };
+  var overlay = null, streamSwitchEl = null, translateSwitchEl = null, autoCompactSwitchEl = null, providerSelEl = null, modelSelEl = null, reasoningControlSel = null;
+  var state = { stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch", autoCompact: true };
   var providers = [];
 
   function getSettings() { return state; }
@@ -46,7 +46,7 @@
   async function loadSettings() {
     try {
       var st = await window.AgentClient.call("settings", { op: "get" });
-      state = Object.assign({ stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch" }, st || {});
+      state = Object.assign({ stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch", autoCompact: true }, st || {});
     } catch (e) { /* 后端未就绪时用默认 */ }
     normalizeTranslate();
   }
@@ -71,6 +71,13 @@
     var on = !!(state.translate && state.translate.enabled !== false);
     translateSwitchEl.textContent = on ? "自动翻译：开" : "自动翻译：关";
     translateSwitchEl.classList.toggle("active", on);
+  }
+
+  // 自动压缩开关（settings.autoCompact，默认开）。关掉后只剩手动 /compact。
+  function renderAutoCompactSwitch() {
+    var on = state.autoCompact !== false;
+    autoCompactSwitchEl.textContent = on ? "自动压缩：开" : "自动压缩：关";
+    autoCompactSwitchEl.classList.toggle("active", on);
   }
 
   function populateProviders() {
@@ -121,6 +128,16 @@
     });
     renderTranslateSwitch();
 
+    autoCompactSwitchEl = el("button", {
+      className: "stream-switch", dataset: { name: "auto-compact-switch" },
+      onclick: function () {
+        state.autoCompact = state.autoCompact === false;
+        renderAutoCompactSwitch();
+        save();
+      },
+    });
+    renderAutoCompactSwitch();
+
     providerSelEl = el("select", { className: "settings-provider-select", dataset: { name: "provider-selector" } });
     providerSelEl.addEventListener("change", function () {
       state.provider = providerSelEl.value;
@@ -153,6 +170,10 @@
       el("div", { className: "settings-note" },
         "开启后：中文输入先翻译成英文再发给模型，英文回答再翻译成中文显示；" +
         "对话正文会发送至 index-translate.bilibili.com。翻译不落库，重新打开会话后只保留英文。"),
+      el("div", { className: "settings-row" }, [el("span", null, "自动压缩"), autoCompactSwitchEl]),
+      el("div", { className: "settings-note" },
+        "开启后：每次模型请求前按上下文窗口（80%）检查压力，先裁剪超长工具结果，仍超限则把较老历史压成一份 checkpoint；" +
+        "原始消息保留在存储里，聊天区仍展示全部历史。关闭后只剩手动 /compact。"),
       el("div", { className: "settings-row" }, [el("span", null, "Provider"), providerSelEl]),
       el("div", { className: "settings-row" }, [el("span", null, "模型"), modelSelEl]),
       el("div", { className: "settings-row" }, [el("span", null, "推理参数控件"), reasoningControlSel]),
@@ -178,6 +199,7 @@
     populateModels();
     renderStreamSwitch();
     renderTranslateSwitch();
+    renderAutoCompactSwitch();
     if (reasoningControlSel) {
       reasoningControlSel.value = state.reasoningControl || "think-switch";
     }

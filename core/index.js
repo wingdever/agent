@@ -1,4 +1,5 @@
 "use strict";
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -11,6 +12,8 @@ const {
   shouldTranslateAssistant,
   translateText,
 } = require("./translation");
+const compaction = require("./compaction");
+const tokenMeter = require("./token-meter");
 
 // user/providers.json：用户侧供应者配置，含 base_url / api_key / models。
 // 当调用方未显式提供 model 时，作为默认模型来源。
@@ -106,6 +109,28 @@ function firstHeading(plan) {
   return "";
 }
 
+// 上下文窗口：优先 providers.json 每模型可选的 context_window，其次
+// settings.contextWindow，最后回退 128000。自动压缩与 UI 的占用环共用它。
+function resolveContextWindow({ provider, model, settings } = {}) {
+  const st = settings || readSettings();
+  let providers;
+  try { providers = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8")); } catch (_) { providers = []; }
+  if (Array.isArray(providers)) {
+    for (const p of providers) {
+      if (provider && p && p.name !== provider) continue;
+      for (const m of (p && p.models) || []) {
+        const name = typeof m === "string" ? m : (m && m.name);
+        if (model && name !== model) continue;
+        const cw = m && typeof m === "object" ? Number(m.context_window) : NaN;
+        if (Number.isFinite(cw) && cw > 0) return Math.floor(cw);
+      }
+    }
+  }
+  const fromSettings = Number(st.contextWindow);
+  if (Number.isFinite(fromSettings) && fromSettings > 0) return Math.floor(fromSettings);
+  return compaction.DEFAULT_CONTEXT_WINDOW;
+}
+
 // 终止原因：把"预期内的结束"（请求失败/截断/空回复）与真正的未知异常区分开，
 // 统一由 chat() 的 catch/finally 记录并对外发 turn-end。
 class TurnError extends Error {
@@ -159,6 +184,15 @@ class AgentCore {
     this.userJobs = new Map();
     this.goals = null;
     this._onEvent = () => {};
+    // 正在跑 turn 的会话集合：/compact 只允许在 idle 会话上触发（DSH 的
+    // runMaintenance 幂等语义），防止压缩与在途请求交错。
+    this.activeSessions = new Set();
+    // 手动压缩进行中的会话 -> 完成闸门。DSH 的 runMaintenance 会把压缩期间的
+    // 新输入排队；这里让 chat() 等闸门，避免压缩与在途 turn 交错。
+    this.compacting = new Map();
+    // 进程身份：DSH 用 session/end-seed 忽略上一次生命周期的孤儿 compression/start；
+    // 这里把 boot 记在事件上，重启后旧 start 自动不算锁。
+    this.bootId = crypto.randomUUID();
     // 当前自主度：由 chat() 的 autonomy 参数注入（supervised | autonomous）。
     // autonomous 下所有 ask 自动 deny（见 docs/agent-mode.md），不挂起等待用户。
     this.autonomy = "supervised";
@@ -348,11 +382,11 @@ class AgentCore {
     return [...this.tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters }));
   }
 
-  _post(payload, sessionId) {
+  _post(payload, sessionId, baseUrl, apiKey) {
     const { postChatCompletions } = require("./network/http/client");
     return postChatCompletions({
-      baseUrl: this.baseUrl,
-      apiKey: this.apiKey,
+      baseUrl: baseUrl || this.baseUrl,
+      apiKey: apiKey || this.apiKey,
       payload,
       sessionId,
     });
@@ -437,17 +471,21 @@ class AgentCore {
     });
   }
 
-  async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false }) {
+  async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false, maxTokens, baseUrl, apiKey, effort }) {
     onEvent({ type: "model-http-status", state: "on-post" });
     const payload = { model: model || this.model, messages, stream: !!stream, tools: toolDefs };
+    // 摘要调用使用 DSH 同款生成上限（8192）；普通对话不带 max_tokens。
+    if (maxTokens != null) payload.max_tokens = maxTokens;
     // 推理等级（DSH effort-selector）翻译为 provider 字段：
     //   off  -> {"thinking": {"type": "disabled"}}（关闭推理）
     //   其他  -> {"reasoning_effort": "xxx"}
-    if (this.effort) {
-      if (this.effort === "off") payload.thinking = { type: "disabled" };
-      else payload.reasoning_effort = this.effort;
+    // 摘要调用显式传 effort:null（DSH 的 summarization 请求不带 effort）。
+    const effectiveEffort = effort === undefined ? this.effort : effort;
+    if (effectiveEffort) {
+      if (effectiveEffort === "off") payload.thinking = { type: "disabled" };
+      else payload.reasoning_effort = effectiveEffort;
     }
-    const { stream: res, cap } = await this._post(payload, sessionId);
+    const { stream: res, cap } = await this._post(payload, sessionId, baseUrl, apiKey);
     onEvent({ type: "model-http-status", state: "on-get", status: cap.status });
     const { trackCapture } = require("./network/http/client");
     trackCapture(res, cap);
@@ -477,9 +515,14 @@ class AgentCore {
         : undefined;
       if (reasoning_content) onEvent({ type: "reasoning", delta: reasoning_content });
       if (content) onEvent({ type: "token", delta: content });
-      // 上报 token 用量（非流式响应直接在 json.usage）。
+      // 上报 token 用量（非流式响应直接在 json.usage）；同时把标准化 usage
+      // 返回给 chat()，供 token-meter 记录 provider usage 锚点。
       if (json.usage) this._emitUsage(onEvent, json.usage);
-      return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: choice.finish_reason || null };
+      return {
+        role: "assistant", content, reasoning_content, tool_calls,
+        finish_reason: choice.finish_reason || null,
+        usage: json.usage ? tokenMeter.normalizeUsage(json.usage) : null,
+      };
     }
 
     // Streaming (SSE): parse each data: line into deltas + tool calls.
@@ -515,7 +558,376 @@ class AgentCore {
     const tool_calls = Object.keys(acc).length
       ? Object.keys(acc).map((k) => ({ id: acc[k].id, type: "function", function: { name: acc[k].name, arguments: acc[k].args } }))
       : undefined;
-    return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: finishReason };
+    return {
+      role: "assistant", content, reasoning_content, tool_calls, finish_reason: finishReason,
+      usage: lastUsage ? tokenMeter.normalizeUsage(lastUsage) : null,
+    };
+  }
+
+  // ================= 上下文压缩（DSH compaction 栈） =================
+
+  // Deterministic schema/guidance order: registration order is a filesystem
+  // artifact (same ordering as chat()).
+  _selectTools(toolNames) {
+    return (toolNames
+      ? toolNames.map((n) => this.tools.get(n)).filter(Boolean)
+      : [...this.tools.values()].filter((t) => t.defaultVisible !== false))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  _toolDefs(tools) {
+    return (tools || []).map((t) => ({
+      type: "function",
+      function: { name: t.name, description: t.description, parameters: t.parameters },
+    }));
+  }
+
+  // Resolve the routed model plus its provider credentials without mutating the
+  // core (used by compaction when no chat round is in flight).
+  _resolveTarget(modelOverride) {
+    const st = readSettings();
+    let model = modelOverride || st.model || this.model;
+    let baseUrl = this.baseUrl;
+    let apiKey = this.apiKey;
+    let provider = st.provider || null;
+    if (st.provider) {
+      const p = resolveProvider(st.provider);
+      if (p) {
+        baseUrl = p.baseUrl || baseUrl;
+        apiKey = p.apiKey || apiKey;
+        if (!model) model = p.model;
+      }
+    }
+    return { model, baseUrl, apiKey, provider };
+  }
+
+  // Strip surface metadata (event seq / message id / turn seq) before a message
+  // reaches the provider; the request body keeps only Chat Completions fields.
+  _cleanMessage(message) {
+    const clean = { role: message.role, content: message.content };
+    if (Array.isArray(message.tool_calls) && message.tool_calls.length) clean.tool_calls = message.tool_calls;
+    if (message.tool_call_id) clean.tool_call_id = message.tool_call_id;
+    return clean;
+  }
+
+  // Message-level surface from the event log: append-origin messages with every
+  // compaction replacement applied, each node priced with the DSH heuristic.
+  async _surfaceNodes(sessionId) {
+    const surface = await this.store.run("session.surface", { session_id: sessionId });
+    return surface.nodes.map((node) => ({
+      seq: node.seq,
+      id: node.kind === "checkpoint" ? node.seq : node.id,
+      turnSeq: node.turnSeq == null ? null : Number(node.turnSeq),
+      checkpoint: node.kind === "checkpoint",
+      role: node.message.role,
+      tool_calls: node.message.tool_calls,
+      tokens: compaction.estimateMessageTokens(node.message),
+      message: node.message,
+    }));
+  }
+
+  // Request messages from the replayed surface + the caller's pending tail
+  // (current user message or a not-yet-persisted reference block).
+  async _requestMessages(sessionId, system, pending) {
+    const nodes = await this._surfaceNodes(sessionId);
+    return [{ role: "system", content: system }, ...nodes.map((node) => node.message), ...(pending || [])];
+  }
+
+  // One-shot summarization replay: the conversation's own system prompt, tools,
+  // and the selected span, with DSH's compaction directive appended as the final
+  // user message (prefix-cache reuse). Only text is accepted back.
+  async _summarizeMessages({ sessionId, system, toolDefs, input, target }) {
+    const messages = [];
+    if (system) messages.push({ role: "system", content: system });
+    for (const message of input) messages.push(message);
+    messages.push({ role: "user", content: compaction.COMPACTION_INSTRUCTION });
+    const answer = await this._stream({
+      messages,
+      toolDefs: toolDefs || [],
+      model: target.model,
+      baseUrl: target.baseUrl,
+      apiKey: target.apiKey,
+      effort: null,
+      onEvent: () => {}, // never leak the summary into the live answer stream
+      sessionId,
+      stream: false,
+      maxTokens: compaction.SUMMARY_MAX_TOKENS,
+    });
+    if (Array.isArray(answer.tool_calls) && answer.tool_calls.length) {
+      throw new Error("summarization attempted a tool call");
+    }
+    const text = String(answer.content || "").trim();
+    if (!text) throw new Error("summarization produced no text summary content");
+    return text;
+  }
+
+  // Model-free pruning of oversized tool results (DSH compaction-tool-result-pruner
+  // defaults). Original message rows are untouched; history assembly substitutes.
+  async _pruneToolResults(sessionId) {
+    const rows = await this.store.run("toolResultPrune.list", { session_id: sessionId });
+    let count = 0;
+    let charsRemoved = 0;
+    for (const row of rows) {
+      const pruned = compaction.pruneToolResultText(row.content);
+      if (!pruned) continue;
+      await this.store.run("toolResultPrune.save", {
+        message_id: row.message_id,
+        content: pruned.content,
+        chars_before: pruned.charsBefore,
+        chars_after: pruned.charsAfter,
+      });
+      count += 1;
+      charsRemoved += pruned.charsBefore - pruned.charsAfter;
+    }
+    return { count, charsRemoved };
+  }
+
+  // Record the DSH usage anchor after one successful response.
+  async _recordTokenAnchor({ sessionId, model, system, tools, messages, assistant, usage }) {
+    if (!this.store || !sessionId) return null;
+    try {
+      const anchor = tokenMeter.anchorFrom({ messages, assistant, system, tools, model, usage });
+      return await this.store.run("tokenAnchor.save", {
+        session_id: sessionId,
+        header_key: anchor.headerKey,
+        header_tokens: anchor.headerTokens,
+        input_tokens: anchor.inputTokens,
+        assistant_tokens: anchor.assistantTokens,
+        usage_total: anchor.usageTotal,
+      });
+    } catch (error) {
+      console.warn("[token-meter] anchor save failed:", (error && error.message) || error);
+      return null;
+    }
+  }
+
+  // One compaction transaction in DSH's event format:
+  //   compaction/start -> compaction/summary -> user/message(surfaceOp:replace) -> compaction/end
+  // The start row is the durable lock until the end row; a failed summary closes
+  // with end{error} and leaves the surface untouched.
+  async _runCompaction({ sessionId, trigger, surface, boundary, turn, system, toolDefs, target, onEvent = () => {} }) {
+    const boundaryIdx = surface.findIndex((node) => node.seq === boundary.seq);
+    if (boundaryIdx < 0) return { ok: false, error: "selected surface node is gone" };
+    const shadowed = surface.slice(0, boundaryIdx + 1);
+    if (!shadowed.length) return { ok: false, error: "no compactable history yet" };
+    const input = shadowed.map((node) => this._cleanMessage(node.message));
+    const tokensBefore = shadowed.reduce((total, node) => total + node.tokens, 0);
+    const shadowedSeqs = shadowed.map((node) => node.seq);
+    const shadowedRange = { start: shadowed[0].seq, end: boundary.seq };
+    const turnSeqs = new Set(
+      shadowed.filter((node) => !node.checkpoint && node.turnSeq != null).map((node) => node.turnSeq),
+    );
+    const compactionId = crypto.randomUUID();
+
+    let startEvent;
+    try {
+      startEvent = await this.store.run("compaction.append", {
+        session_id: sessionId,
+        type: "compaction/start",
+        data: { compactionId, trigger, turn: turn == null ? null : turn },
+        boot: this.bootId,
+      });
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+    onEvent({ type: "compaction", phase: "start", trigger, turns: turnSeqs.size, tokensBefore });
+
+    const close = async (error) => {
+      try {
+        await this.store.run("compaction.append", {
+          session_id: sessionId,
+          type: "compaction/end",
+          data: {
+            compactionId,
+            turn: turn == null ? null : turn,
+            ...(error === undefined ? {} : { error }),
+          },
+          boot: this.bootId,
+        });
+      } catch (closeError) {
+        console.warn("[compaction] compaction/end append failed:", (closeError && closeError.message) || closeError);
+      }
+    };
+
+    try {
+      const summary = await this._summarizeMessages({ sessionId, system, toolDefs, input, target });
+      const framed = compaction.checkpointMessage(summary);
+      const tokensAfter = compaction.estimateMessageTokens(framed);
+      if (tokensAfter >= tokensBefore) {
+        throw new Error("summary is not smaller than the shadowed content (" + tokensAfter + " >= " + tokensBefore + ")");
+      }
+      const summaryEvent = await this.store.run("compaction.append", {
+        session_id: sessionId,
+        type: "compaction/summary",
+        data: {
+          compactionId,
+          trigger,
+          summary,
+          provider: target.provider,
+          model: target.model,
+          maxTokens: compaction.SUMMARY_MAX_TOKENS,
+          shadowedRange,
+          shadowedSeqs,
+          shadowedTokenCount: tokensBefore,
+          tokensAfter,
+          turns: turnSeqs.size,
+          boundaryMessageId: boundary.checkpoint ? null : boundary.id,
+          boundaryTurnSeq: boundary.turnSeq == null ? null : boundary.turnSeq,
+        },
+        boot: this.bootId,
+      });
+      await this.store.run("compaction.append", {
+        session_id: sessionId,
+        type: "user/message",
+        data: {
+          compactionId,
+          content: compaction.frameCheckpoint(summary),
+          source: { kind: "plugin", plugin: "compact", compactionId },
+          surfaceOp: { op: "replace", start: shadowedRange.start, end: shadowedRange.end },
+          boundaryMessageId: boundary.checkpoint ? null : boundary.id,
+          boundaryTurnSeq: boundary.turnSeq == null ? null : boundary.turnSeq,
+          sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
+        },
+        boot: this.bootId,
+      });
+      await close();
+      onEvent({ type: "compaction", phase: "done", trigger, turns: turnSeqs.size, tokensBefore, tokensAfter });
+      return {
+        ok: true,
+        compactionId,
+        trigger,
+        boundary: boundary.seq,
+        boundaryTurnSeq: boundary.turnSeq == null ? null : boundary.turnSeq,
+        turns: turnSeqs.size,
+        tokensBefore,
+        tokensAfter,
+        summary,
+        shadowedSeqs,
+        shadowedRange,
+      };
+    } catch (error) {
+      const message = String((error && error.message) || error);
+      await close(message);
+      onEvent({ type: "compaction", phase: "failed", trigger, error: message });
+      return { ok: false, error: message };
+    }
+  }
+
+  // Manual /compact: idle session only, DSH's retainTokens=0 → keep the last
+  // balanced surface unit and compact everything before it.
+  async compactSession({ sessionId, model, onEvent = () => {} } = {}) {
+    if (!this.store) return { ok: false, error: "storage not initialized" };
+    if (!sessionId) return { ok: false, error: "compact requires a session" };
+    if (this.activeSessions.has(String(sessionId))) {
+      return { ok: false, error: "compact requires an idle session: a turn is running" };
+    }
+    const key = String(sessionId);
+    let releaseGate;
+    const gate = new Promise((resolve) => { releaseGate = resolve; });
+    this.compacting.set(key, gate);
+    try {
+      const active = await this.store.run("compaction.active", { session_id: sessionId, boot: this.bootId });
+      if (active) return { ok: false, error: "compaction already in progress" };
+      const surface = await this._surfaceNodes(sessionId);
+      const boundary = compaction.selectTailBoundary(surface);
+      if (!boundary) return { ok: false, error: "no compactable history yet" };
+      const st = readSettings();
+      const target = this._resolveTarget(model);
+      const system = await this.store.run("session.prompt", { session_id: sessionId });
+      const toolDefs = this._toolDefs(this._selectTools());
+      return await this._runCompaction({
+        sessionId,
+        trigger: "manual",
+        surface,
+        boundary,
+        turn: null,
+        system,
+        toolDefs,
+        target: { ...target, provider: st.provider || null },
+        onEvent,
+      });
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    } finally {
+      this.compacting.delete(key);
+      releaseGate();
+    }
+  }
+
+  // Automatic policy before one model request: prune first, then summarize when
+  // still above the pressure threshold (or after a context-overflow rejection).
+  async _maybeCompactStep({ sessionId, conv, system, toolDefs, model, turn, trigger = "pressure", pending, onEvent = () => {} }) {
+    if (!this.store || !sessionId) return { conv, changed: false };
+    const st = readSettings();
+    if (st.autoCompact === false) return { conv, changed: false };
+    const window = resolveContextWindow({ provider: st.provider, model, settings: st });
+    const thresholdTokens = Math.floor(window * compaction.AUTO_THRESHOLD_RATIO);
+    const isOverflow = trigger === "context-overflow";
+    const pendingMessages = pending ? pending() : [];
+    const anchor = await this.store.run("tokenAnchor.get", { session_id: sessionId });
+    let measurement = tokenMeter.measure({
+      messages: conv.slice(1),
+      system,
+      tools: toolDefs,
+      model,
+      anchor,
+    });
+    if (!isOverflow && measurement.total < thresholdTokens) return { conv, changed: false };
+
+    const active = await this.store.run("compaction.active", { session_id: sessionId, boot: this.bootId });
+    if (active) {
+      console.warn("[compaction] another compaction holds the lock; skipping automatic pass");
+      return { conv, changed: false };
+    }
+    let current = conv;
+    let changed = false;
+
+    // Phase 1: model-free tool-result pruning.
+    try {
+      const pruned = await this._pruneToolResults(sessionId);
+      if (pruned.count > 0) {
+        current = await this._requestMessages(sessionId, system, pendingMessages);
+        changed = true;
+        measurement = tokenMeter.measure({ messages: current.slice(1), system, tools: toolDefs, model, anchor });
+        onEvent({ type: "compaction", phase: "prune", trigger, count: pruned.count, charsRemoved: pruned.charsRemoved });
+      }
+    } catch (error) {
+      console.warn("[compaction] tool-result pruning failed:", (error && error.message) || error);
+    }
+    if (!isOverflow && measurement.total < thresholdTokens) return { conv: current, changed };
+
+    // Phase 2: summarize the span older than the retained tail. The tail budget
+    // counts the pending user message so it is never compacted.
+    const surface = await this._surfaceNodes(sessionId);
+    const boundary = isOverflow
+      ? compaction.selectTailBoundary(surface)
+      : compaction.selectAutoBoundary(
+        surface,
+        Math.floor(window * compaction.AUTO_RETAIN_RATIO),
+        compaction.estimateMessagesTokens(pendingMessages),
+      );
+    if (!boundary) return { conv: current, changed };
+
+    const result = await this._runCompaction({
+      sessionId,
+      trigger,
+      surface,
+      boundary,
+      turn: turn ? turn.seq : null,
+      system,
+      toolDefs,
+      target: { model, baseUrl: this.baseUrl, apiKey: this.apiKey, provider: st.provider || null },
+      onEvent,
+    });
+    if (result.ok) {
+      current = await this._requestMessages(sessionId, system, pendingMessages);
+      changed = true;
+      measurement = tokenMeter.measure({ messages: current.slice(1), system, tools: toolDefs, model, anchor });
+      if (!isOverflow && measurement.total >= thresholdTokens) {
+        console.warn("[compaction] still above the pressure threshold after one compaction pass (retained tail is over budget)");
+      }
+    }
+    return { conv: current, changed };
   }
 
   async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream, autonomy, activity, references, effort } = {}) {
@@ -529,6 +941,13 @@ class AgentCore {
     if (sessionId) planMode.setActive(sessionId, this.activity === "goal-plan");
     const store = this.store;
     const persist = !!(sessionId && store);
+    // A persisted turn owns the session: /compact and manual compaction must
+    // wait until the loop releases it (DSH runMaintenance's idle claim).
+    if (persist) {
+      const compactionGate = this.compacting.get(String(sessionId));
+      if (compactionGate) await compactionGate;  // DSH queues waking input behind compaction
+      this.activeSessions.add(String(sessionId));
+    }
     // DSH resets the todo projection on turn/start; one chat() call is one turn.
     resetTodos(sessionId);
     // 每一条退出路径都必须留下终止原因：循环体内只负责抛 TurnError 或返回，
@@ -574,11 +993,8 @@ class AgentCore {
       }
     }
     // Deterministic schema/guidance order: registration order is a filesystem artifact.
-    const tools = (toolNames
-      ? toolNames.map((n) => this.tools.get(n)).filter(Boolean)
-      : [...this.tools.values()].filter((t) => t.defaultVisible !== false))
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-    const toolDefs = tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
+    const tools = this._selectTools(toolNames);
+    const toolDefs = this._toolDefs(tools);
     const permissions = readPermissions();
     const fsPolicy = readFsPolicy();
 
@@ -599,28 +1015,40 @@ class AgentCore {
       }).system;
       onEvent({ type: "system-prompt", content: system });
     }
-    const conv = [{ role: "system", content: system }, ...messages];
+    // 本轮用户输入：persist 会话下历史由 core 从存储投影（压缩边界 + checkpoint），
+    // UI 只需传最后一条 user；bare-chat 仍用内存 messages。
+    const lastInput = Array.isArray(messages) && messages.length ? messages[messages.length - 1] : null;
+    if (!lastInput || lastInput.role !== "user") {
+      throw new TurnError("invalid-input", "the last message must be a user message");
+    }
+    const pendingUser = { role: "user", content: translatedUser != null ? translatedUser : lastInput.content };
+    const pendingRefs = [];
     // @引用：把引用文件/会话内容作为上下文注入（位于真实问题之前，独立于翻译步骤）
     if (Array.isArray(references) && references.length && persist && store) {
       try {
         const refBlock = await this._resolveReferences(references, sessionId);
-        if (refBlock) {
-          const insertAt = Math.max(1, conv.length - 1);
-          conv.splice(insertAt, 0, { role: "user", content: refBlock });
-        }
+        if (refBlock) pendingRefs.push({ role: "user", content: refBlock });
       } catch (e) { console.error("[core] resolve references failed:", e.message); }
     }
-    // Replace only the last user turn with its English translation. Earlier
-    // turns are already English in the persisted history.
-    if (translatedUser != null && conv.length > 1) {
-      const lastIndex = conv.length - 1;
-      conv[lastIndex] = Object.assign({}, conv[lastIndex], { content: translatedUser });
+    let conv;
+    if (persist) {
+      conv = await this._requestMessages(sessionId, system, [...pendingRefs, pendingUser]);
+    } else {
+      conv = [{ role: "system", content: system }, ...messages];
+      // Replace only the last user turn with its English translation. Earlier
+      // turns are already English in the persisted history.
+      if (translatedUser != null && conv.length > 1) {
+        conv[conv.length - 1] = Object.assign({}, conv[conv.length - 1], { content: translatedUser });
+      }
     }
+    // r=0 落库前的尾部消息：自动压缩重建历史时追加，落库后不再追加。
+    const pendingTurnMessages = () => [...pendingRefs, pendingUser];
 
     // 开启一轮对话轨迹（持久化）：一个 turn 包含多个 step
     // 每个 step = 一次模型请求 + 其响应（agent-request? + model-response(thought?/answer?/tool-call-card*)）
     // request-time：完成上一步全部 tool-call 后，才在下一轮 step 再次请求模型
     let stepSeq = 0;
+    let userPersisted = false;
     if (persist) {
       const turns = await store.run("turn.list", { session_id: sessionId });
       turn = await store.run("turn.create", { session_id: sessionId, seq: turns.length, status: "running" });
@@ -629,6 +1057,33 @@ class AgentCore {
     // 终止条件：模型不再返回 tool_calls 才算本轮完成。与 DSH 的 agent loop 一致，
     // 这里不设步数上限 —— 是否继续由模型决定，而不是被一个硬编码的 5 掐断。
     for (let r = 0; ; r++) {
+      // Plan-mode guidance is request-scoped: the stored system prompt stays
+      // stable, while every step in plan mode carries the policy. exit_plan_mode
+      // flips the state off before the next step, so the policy disappears then.
+      let requestSystem = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
+
+      // 自动压缩（DSH agent/pre-step）：每个 step 请求前按窗口压力检查。
+      // 先做模型无关的 tool-result pruning，仍超阈值再写 checkpoint。
+      if (persist) {
+        // 自动压缩失败不应掐断对话（DSH 在 pre-step 只告警并继续本轮）。
+        try {
+          const auto = await this._maybeCompactStep({
+            sessionId,
+            conv,
+            system: requestSystem,
+            toolDefs,
+            model: effModel,
+            turn,
+            trigger: "pressure",
+            pending: () => (r === 0 && !userPersisted ? pendingTurnMessages() : []),
+            onEvent,
+          });
+          conv = auto.conv;
+        } catch (error) {
+          console.warn("[compaction] automatic pressure pass failed:", (error && error.message) || error);
+        }
+      }
+
       // 上一轮的 step 不能背锅：step.create 失败时 catch 只应把 turn 标失败。
       currentStep = null;
       const step = persist ? await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "running" }) : null;
@@ -652,22 +1107,65 @@ class AgentCore {
         } catch (e) {
           onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
         }
+        userPersisted = true;
       }
 
       // 请求模型（request-time：上一步工具已全部执行完才到这里）
-      // Plan-mode guidance is request-scoped: the stored system prompt stays
-      // stable, while every step in plan mode carries the policy. exit_plan_mode
-      // flips the state off before the next step, so the policy disappears then.
-      conv[0].content = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
-      // 错误边界：模型请求失败转成 TurnError，由外层统一记录 reason=model-request-error
+      // 错误边界：context-overflow 先尝试 prune/摘要恢复并重试一次；其余失败
+      // 转成 TurnError，由外层统一记录 reason=model-request-error。
+      conv[0].content = requestSystem;
       let a;
-      try {
-        a = await this._stream({ messages: conv, toolDefs, model: effModel, onEvent, sessionId, stream: effStream });
-      } catch (err) {
-        throw new TurnError("model-request-error", String(err.message || err));
+      let overflowRetried = false;
+      for (;;) {
+        try {
+          a = await this._stream({ messages: conv, toolDefs, model: effModel, onEvent, sessionId, stream: effStream });
+          break;
+        } catch (err) {
+          const text = String((err && err.message) || err);
+          if (!overflowRetried && persist && compaction.isContextOverflowError(text)) {
+            overflowRetried = true;
+            onEvent({ type: "compaction", phase: "overflow", trigger: "context-overflow" });
+            let recovered = { changed: false };
+            try {
+              recovered = await this._maybeCompactStep({
+                sessionId,
+                conv,
+                system: requestSystem,
+                toolDefs,
+                model: effModel,
+                turn,
+                trigger: "context-overflow",
+                pending: () => (r === 0 && !userPersisted ? pendingTurnMessages() : []),
+                onEvent,
+              });
+            } catch (recoveryError) {
+              console.warn("[compaction] overflow recovery failed:", (recoveryError && recoveryError.message) || recoveryError);
+            }
+            if (recovered.changed) {
+              conv = recovered.conv;
+              requestSystem = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
+              conv[0].content = requestSystem;
+              continue;
+            }
+          }
+          throw new TurnError("model-request-error", text);
+        }
       }
       // finish_reason 属于传输层元数据，不能混进后续请求的 messages
       const message = { role: "assistant", content: a.content, reasoning_content: a.reasoning_content, tool_calls: a.tool_calls };
+      // DSH usage anchor: remember this request's header/surface price plus the
+      // provider usage so the next pressure measurement reuses it.
+      if (persist) {
+        await this._recordTokenAnchor({
+          sessionId,
+          model: effModel,
+          system: requestSystem,
+          tools: toolDefs,
+          messages: conv.slice(1),
+          assistant: this._cleanMessage(message),
+          usage: a.usage,
+        });
+      }
       conv.push(message);
 
       // 记录本轮助手回复与（可能的）工具调用（首轮有 system 时整体后移一位）
@@ -853,6 +1351,7 @@ class AgentCore {
       }
       return { role: "assistant", content: "", error: errorText, stopReason: reason };
     } finally {
+      if (persist) this.activeSessions.delete(String(sessionId));
       const durationMs = Date.now() - startedAt;
       // 每个 turn 结束都留一行原因：正常收尾也打，才能分清"答完了"和"被掐断"。
       console.log("[turn] session=" + (sessionId || "none") + " turn=" + (turn ? turn.id : "-") +
@@ -943,6 +1442,11 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
       return await core.fetchProviderModels(params.baseurl, params.apikey);
     case "modelCapabilities":
       return await core.modelCapabilities(params);
+    case "contextWindow":
+      return { model: params.model || null, contextWindow: resolveContextWindow(params) };
+    // 手动 /compact：只允许 idle 会话；压缩语义与自动触发共用同一事务。
+    case "compact":
+      return await core.compactSession({ sessionId: params.session_id, model: params.model, onEvent });
     case "approval":
       return core.approve(params.id, params.decision);
     case "answerQuestions":
@@ -971,4 +1475,4 @@ async function createCore(config = {}) {
   return core;
 }
 
-module.exports = { AgentCore, createCore, handleCall, resolveWorkspaceFolder };
+module.exports = { AgentCore, createCore, handleCall, resolveWorkspaceFolder, resolveContextWindow };

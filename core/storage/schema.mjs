@@ -68,6 +68,7 @@ export const SCHEMA_STATEMENTS = [
     description  text,
     activity  text  NOT NULL DEFAULT 'bare-chat',
     deleted_at   TIMESTAMP,
+    next_seq  integer NOT NULL DEFAULT 0,  -- per-session event sequence (messages + compaction events)
     created_at    TIMESTAMP NOT NULL DEFAULT now(),
     updated_at    TIMESTAMP NOT NULL DEFAULT now()
   )`,
@@ -102,6 +103,7 @@ export const SCHEMA_STATEMENTS = [
     id          integer PRIMARY KEY,
     step_id     INTEGER NOT NULL REFERENCES steps (id) ON DELETE CASCADE,
     seq         integer not null,
+    surface_seq integer not null default 0,  -- per-session event seq shared with session_events
     role        text  NOT NULL,
     content_id  integer references contents (id) on delete cascade,
     thought_id  integer references contents (id) on delete cascade,
@@ -142,6 +144,47 @@ export const SCHEMA_STATEMENTS = [
     activation       text     NOT NULL DEFAULT 'armed',
     created_at       TIMESTAMP NOT NULL DEFAULT now(),
     updated_at       TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+
+  // Session event log for compaction (DSH's compaction/* + the replacement
+  // user/message). seq shares one per-session space with messages.surface_seq,
+  // so shadowedSeqs and surfaceOp ranges name real event sequences.
+  `CREATE TABLE IF NOT EXISTS session_events (
+    id          integer  PRIMARY KEY,
+    session_id  integer  NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    seq         integer  NOT NULL,
+    type        text     NOT NULL,
+    data        text     NOT NULL,   -- JSON payload
+    boot        text,                -- process identity; stale compaction/start rows are ignored
+    created_at  TIMESTAMP NOT NULL DEFAULT now(),
+    unique (session_id, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events (session_id, seq)`,
+
+  // Token-meter usage anchor (DSH tokenMeter anchor): the latest successful
+  // request's canonical header, the surface price at that request, and the
+  // provider-reported usage. Measure() reuses usage while the header matches
+  // and applies the signed surface delta on top.
+  `CREATE TABLE IF NOT EXISTS token_anchors (
+    session_id        integer  PRIMARY KEY REFERENCES sessions (id) ON DELETE CASCADE,
+    header_key        text     NOT NULL,
+    header_tokens     integer  NOT NULL,
+    input_tokens      integer  NOT NULL,
+    assistant_tokens  integer  NOT NULL,
+    usage_total       integer  NOT NULL,
+    created_at        TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+
+  // Deterministic tool-result pruning: the original message row stays intact,
+  // and history assembly substitutes the pruned text. Mirrors DSH's
+  // compaction-tool-result-pruner defaults (8192 / 4096 / 1024 code points).
+  `CREATE TABLE IF NOT EXISTS tool_result_prunes (
+    message_id   integer  PRIMARY KEY REFERENCES messages (id) ON DELETE CASCADE,
+    content      text     NOT NULL,
+    chars_before integer  NOT NULL,
+    chars_after  integer  NOT NULL,
+    created_at   TIMESTAMP NOT NULL DEFAULT now()
   )`,
 
   // User jobs: tasks the model delegates to the human user via request_user_job.
