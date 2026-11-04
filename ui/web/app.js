@@ -111,8 +111,12 @@ document.addEventListener("DOMContentLoaded", function () {
     b.addEventListener("click", function () {
       Array.prototype.forEach.call(tabBtns, function (x) { x.classList.remove("active"); });
       b.classList.add("active");
-      if (b.getAttribute("data-target") === "trajectory-tab") viewport.classList.add("show-trajectory");
-      else viewport.classList.remove("show-trajectory");
+      if (b.getAttribute("data-target") === "trajectory-tab") {
+        viewport.classList.add("show-trajectory");
+        loadTrajectory(currentSessionId);
+      } else {
+        viewport.classList.remove("show-trajectory");
+      }
     });
   });
 
@@ -246,6 +250,10 @@ document.addEventListener("DOMContentLoaded", function () {
     newSessionBtn.addEventListener("click", async function () {
       var name = await uiPrompt("新建会话");
       if (!name) return;
+      // 选初始活动（建会话定预设，运行后可自然流转/强制切）
+      await new Promise(function (resolve) {
+        openActivityMenu(function (a) { selectedInitialActivity = a; resolve(); });
+      });
       try {
         var ws = await ensureDefaultWorkspace();
         var container = findSessionList(ws.id);
@@ -301,7 +309,7 @@ document.addEventListener("DOMContentLoaded", function () {
   async function addSession(workspaceId, container, name) {
     if (!name) return;
     try {
-      var sess = await window.AgentClient.call("storage", { op: "session.create", payload: { workspace_id: workspaceId, name: name } });
+      var sess = await window.AgentClient.call("storage", { op: "session.create", payload: { workspace_id: workspaceId, name: name, activity: selectedInitialActivity } });
       var node = renderSession(sess, workspaceId, container);
       selectSession(sess, node);
     } catch (e) { console.error("add session failed:", e); }
@@ -341,6 +349,8 @@ document.addEventListener("DOMContentLoaded", function () {
   var modelHttpStatus = document.querySelector(".model-http-status");
   var sessionNameLabel = document.querySelector(".session-name");
   var currentSessionId = null;
+  var currentActivity = "bare-chat";   // 当前会话的活动（来自会话存储，可被指示器切换）
+  var selectedInitialActivity = "bare-chat";  // 新建会话时的初始活动
   var bareHistory = [];  // bare-chat 模式：纯内存对话历史，不落库
   var chatScroller = chatTab.closest(".tab-body");
   function scrollChatToBottom() {
@@ -374,10 +384,27 @@ document.addEventListener("DOMContentLoaded", function () {
   // plan-mode 由 activity=plan 驱动（见 docs/agent-mode.md）：选 plan 即进入计划态，
   // 切到其他 activity 即退出。UI 不再有独立按钮；core 的 plan-mode 状态以 activity 为准。
   var currentPlanMode = false;
-  function setActivityMode(v) {
-    var sel = document.querySelector(".activity-mode-selector select");
-    if (sel) sel.value = v;
-    localStorage.setItem("agent.activity", v);
+  // activity 的单一真值：currentActivity（来自会话存储，可被指示器切换）。
+  // localStorage 仅作跨会话默认初始值，不替代会话存储。
+  function setActivityMode(v, opts) {
+    currentActivity = v;
+    selectedInitialActivity = v;
+    try { localStorage.setItem("agent.activity", v); } catch (e) {}
+    if (opts && opts.silent) return;
+    // 会话内切换：落库到当前会话
+    if (currentSessionId) {
+      window.AgentClient.call("storage", { op: "session.update", payload: { id: currentSessionId, activity: v } })
+        .catch(function () {});
+    }
+  }
+  function getActivityMode() { return currentActivity; }
+  function getPresenceMode() {
+    var btn = document.getElementById("presenceSwitch");
+    return (btn && btn.getAttribute("data-mode")) || "in";
+  }
+  function getAutonomyMode() {
+    var btn = document.getElementById("autonomySwitch");
+    return (btn && btn.getAttribute("data-mode")) || "supervised";
   }
   // 据当前 activity 同步 core 的 per-session plan-mode（即时，不依赖发消息）
   async function syncPlanModeFromActivity() {
@@ -388,18 +415,144 @@ document.addEventListener("DOMContentLoaded", function () {
       await window.AgentClient.call("planMode", { op: "set", session_id: currentSessionId, active: active });
     } catch (e) { /* 忽略同步失败 */ }
   }
-  function getPresenceMode() {
-    var btn = document.getElementById("presenceSwitch");
-    return (btn && btn.getAttribute("data-mode")) || "in";
+
+  // ---------- 活动指示器（取代 composer 的 activity-mode-selector） ----------
+  // 单一真值为 currentActivity（见 selectSession / setActivityMode）。
+  // currentActivityCompleted：当前活动是否已由 model 上报完成（如 plan 经 exit_plan_mode 批准）。
+  var ACTIVITIES = ["bare-chat", "goal-plan", "build-code", "discuss-doc", "research", "review-proj", "human-learn", "diagnose"];
+  var currentActivityCompleted = false;
+  var activityIndicatorEl = null;
+
+  function renderActivityIndicator() {
+    if (!activityIndicatorEl) activityIndicatorEl = document.getElementById("activityIndicator");
+    if (!activityIndicatorEl) return;
+    var mark = currentActivityCompleted ? " ✓" : "";
+    activityIndicatorEl.textContent = "活动: " + currentActivity + mark;
+    activityIndicatorEl.setAttribute("data-activity", currentActivity);
+    activityIndicatorEl.setAttribute("data-completed", currentActivityCompleted ? "1" : "0");
   }
-  function getAutonomyMode() {
-    var btn = document.getElementById("autonomySwitch");
-    return (btn && btn.getAttribute("data-mode")) || "supervised";
+
+  function switchActivity(target) {
+    if (target === currentActivity) { renderActivityIndicator(); return; }
+    // 未完成 + supervised → 二次确认；completed 或 autonomous → 直接切
+    var needConfirm = !currentActivityCompleted && getAutonomyMode() !== "autonomous";
+    if (needConfirm) {
+      uiConfirm("当前活动 " + currentActivity + " 尚未完成，切换将中断其进行中的工作；plan-mode 等策略即时失效。确认切换？")
+        .then(function (ok) { if (ok) commitActivity(target); });
+    } else {
+      commitActivity(target);
+    }
   }
-  function getActivityMode() {
-    var sel = document.querySelector(".activity-mode-selector select");
-    return sel ? sel.value : "bare-chat";
+  function commitActivity(target) {
+    setActivityMode(target);
+    currentActivityCompleted = false;
+    renderActivityIndicator();
+    syncPlanModeFromActivity();
   }
+
+  function openActivityMenu(onPick) {
+    var overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.setAttribute("data-name", "activity-menu-overlay");
+    var box = document.createElement("div");
+    box.className = "modal-box activity-menu";
+    box.setAttribute("data-name", "activity-menu");
+    var title = document.createElement("div");
+    title.className = "modal-title";
+    title.textContent = (onPick ? "选择初始活动" : "切换活动") + "（当前: " + currentActivity + (currentActivityCompleted ? " ✓已完成" : "") + "）";
+    box.appendChild(title);
+    ACTIVITIES.forEach(function (a) {
+      var item = document.createElement("button");
+      item.className = "activity-menu-item" + (a === currentActivity ? " active" : "");
+      item.textContent = a + (a === currentActivity ? " （当前）" : "");
+      item.addEventListener("click", function () {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        if (onPick) onPick(a); else switchActivity(a);
+      });
+      box.appendChild(item);
+    });
+    overlay.appendChild(box);
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.parentNode.removeChild(overlay); });
+    document.body.appendChild(overlay);
+  }
+
+  // ---------- 轨迹面板（复用 store 的 turns/steps/messages/calls，纯前端可视化） ----------
+  var trajectoryTab = document.getElementById("trajectoryTab");
+  var trajectoryLoadedFor = null;  // 缓存：避免重复拉取
+
+  async function loadTrajectory(sessionId) {
+    if (!trajectoryTab) return;
+    if (!sessionId) { trajectoryTab.innerHTML = '<div class="empty-hint">请先选择会话</div>'; return; }
+    if (trajectoryLoadedFor === sessionId) return;
+    trajectoryTab.innerHTML = '<div class="empty-hint">加载轨迹中…</div>';
+    try {
+      var tree = await window.AgentClient.call("storage", { op: "session.trajectory", payload: { session_id: sessionId } });
+      trajectoryLoadedFor = sessionId;
+      renderTrajectoryTree(tree || []);
+    } catch (e) {
+      trajectoryTab.innerHTML = '<div class="empty-hint">轨迹加载失败：' + (e && e.message ? e.message : e) + '</div>';
+    }
+  }
+
+  function renderTrajectoryTree(turns) {
+    if (!trajectoryTab) return;
+    trajectoryTab.innerHTML = "";
+    if (!turns.length) {
+      trajectoryTab.innerHTML = '<div class="empty-hint">暂无轨迹</div>';
+      return;
+    }
+    turns.forEach(function (turn) {
+      var tEl = makeEl("traj-turn", "traj-turn");
+      tEl.setAttribute("data-turn-id", String(turn.id));
+      var tHead = makeEl("traj-turn-head", "traj-turn-head");
+      tHead.textContent = "Turn " + (turn.seq != null ? turn.seq : turn.id) + " · " + (turn.status || "");
+      tEl.appendChild(tHead);
+      (turn.steps || []).forEach(function (step) {
+        var sEl = makeEl("traj-step", "traj-step");
+        sEl.setAttribute("data-step-id", String(step.id));
+        var sHead = makeEl("traj-step-head", "traj-step-head");
+        sHead.textContent = "Step " + (step.seq != null ? step.seq : step.id) + " · " + (step.status || "");
+        sEl.appendChild(sHead);
+        (step.messages || []).forEach(function (msg) {
+          if (msg.thought) {
+            var th = makeEl("traj-thought", "traj-thought");
+            var thSummary = makeEl("traj-thought-summary", "traj-thought-summary");
+            thSummary.textContent = "思考：" + String(msg.thought).slice(0, 120) + (String(msg.thought).length > 120 ? "…" : "");
+            th.appendChild(thSummary);
+            var thFull = makeEl("traj-thought-full", "traj-thought-full");
+            if (typeof AgentMarkdown !== "undefined") AgentMarkdown.set(thFull, msg.thought); else thFull.textContent = msg.thought;
+            thFull.hidden = true;
+            thSummary.addEventListener("click", function () { thFull.hidden = !thFull.hidden; });
+            th.appendChild(thFull);
+            sEl.appendChild(th);
+          }
+          if (msg.content && msg.role === "assistant") {
+            var ans = makeEl("traj-answer", "traj-answer");
+            if (typeof AgentMarkdown !== "undefined") AgentMarkdown.set(ans, msg.content); else ans.textContent = msg.content;
+            sEl.appendChild(ans);
+          }
+        });
+        (step.calls || []).forEach(function (call) {
+          var card = createToolCard({
+            name: call.name, arguments: typeof call.arguments === "string" ? safeParse(call.arguments) : call.arguments,
+            description: call.description, status: call.status,
+          });
+          if (card && call.result != null) {
+            var resEvt = { content: call.result, isError: call.status === "failed" || !!call.error };
+            if (typeof setToolResult === "function") setToolResult(card, resEvt);
+          }
+          if (card) {
+            card.addEventListener("click", function () { showToolDetail(card); });
+            sEl.appendChild(card);
+          }
+        });
+        tEl.appendChild(sEl);
+      });
+      trajectoryTab.appendChild(tEl);
+    });
+  }
+
+  function safeParse(s) { try { return JSON.parse(s); } catch (e) { return {}; } }
 
   // ---------- presence 自动机（在场状态：in/out） ----------
   // 规则（见 docs/agent-mode.md）：
@@ -944,7 +1097,7 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (evt.type === "plan-mode") {
       currentPlanMode = evt.active === true;
       // exit_plan_mode 批准后 core 退出 plan-mode：UI 同步把 activity 切到 build（批准=同意实施）
-      if (!evt.active) setActivityMode("build-code");
+      if (!evt.active) { currentActivityCompleted = true; setActivityMode("build-code"); renderActivityIndicator(); }
     } else if (evt.type === "approval-request") {
       createApprovalCard(evt);
     } else if (evt.type === "error") {
@@ -1350,7 +1503,7 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (evt.type === "plan-mode") {
       currentPlanMode = evt.active === true;
       // exit_plan_mode 批准后 core 退出 plan-mode：UI 同步把 activity 切到 build（批准=同意实施）
-      if (!evt.active) setActivityMode("build-code");
+      if (!evt.active) { currentActivityCompleted = true; setActivityMode("build-code"); renderActivityIndicator(); }
     } else if (evt.type === "approval-request") {
       setApproval(getToolCard(evt.callId || evt.id), evt);
     } else if (evt.type === "system-prompt") {
@@ -1496,10 +1649,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function selectSession(sess, node) {
     currentSessionId = sess.id;
+    currentActivity = (sess && sess.activity) || "bare-chat";
+    trajectoryLoadedFor = null;  // 切换会话后轨迹需重新拉取
     if (sessionNameLabel) sessionNameLabel.textContent = sess.name || ("会话 " + sess.id);
     document.querySelectorAll(".session-item").forEach(function (n) { n.classList.remove("active"); });
     if (node) node.classList.add("active");
     renderSessionMessages(sess.id);
+    currentActivityCompleted = false;
+    renderActivityIndicator();
     syncPlanModeFromActivity();
     if (input) input.focus();
   }
@@ -1572,6 +1729,10 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   setInterval(tickPresence, PRESENCE_TICK_MS);
 
+  // 活动指示器：点击打开切换菜单
+  var activityIndicator = document.getElementById("activityIndicator");
+  if (activityIndicator) activityIndicator.addEventListener("click", openActivityMenu);
+
   // 5) add-files-btn -> 演示 attachment-tray 状态变化（ready/extracting/fallback）
   var addFilesBtn = document.getElementById("addFilesBtn");
   var tray = document.querySelector(".attachment-tray");
@@ -1593,8 +1754,4 @@ document.addEventListener("DOMContentLoaded", function () {
   var searchSwitch = document.getElementById("searchSwitch");
   if (thinkSwitch) thinkSwitch.addEventListener("click", function () { thinkSwitch.classList.toggle("active"); });
   if (searchSwitch) searchSwitch.addEventListener("click", function () { searchSwitch.classList.toggle("active"); });
-
-  // activity selector 变更：即时同步 per-session plan-mode 到 core（切到 plan 即进入计划态）
-  var activitySel = document.querySelector(".activity-mode-selector select");
-  if (activitySel) activitySel.addEventListener("change", function () { syncPlanModeFromActivity(); });
 });

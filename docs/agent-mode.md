@@ -30,6 +30,10 @@ Mode = {
 - 八类：`bare-chat / goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose`。
 - 代理**可跨 activity**，含跨到 `build-code`（落盘变更）；信任 model 自行判断。
 - 只读倾向类：research / goal-plan / discuss-doc / review-proj / human-learn / diagnose；落盘类：build-code。`bare-chat` 为轻量对话（不落库、不支持工具调用）。边界由 model 把握。
+- **流转模型（UI 层）**：`activity` 是**建会话时选定的初始活动**，运行后可切换，非锁定。
+  - 一个活动**完成后**可自然进入其它活动（如 `goal-plan` 经 `exit_plan_mode` 批准后自然进入 `build-code`）。
+  - 活动**未完成**时也可**强制切换**，但需**二次确认**防误操作：supervised 下弹内联确认窗（提示将中断进行中的工作、plan-mode 策略即时失效），autonomous 下直接切换（人不干预，与 ask 自动 deny 一致）。
+  - 完成态由 model 上报（如 plan 批准），UI 在活动指示器上以 `✓` 标注。详见 `docs/dsh/dsh-replica.md`。
 
 ## 对账（reconcile）
 - 默认**无自动对账**，offline 期间变更静默生效。

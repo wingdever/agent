@@ -88,7 +88,7 @@
 | **sub-agent-tree** | 子 Agent 执行树；在 `trajectory-tab` 内展示 |
 | **agent-trace-node** | 执行树节点追踪；在 `trajectory-tab` 内展示 |
 | **attachment-tray** | 附件托盘；附着于 `composer`；状态：ready / extracting / fallback |
-| **trajectory-tab** | 轨迹标签页 |
+| **trajectory-tab** | 轨迹标签页：按 turns → steps → (messages + calls) 渲染会话轨迹时间线（思考可展开、工具调用点击联动 context-panel）；详见 `docs/dsh/plan-trajectory.md` |
 | **composer** | 输入区 |
 | **input-textarea** | 文本输入框 |
 | **composer-footer** | 输入区底部工具栏 |
@@ -98,7 +98,7 @@
 | **model-selector** | 模型选择器（settings-modal 内） |
 | **presence-mode-switch** | 在场状态开关（composer-footer：in / out，运行时自动态，可手动切换） |
 | **autonomy-mode-switch** | 自主度开关（composer-footer：supervised / autonomous，用户显式提权/降权） |
-| **activity-mode-selector** | 活动选择器（composer-footer：bare-chat / goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose；bare-chat 即轻量对话模式，不落库、不支持工具调用） |
+| **activity-indicator** | 当前活动指示器（chat-header：点击打开切换菜单；显示 `活动: <当前活动>` 与完成态 `✓`；建会话时选定初始活动，运行后可自然流转或强制切换（未完成强制切需二次确认））。取值：bare-chat / goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose |
 | **send-or-stop-btn** | 发送/停止按钮 |
 | **chat-footer** | 聊天底部状态区 |
 | **session-statistics** | 会话统计 |
@@ -243,6 +243,7 @@ shell
 │  ├─ chat-header
 │  │  ├─ left-collapse-button
 │  │  ├─ session-name
+│  │  ├─ activity-indicator
 │  │  ├─ tab-icons
 │  │  │   ├─ chat-tab-icon
 │  │  │   └─ trajectory-icon
@@ -285,7 +286,6 @@ shell
 │  │     ├─ search-switch
 │  │     ├─ presence-mode-switch
 │  │     ├─ autonomy-mode-switch
-│  │     ├─ activity-mode-selector
 │  │     ├─ add-files-btn
 │  │     └─ send-or-stop-btn
 │  └─ chat-footer
@@ -510,7 +510,7 @@ chat-viewport
    arrange: vertical
 
 chat-header
-   contains: session-name, tab-icons, right-collapse-button
+   contains: session-name, activity-indicator, tab-icons, right-collapse-button
    tab-icons: chat-tab-icon, trajectory-icon
 
 tab-body
@@ -532,7 +532,7 @@ trajectory-tab
 
 composer
    children: attachment-tray (top, before input-textarea), input-textarea, composer-footer
-   composer-footer: think-switch, search-switch, presence-mode-switch, autonomy-mode-switch, activity-mode-selector, add-files-btn, send-or-stop-btn
+   composer-footer: think-switch, search-switch, presence-mode-switch, autonomy-mode-switch, add-files-btn, send-or-stop-btn
 
 chat-footer
    shows: session-statistics, token-usage, context-used

@@ -66,6 +66,7 @@ export const SCHEMA_STATEMENTS = [
     workspace_id  INTEGER     NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
     name  text    NOT NULL,
     description  text,
+    activity  text  NOT NULL DEFAULT 'bare-chat',
     created_at    TIMESTAMP NOT NULL DEFAULT now(),
     updated_at    TIMESTAMP NOT NULL DEFAULT now()
   )`,

@@ -77,8 +77,8 @@ class Store {
 
   listSessions({ workspace_id } = {}) { return this._list("sessions", workspace_id != null ? { workspace_id } : {}, "updated_at DESC"); }
   getSession({ id }) { return this._get("sessions", id); }
-  createSession(data) { return this._create("sessions", data, ["workspace_id", "name", "description"]); }
-  updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description"]); }
+  createSession(data) { return this._create("sessions", data, ["workspace_id", "name", "description", "activity"]); }
+  updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description", "activity"]); }
   async deleteSession({ id }) {
     const turns = await this._list("turns", { session_id: id });
     for (const t of turns) await this.deleteTurn({ id: t.id });
@@ -208,6 +208,39 @@ class Store {
       "SELECT contents.content FROM turns JOIN steps ON steps.turn_id=turns.id JOIN messages ON messages.step_id=steps.id JOIN contents ON contents.id=messages.content_id WHERE turns.session_id=$1 AND messages.role='system' ORDER BY turns.seq ASC, steps.seq ASC, messages.seq ASC LIMIT 1"
     ).get(session_id);
     return row ? row.content : null;
+  }
+  // 轨迹面板：返回 turns -> steps -> (messages + calls) 的树，供前端时间线渲染。
+  // 复用现有 list* 方法，不新增采集逻辑。
+  async getTrajectory({ session_id }) {
+    const turns = await this.listTurns({ session_id });
+    const out = [];
+    for (const turn of turns) {
+      const steps = await this.listSteps({ turn_id: turn.id });
+      const stepOut = [];
+      for (const step of steps) {
+        const messages = await this.listMessages({ step_id: step.id });
+        const calls = [];
+        for (const m of messages) {
+          const cs = await this.db.prepare(
+            "SELECT id, call_id, name, arguments, description, status, result_id, error, category FROM calls WHERE reply_id=$1 ORDER BY seq"
+          ).all(m.id);
+          for (const c of cs) {
+            let result = null;
+            if (c.result_id != null) {
+              const rc = await this.db.prepare("SELECT content FROM contents WHERE id=$1").get(c.result_id);
+              result = rc ? rc.content : null;
+            }
+            calls.push({
+              id: c.id, call_id: c.call_id, name: c.name, arguments: c.arguments,
+              description: c.description, status: c.status, result, error: c.error, category: c.category,
+            });
+          }
+        }
+        stepOut.push({ id: step.id, seq: step.seq, status: step.status, messages, calls });
+      }
+      out.push({ id: turn.id, seq: turn.seq, status: turn.status, steps: stepOut });
+    }
+    return out;
   }
   async deleteMessage({ id }) {
     const msg = await this._get("messages", id);
@@ -348,6 +381,7 @@ const OPS = {
   "session.update": (s, p) => s.updateSession(p),
   "session.delete": (s, p) => s.deleteSession(p),
   "session.prompt": (s, p) => s.getSessionPrompt(p),
+  "session.trajectory": (s, p) => s.getTrajectory(p),
 
   "goal.get": (s, p) => s.getGoal(p),
   "goal.save": (s, p) => s.saveGoal(p),
