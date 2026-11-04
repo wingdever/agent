@@ -106,10 +106,10 @@
 | **autonomy-mode-switch** | 自主度开关（composer-footer：supervised / autonomous，用户显式提权/降权） |
 | **activity-indicator** | 当前活动指示器（chat-header：点击打开切换菜单；显示 `活动: <当前活动>` 与完成态 `✓`；建会话时选定初始活动，运行后可自然流转或强制切换（未完成强制切需二次确认））。取值：bare-chat / goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose |
 | **send-or-stop-btn** | 发送/停止按钮 |
-| **chat-footer** | 聊天底部状态区 |
-| **session-statistics** | 会话统计 |
-| **token-usage** | Token 用量 |
-| **context-used** | 上下文占用 |
+| **chat-footer** | 聊天底部状态栏（DSH 风格三段；活动/权限/自主度由各自控件承载，不重复） |
+| **session-statistics** | 左段：`⟳ N turns M steps · K tok/s`（图标 + 会话累计 turns/steps + 最近一轮 TPS，turns/steps 间空格） |
+| **token-usage** | 中段：`▤ X.XM tok · Cache hit NN%`（图标 + total tokens 人类可读 + 缓存命中率） |
+| **context-used** | 右段：SVG donut（track + 动态 fill 弧）+ `NN%` 文本，按占上下文窗口估算占比实时更新 |
 | **context-panel** | 右侧上下文面板，展示工具详情与引用来源 |
 | **permissions-modal** | 权限配置弹窗（工具档位 + bash 命令策略 + 文件写精细策略） |
 | **permissions-sidebar** | 权限弹窗左侧栏（配置文件切换 + 概要） |
@@ -545,6 +545,11 @@ composer
 
 chat-footer
    shows: session-statistics, token-usage, context-used
+   note: 活动/权限/自主度由各自控件(activity-indicator / permissions-btn / autonomy-switch)承载，不在状态栏重复
+   format:
+     session-statistics: "⟳ N turns M steps · K tok/s"
+     token-usage:        "▤ X.XM tok · Cache hit NN%"
+     context-used:       "[SVG donut] NN%"
 
 context-panel
    position: right

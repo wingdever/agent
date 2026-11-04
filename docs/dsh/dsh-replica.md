@@ -42,7 +42,7 @@
 | 1 | **轨迹面板落地** | ★ 高 | 把 `trajectory-tab` 从空状态做成"思考 / 工具调用 / 文件改动 / 终端命令"时间线，逐条可展开回溯。已有 tool-call 卡片数据，缺可视化与时间线聚合。最大差距、最契合 dev 可观测性。 |
 | 2 | **会话列表增强** | ★ 高 | 搜索 + 重命名 + 删除 + 回溯恢复（DSH 的会话 CRUD）。 |
 | 3 | 上下文 `@` 引用 | ○ 中 | 输入框 `@` 文件 / 会话，把引用作为上下文注入。 |
-| 4 | 状态栏补齐 | ○ 中 | TPS / 缓存命中率 / 权限等级（已有 token usage，缺另三项）。 |
+| 4 | 状态栏补齐 | ✅ 已完成 | TPS / 缓存命中率 / 权限等级（core 新增 `usage` 上报 + UI 聚合到 `chat-footer`）。 |
 | 5 | 右栏产物预览 | ○ 中 | HTML / 文档 / 图表渲染（替代仅 tool-call 详情）。 |
 | 6 | 推理等级控件 | △ 低 | composer 内加 reasoning effort（模型层是否支持待确认）。 |
 | 7 | 多模态输入 | △ 低 | 图片粘贴 + 图文混合（dev harness 价值较低）。 |
@@ -90,11 +90,12 @@
 6. ✅ **文档同步**：`docs/ui.md`、`docs/agent-mode.md` 的模式描述已对齐新流转模型。
 7. ✅ **完成事件上报**：`goal-plan` 经 `exit_plan_mode` 批准时 UI 置 `currentActivityCompleted=true`（同步指示器 `✓`），其余活动完成判定后续可扩展。
 8. ✅ **#3 @ 引用**：composer 的 `@` 按钮（或输入 `@`）打开引用菜单，可选**历史会话**或**本地文件**；选中后以 chip 展示、可移除。发送时 `references` 随 `chat` 调用传入 core；core 新增 `_resolveReferences` 将文件内容 / 会话摘录拼为上下文块，注入到真实问题之前的 user 消息（独立于翻译步骤，不影响中文→英文翻译）。bare-chat 与正常会话模式均支持。
+9. ✅ **#4 状态栏补齐**：`core/_stream` 在流式 / 非流式两条路径解析模型 `usage`（`prompt_tokens`/`completion_tokens`/`total_tokens`/`cached_tokens`，兼容字段缺失与 `prompt_tokens_details` 嵌套），统一上报 `usage` 事件；前端 `onChatEvent` 消费 `usage` + `turn-end`（steps/tools/durationMs），按 DSH 风格聚合到 `chat-footer` 三段（各带中性图标，无 emoji）——`session-statistics`（`⟳ N turns M steps · K tok/s`，turns/steps 间空格、会话累计 + 最近一轮 TPS）、`token-usage`（`▤ X.XM tok · Cache hit NN%`）、`context-used`（**SVG donut**：track + 动态 fill 弧 `stroke-dasharray` 按占用百分比实时更新 + `NN%` 文本，占假设窗口 128k 的估算占比）。活动 / 权限档 / 自主度已由各自控件（activity-indicator / permissions-btn / autonomy-switch）承载，不在状态栏重复。无数据显示 `-`（Q4 决策）。`selectSession` 重置计数、`turn-end` 后刷新累计。
 
 ## 8. 后续
 
-第一波改造（前置 A、前置 C、#1 轨迹面板、#2 会话列表增强、#3 @ 引用）已完成。下一步：
-- **二期 #4–#5**：状态栏补齐、右栏产物预览
+第一波改造（前置 A、前置 C、#1 轨迹面板、#2 会话列表增强、#3 @ 引用）与 #4 状态栏补齐已完成。下一步：
+- **二期 #5**：右栏产物预览
 - **低优先 #6–#7**：推理等级控件、多模态输入
 
 详见 `PLAN.md`。

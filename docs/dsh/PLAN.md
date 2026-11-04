@@ -22,7 +22,7 @@
 | 1 | 轨迹面板落地 | 一期 | store 已有 turns/steps/messages/calls；frontend 渲染 + show-trajectory CSS | [plan-trajectory.md](plan-trajectory.md) |
 | 2 | 会话列表增强（CRUD+搜索+恢复） | ✅ 一期已完成 | store.sessions + 软删除/恢复；UI 搜索/回收站 | (已实现，见 dsh-replica.md §7.5) |
 | 3 | 上下文 @ 引用 | ✅ 一期已完成 | composer `@` 菜单选会话/文件 → chip → `references` 传给 `chat()`；core `_resolveReferences` 注入上下文 | (已实现，见 dsh-replica.md §7.8) |
-| 4 | 状态栏补齐（TPS/缓存/权限） | 二期 | core 事件含 TPS/缓存指标（待确认是否上报） | (待写) |
+| 4 | 状态栏补齐（TPS/缓存/权限） | ✅ 已完成 | core `_stream` 解析 `usage` 上报 `usage` 事件；UI `chat-footer` 三 span 聚合活动/权限档/自主度、tokens/cached/TPS、steps/tools/耗时 | (已实现，见 dsh-replica.md §7.9) |
 | 5 | 右栏产物预览 | 二期 | 现有 context-panel 改造 | (待写) |
 | 6 | 推理等级控件 | 低 | core 模型层是否支持 reasoning effort（待确认） | (待写) |
 | 7 | 多模态输入 | 低 | core provider 多模态支持 | (待写) |

@@ -411,6 +411,9 @@ document.addEventListener("DOMContentLoaded", function () {
   var sendBtn = document.querySelector(".send-or-stop-btn");
   var modelHttpStatus = document.querySelector(".model-http-status");
   var sessionNameLabel = document.querySelector(".session-name");
+  var footerSessionStats = document.querySelector(".session-statistics");   // 左：turns · steps · tok/s
+  var footerTokenUsage = document.querySelector(".token-usage");            // 中：tokens / cache hit
+  var footerContextUsed = document.querySelector(".context-used");          // 右：上下文占用
   var currentSessionId = null;
   var currentActivity = "bare-chat";   // 当前会话的活动（来自会话存储，可被指示器切换）
   var selectedInitialActivity = "bare-chat";  // 新建会话时的初始活动
@@ -443,6 +446,12 @@ document.addEventListener("DOMContentLoaded", function () {
   var liveUserOriginal = "";   // 用户输入原文（中文）
   var liveUserTranslation = null;   // 用户消息的中文原文副块
   var liveAssistantTranslation = null; // 助手回答的中文译文副块
+
+  // 状态栏（chat-footer）聚合状态
+  var usageState = { prompt: null, completion: null, total: null, cached: null }; // 最近一次 usage
+  var turnStat = { steps: null, tools: null, durationMs: null };                    // 最近一次 turn 统计
+  var sessionStat = { turns: 0, steps: 0 };                                       // 会话累计 turns / steps
+  var CONTEXT_WINDOW = 128000;                                                    // 上下文窗口假设上限（用于占比估算）
 
   // plan-mode 由 activity=plan 驱动（见 docs/agent-mode.md）：选 plan 即进入计划态，
   // 切到其他 activity 即退出。UI 不再有独立按钮；core 的 plan-mode 状态以 activity 为准。
@@ -492,6 +501,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var mark = currentActivityCompleted ? " ✓" : "";
     activityIndicatorEl.textContent = "活动: " + currentActivity + mark;
     activityIndicatorEl.setAttribute("data-activity", currentActivity);
+    renderStatusBar();   // 活动变化同步到状态栏左段
     activityIndicatorEl.setAttribute("data-completed", currentActivityCompleted ? "1" : "0");
   }
 
@@ -1519,9 +1529,94 @@ document.addEventListener("DOMContentLoaded", function () {
     el.hidden = false;
   }
 
+  // 状态栏（chat-footer）渲染：DSH 风格三段。
+  // 活动 / 权限档 / 自主度已有各自固定控件承载，不在状态栏重复。无数据项显示 "-"。
+  function fmtNum(n) { return (n == null) ? "-" : String(n); }
+  function fmtPct(num, den) {
+    if (num == null || den == null || !den) return "-";
+    return Math.round((num / den) * 100) + "%";
+  }
+  // token 数人类可读：>=1e6 -> X.XM，>=1e3 -> X.Xk，否则原值
+  function fmtTok(n) {
+    if (n == null) return "-";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return String(n);
+  }
+  // 上下文占用环形图（DSH 同款 SVG donut）：track + 动态 fill 弧，按占用百分比更新。
+  var CIRC_R = 5.5;
+  var CIRC_C = 2 * Math.PI * CIRC_R; // ≈ 34.5575
+  var ctxDonutFill = null;   // <circle class="ctx-donut-fill">
+  var ctxDonutLabel = null;  // 百分比文本节点
+  function ensureContextDonut() {
+    if (!footerContextUsed || ctxDonutFill) return;
+    footerContextUsed.innerHTML = "";
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 14 14");
+    svg.setAttribute("width", "14");
+    svg.setAttribute("height", "14");
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("ctx-donut");
+    var track = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    track.setAttribute("class", "ctx-donut-track");
+    track.setAttribute("cx", "7"); track.setAttribute("cy", "7"); track.setAttribute("r", String(CIRC_R));
+    ctxDonutFill = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    ctxDonutFill.setAttribute("class", "ctx-donut-fill");
+    ctxDonutFill.setAttribute("cx", "7"); ctxDonutFill.setAttribute("cy", "7"); ctxDonutFill.setAttribute("r", String(CIRC_R));
+    ctxDonutFill.setAttribute("transform", "rotate(-90 7 7)");
+    ctxDonutFill.setAttribute("stroke-dasharray", "0 " + CIRC_C);
+    svg.appendChild(track);
+    svg.appendChild(ctxDonutFill);
+    ctxDonutLabel = document.createElement("span");
+    ctxDonutLabel.className = "ctx-donut-label";
+    footerContextUsed.appendChild(svg);
+    footerContextUsed.appendChild(ctxDonutLabel);
+  }
+  function setContextDonut(pct) {
+    ensureContextDonut();
+    if (!ctxDonutFill) return;
+    var clamped = Math.max(0, Math.min(100, pct == null ? 0 : pct));
+    var arc = (clamped / 100) * CIRC_C;
+    ctxDonutFill.setAttribute("stroke-dasharray", arc.toFixed(3) + " " + (CIRC_C - arc).toFixed(3));
+    if (ctxDonutLabel) ctxDonutLabel.textContent = (pct == null) ? "-" : Math.round(pct) + "%";
+  }
+  function renderStatusBar() {
+    // 左：turns steps · tok/s（会话累计 turns/steps + 最近一轮 TPS；DSH 风格：turns/steps 间用空格）
+    if (footerSessionStats) {
+      var tps = "-";
+      if (usageState.total != null && turnStat.durationMs != null && turnStat.durationMs > 0) {
+        tps = (usageState.total / (turnStat.durationMs / 1000)).toFixed(0);
+      }
+      footerSessionStats.textContent =
+        "⟳ " + fmtNum(sessionStat.turns) + " turns " + fmtNum(sessionStat.steps) + " steps · " + tps + " tok/s";
+    }
+    // 中：tokens · Cache hit %
+    if (footerTokenUsage) {
+      footerTokenUsage.textContent =
+        "▤ " + fmtTok(usageState.total) + " tok · Cache hit " + fmtPct(usageState.cached, usageState.prompt);
+    }
+    // 右：上下文占用（SVG donut + 百分比标签）
+    var ctxPct = (usageState.total != null) ? (usageState.total / CONTEXT_WINDOW) * 100 : null;
+    setContextDonut(ctxPct);
+  }
+  function resetStatusBar() {
+    usageState = { prompt: null, completion: null, total: null, cached: null };
+    turnStat = { steps: null, tools: null, durationMs: null };
+    sessionStat = { turns: 0, steps: 0 };
+    renderStatusBar();
+  }
+
   function onChatEvent(evt) {
     if (!evt || !evt.type) return;
     if (evt.type === "model-http-status") { setModelHttpStatus(evt.state, evt.status); return; }
+    if (evt.type === "usage") {
+      usageState.prompt = evt.promptTokens != null ? evt.promptTokens : usageState.prompt;
+      usageState.completion = evt.completionTokens != null ? evt.completionTokens : usageState.completion;
+      usageState.total = evt.totalTokens != null ? evt.totalTokens : usageState.total;
+      usageState.cached = evt.cachedTokens != null ? evt.cachedTokens : usageState.cached;
+      renderStatusBar();
+      return;
+    }
     if (evt.type === "translation") {
       if (getActivityMode() === "bare-chat") handleTranslationFlat(evt);
       else handleTranslationTurn(evt);
@@ -1597,6 +1692,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (evt.status !== "succeeded") {
         AgentMarkdown.append(ensureAnswer(), "[本轮终止] " + (evt.reason || "unknown") + (evt.error ? ": " + evt.error : ""));
       }
+      // 状态栏：记录本轮步数 / 工具数 / 耗时，累计会话 turns/steps，重算 tok/s
+      turnStat.steps = (evt.steps != null) ? evt.steps : turnStat.steps;
+      turnStat.tools = (evt.tools != null) ? evt.tools : turnStat.tools;
+      turnStat.durationMs = (evt.durationMs != null) ? evt.durationMs : turnStat.durationMs;
+      sessionStat.turns += 1;
+      if (evt.steps != null) sessionStat.steps += evt.steps;
+      renderStatusBar();
       flushLiveMarkdown();
       resetLive();
     } else if (evt.type === "error") {
@@ -1721,6 +1823,7 @@ document.addEventListener("DOMContentLoaded", function () {
     currentActivityCompleted = false;
     renderActivityIndicator();
     syncPlanModeFromActivity();
+    resetStatusBar();   // 切换会话清空上一轮 token / 耗时统计
     if (input) input.focus();
   }
   async function runBareChat(text) {
@@ -1781,6 +1884,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
   loadWorkspaces();
 
+  // 状态栏：渲染初始空态（活动/权限/自主度已由各自控件承载，不在状态栏显示）
+  renderStatusBar();
+
   // presence 自动机：定时 idle 检测 + 手动切换接管
   var presenceSwitch = document.getElementById("presenceSwitch");
   if (presenceSwitch) presenceSwitch.addEventListener("click", function () {
@@ -1792,6 +1898,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var next = getAutonomyMode() === "supervised" ? "autonomous" : "supervised";
     setAutonomyMode(next);
     localStorage.setItem("agent.autonomy", next);
+    renderStatusBar();   // 自主度变化即时反映到状态栏
   });
   setInterval(tickPresence, PRESENCE_TICK_MS);
 

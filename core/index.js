@@ -416,6 +416,22 @@ class AgentCore {
     return parts.length ? "以下为本次对话的引用上下文，请基于其内容回答：\n\n" + parts.join("\n\n") : "";
   }
 
+  // 把底层模型的 usage 对象标准化后上报（兼容字段缺失 / 不同厂商命名）。
+  // cached_tokens 可能嵌在 prompt_tokens_details 内，也可能直接给顶层。
+  _emitUsage(onEvent, raw) {
+    if (!raw || typeof raw !== "object") return;
+    const details = raw.prompt_tokens_details || {};
+    const cached = (typeof raw.cached_tokens === "number") ? raw.cached_tokens
+      : (typeof details.cached_tokens === "number" ? details.cached_tokens : null);
+    onEvent({
+      type: "usage",
+      promptTokens: raw.prompt_tokens != null ? raw.prompt_tokens : null,
+      completionTokens: raw.completion_tokens != null ? raw.completion_tokens : null,
+      totalTokens: raw.total_tokens != null ? raw.total_tokens : null,
+      cachedTokens: cached,
+    });
+  }
+
   async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false }) {
     onEvent({ type: "model-http-status", state: "on-post" });
     const { stream: res, cap } = await this._post(
@@ -451,11 +467,13 @@ class AgentCore {
         : undefined;
       if (reasoning_content) onEvent({ type: "reasoning", delta: reasoning_content });
       if (content) onEvent({ type: "token", delta: content });
+      // 上报 token 用量（非流式响应直接在 json.usage）。
+      if (json.usage) this._emitUsage(onEvent, json.usage);
       return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: choice.finish_reason || null };
     }
 
     // Streaming (SSE): parse each data: line into deltas + tool calls.
-    let buf = "", content = "", reasoning_content = "", acc = {}, finishReason = null;
+    let buf = "", content = "", reasoning_content = "", acc = {}, finishReason = null, lastUsage = null;
     await new Promise((resolve, reject) => {
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
@@ -469,6 +487,7 @@ class AgentCore {
           let o; try { o = JSON.parse(data); } catch (_) { continue; }
           const choice = (o.choices && o.choices[0]) || {};
           if (choice.finish_reason) finishReason = choice.finish_reason;
+          if (o.usage) lastUsage = o.usage;  // 用量通常随最后一个 chunk 下发
           const d = choice.delta || {};
           if (d.reasoning_content) { reasoning_content += d.reasoning_content; onEvent({ type: "reasoning", delta: d.reasoning_content }); }
           if (d.content) { content += d.content; onEvent({ type: "token", delta: d.content }); }
@@ -481,7 +500,7 @@ class AgentCore {
           }
         }
       });
-      res.on("end", resolve); res.on("error", reject);
+      res.on("end", () => { if (lastUsage) this._emitUsage(onEvent, lastUsage); resolve(); }); res.on("error", reject);
     });
     const tool_calls = Object.keys(acc).length
       ? Object.keys(acc).map((k) => ({ id: acc[k].id, type: "function", function: { name: acc[k].name, arguments: acc[k].args } }))
