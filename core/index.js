@@ -458,10 +458,10 @@ class AgentCore {
   async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream, autonomy, activity } = {}) {
     this._onEvent = onEvent;
     this.autonomy = autonomy === "autonomous" ? "autonomous" : "supervised";
-    this.activity = activity === "plan" ? "plan" : (activity || "chat");
-    // activity=plan 驱动 per-session plan-mode：选 plan 即进入计划态（POLICY 生效），
-    // 切到其他 activity 即退出（见 docs/agent-mode.md）。exit_plan_mode 批准后由 UI 切到 build。
-    if (sessionId) planMode.setActive(sessionId, this.activity === "plan");
+    this.activity = activity === "goal-plan" ? "goal-plan" : (activity || "bare-chat");
+    // activity=goal-plan 驱动 per-session plan-mode：选 goal-plan 即进入计划态（POLICY 生效），
+    // 切到其他 activity 即退出（见 docs/agent-mode.md）。exit_plan_mode 批准后由 UI 切到 build-code。
+    if (sessionId) planMode.setActive(sessionId, this.activity === "goal-plan");
     const store = this.store;
     const persist = !!(sessionId && store);
     // DSH resets the todo projection on turn/start; one chat() call is one turn.

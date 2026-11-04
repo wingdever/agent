@@ -6,7 +6,7 @@
 Mode = {
   presence:   in | out
   autonomy:   supervised | autonomous
-  activity:   plan | build | discuss | research | review | diagnose
+  activity:   bare-chat | goal-plan | build-code | discuss-doc | research | review-proj | human-learn | diagnose
 }
 ```
 - 三轴**正交**，不是平铺枚举。presence 是元状态，跨所有 activity 共享同一套机制。
@@ -27,9 +27,9 @@ Mode = {
 - `autonomy = autonomous` 时，所有 `ask` 调用**自动 deny**（代理不再向人提问，自行决策或跳过）。
 
 ### activity（代理活动性质，model 自判，无硬守门）
-- 六类：`plan / build / discuss / research / review / diagnose`。
-- 代理**可跨 activity**，含跨到 `build`（落盘变更）；信任 model 自行判断。
-- 只读倾向类：research / plan / discuss / review / diagnose；落盘类：build。边界由 model 把握。
+- 八类：`bare-chat / goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose`。
+- 代理**可跨 activity**，含跨到 `build-code`（落盘变更）；信任 model 自行判断。
+- 只读倾向类：research / goal-plan / discuss-doc / review-proj / human-learn / diagnose；落盘类：build-code。`bare-chat` 为轻量对话（不落库、不支持工具调用）。边界由 model 把握。
 
 ## 对账（reconcile）
 - 默认**无自动对账**，offline 期间变更静默生效。
@@ -63,7 +63,7 @@ Mode = {
                              [autonomy: autonomous]
                                     │ ask 自动 deny
                                     ▼
-                          (自行决策 / 可跨 activity 含 build)
+                          (自行决策 / 可跨 activity 含 build-code)
 
 autonomous --用户显式切换模式按钮--> supervised   (仅此路径可逆)
 ```
@@ -72,7 +72,7 @@ autonomous --用户显式切换模式按钮--> supervised   (仅此路径可逆)
 - `IDLE_TIMEOUT = 10*60` 秒；tick 检测 last_user_action 与 user_suspended。
 - `on_user_interject()` 仅置 presence=in，不触碰 autonomy。
 - `ask()` 在 autonomous 下返回 DENY，不阻断流程。
-- Mode 对象注入 system prompt；activity 切换、跨 build、对账由 model 在 prompt 中自判。
+- Mode 对象注入 system prompt；activity 切换、跨 build-code、对账由 model 在 prompt 中自判。
 
 ## 设计取舍记录
 - presence 作"推断状态"而非硬检测，允许 model 自调。

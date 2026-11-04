@@ -98,7 +98,7 @@
 | **model-selector** | 模型选择器（settings-modal 内） |
 | **presence-mode-switch** | 在场状态开关（composer-footer：in / out，运行时自动态，可手动切换） |
 | **autonomy-mode-switch** | 自主度开关（composer-footer：supervised / autonomous，用户显式提权/降权） |
-| **activity-mode-selector** | 活动选择器（composer-footer：chat / plan / build / discuss / research / review / diagnose；chat 即原 bare-chat 轻量模式） |
+| **activity-mode-selector** | 活动选择器（composer-footer：bare-chat / goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose；bare-chat 即轻量对话模式，不落库、不支持工具调用） |
 | **send-or-stop-btn** | 发送/停止按钮 |
 | **chat-footer** | 聊天底部状态区 |
 | **session-statistics** | 会话统计 |

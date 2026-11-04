@@ -382,7 +382,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // 据当前 activity 同步 core 的 per-session plan-mode（即时，不依赖发消息）
   async function syncPlanModeFromActivity() {
     if (!currentSessionId) return;
-    var active = getActivityMode() === "plan";
+    var active = getActivityMode() === "goal-plan";
     currentPlanMode = active;
     try {
       await window.AgentClient.call("planMode", { op: "set", session_id: currentSessionId, active: active });
@@ -398,7 +398,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
   function getActivityMode() {
     var sel = document.querySelector(".activity-mode-selector select");
-    return sel ? sel.value : "chat";
+    return sel ? sel.value : "bare-chat";
   }
 
   // ---------- presence 自动机（在场状态：in/out） ----------
@@ -944,7 +944,7 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (evt.type === "plan-mode") {
       currentPlanMode = evt.active === true;
       // exit_plan_mode 批准后 core 退出 plan-mode：UI 同步把 activity 切到 build（批准=同意实施）
-      if (!evt.active) setActivityMode("build");
+      if (!evt.active) setActivityMode("build-code");
     } else if (evt.type === "approval-request") {
       createApprovalCard(evt);
     } else if (evt.type === "error") {
@@ -1307,11 +1307,11 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!evt || !evt.type) return;
     if (evt.type === "model-http-status") { setModelHttpStatus(evt.state, evt.status); return; }
     if (evt.type === "translation") {
-      if (getActivityMode() === "chat") handleTranslationFlat(evt);
+      if (getActivityMode() === "bare-chat") handleTranslationFlat(evt);
       else handleTranslationTurn(evt);
       return;
     }
-    if (getActivityMode() === "chat") { onChatEventFlat(evt); return; }
+    if (getActivityMode() === "bare-chat") { onChatEventFlat(evt); return; }
     // turn-step：按层级渲染
     if (evt.type === "reasoning") {
       ensureLiveStep();
@@ -1350,7 +1350,7 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (evt.type === "plan-mode") {
       currentPlanMode = evt.active === true;
       // exit_plan_mode 批准后 core 退出 plan-mode：UI 同步把 activity 切到 build（批准=同意实施）
-      if (!evt.active) setActivityMode("build");
+      if (!evt.active) setActivityMode("build-code");
     } else if (evt.type === "approval-request") {
       setApproval(getToolCard(evt.callId || evt.id), evt);
     } else if (evt.type === "system-prompt") {
@@ -1525,7 +1525,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var text = input.value.trim();
     if (!text) return;
     markUserActivity();
-    if (getActivityMode() === "chat") { await runBareChat(text); return; }
+    if (getActivityMode() === "bare-chat") { await runBareChat(text); return; }
     if (!currentSessionId) { await uiAlert("请先在左侧选择或新建一个会话"); return; }
     input.value = "";
     hideEmptyHint();

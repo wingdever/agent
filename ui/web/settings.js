@@ -185,7 +185,7 @@
   }
   function initComposerMode() {
     // activity：含 chat（轻量/原 bare-chat）等，跨会话持久化用户选择
-    initModeSelect("activity-mode-selector", "agent.activity", "chat");
+    initModeSelect("activity-mode-selector", "agent.activity", "bare-chat");
     // autonomy：supervised/autonomous，用户显式提权/降权，跨会话保留
     initModeSwitch("autonomySwitch", "agent.autonomy", "supervised", "自主");
     // presence：运行时自动态（idle 检测/插话），默认 in，不持久化
