@@ -136,7 +136,17 @@ async function fetchModels(baseUrl, apiKey) {
     ? json.models
     : [];
   return list
-    .map((m) => ({ id: m.id || m.name, owned_by: m.owned_by || "" }))
+    .map((m) => {
+      const out = { id: m.id || m.name, owned_by: m.owned_by || "" };
+      // 推理等级：优先 DeepSeek 风格 effort.supported_levels，其次 Venice 风格 model_spec.capabilities.reasoningEffortOptions
+      const spec = m.model_spec || m.spec || {};
+      const cap = spec.capabilities || {};
+      let levels = null;
+      if (m.effort && Array.isArray(m.effort.supported_levels)) levels = m.effort.supported_levels;
+      else if (cap.reasoningEffortOptions && Array.isArray(cap.reasoningEffortOptions)) levels = cap.reasoningEffortOptions;
+      if (levels) out.effort = levels;
+      return out;
+    })
     .filter((m) => m.id);
 }
 

@@ -95,15 +95,19 @@
 | **trajectory-tab** | 轨迹标签页：按 turns → steps → (messages + calls) 渲染会话轨迹时间线（思考可展开、工具调用点击联动 context-panel）；详见 `docs/dsh/plan-trajectory.md` |
 | **composer** | 输入区 |
 | **input-textarea** | 文本输入框 |
-| **composer-footer** | 输入区底部工具栏 |
-| **think-switch** | 思考模式开关 |
+| **composer-footer** | 输入区底部工具栏（DSH 风格：思考/搜索/权限预设/model-effort/@/发送） |
+| **think-switch** | 思考模式开关；由设置 `reasoningControl` 决定是否在 composer 显示（与 `effort-selector` 二选一）。开启=默认推理（不发送 effort 参数），关闭→透传 core `effort:"off"`（thinking disabled） |
 | **search-switch** | 联网搜索开关 |
+| **permission-selector** | 权限预设选择器（composer-footer）：`read-only`(只读工具 allow，其余 deny) / `workspace-write`(只读+工作区写 allow，其余 deny) / `full-access`(全 allow) / `fine-grained`(沿用 user/* 配置，点击打开权限 modal) |
+| **model-effort-selector** | 模型+推理等级组合选择器，含两个子选择器 `model-selector` 与 `effort-selector`；`effort-selector` 的可见性由 `reasoningControl` 设置控制 |
+| **model-selector** | 模型选择器（composer-footer，按 provider 标题用 `<optgroup>` 分组；选中持久化到 settings.model；同时 settings-modal 内仍有独立入口） |
+| **effort-selector** | 推理等级选择器（仅当 `reasoningControl==="effort-selector"` 时显示）；选项由 `modelCapabilities` RPC 获取——优先读 `user/providers.json` 缓存的 `effort.supported_levels`，缺失时回退网络（`effort.supported_levels` / `model_spec.capabilities.reasoningEffortOptions`），再兜底 `low/medium/high`；列表首位固定为 `off`（关闭推理）。选中持久化到 settings.effort 并透传 core：`off`→`{"thinking":{"type":"disabled"}}`，其余→`{"reasoning_effort":"<level>"}` |
+| **reasoningControl 设置** | settings-modal 中的「推理参数控件」下拉：`effort-selector` / `think-switch` 二值，持久化到 `settings.reasoningControl`（默认 `think-switch`）。决定 composer 渲染哪个推理控件——二者语义冲突（都向模型注入推理参数），只能显示一个 |
 | **ref-btn** | `@` 引用按钮：打开引用菜单（历史会话 / 本地文件），选中的引用以 chip 展示于 `ref-chips` |
 | **ref-chips** | 引用 chip 容器（hidden 默认，有引用时显示），每个 chip 可单独移除 |
 | **ref-chip** | 单个引用 chip（`ref-file` / `ref-session` 修饰），含移除按钮 |
-| **model-selector** | 模型选择器（settings-modal 内） |
-| **presence-mode-switch** | 在场状态开关（composer-footer：in / out，运行时自动态，可手动切换） |
-| **autonomy-mode-switch** | 自主度开关（composer-footer：supervised / autonomous，用户显式提权/降权） |
+| **presence-mode-switch** | 在场状态开关（**chat-header**：in / out，运行时自动态，可手动切换） |
+| **autonomy-mode-switch** | 自主度开关（**chat-header**：supervised / autonomous，用户显式提权/降权） |
 | **activity-indicator** | 当前活动指示器（chat-header：点击打开切换菜单；显示 `活动: <当前活动>` 与完成态 `✓`；建会话时选定初始活动，运行后可自然流转或强制切换（未完成强制切需二次确认））。取值：bare-chat / goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose |
 | **send-or-stop-btn** | 发送/停止按钮 |
 | **chat-footer** | 聊天底部状态栏（DSH 风格三段；活动/权限/自主度由各自控件承载，不重复） |
@@ -253,6 +257,8 @@ shell
 │  │  ├─ left-collapse-button
 │  │  ├─ session-name
 │  │  ├─ activity-indicator
+│  │  ├─ presence-mode-switch
+│  │  ├─ autonomy-mode-switch
 │  │  ├─ tab-icons
 │  │  │   ├─ chat-tab-icon
 │  │  │   └─ trajectory-icon
@@ -291,10 +297,12 @@ shell
 │  │  ├─ ref-chips
 │  │  ├─ input-textarea
 │  │  └─ composer-footer
-│  │     ├─ think-switch
+│  │     ├─ think-switch?
 │  │     ├─ search-switch
-│  │     ├─ presence-mode-switch
-│  │     ├─ autonomy-mode-switch
+│  │     ├─ permission-selector
+│  │     ├─ model-effort-selector
+│  │     │   ├─ model-selector
+│  │     │   └─ effort-selector?
 │  │     ├─ ref-btn
 │  │     └─ send-or-stop-btn
 │  └─ chat-footer
@@ -525,7 +533,7 @@ chat-viewport
    arrange: vertical
 
 chat-header
-   contains: session-name, activity-indicator, tab-icons, right-collapse-button
+   contains: session-name, activity-indicator, presence-mode-switch, autonomy-mode-switch, tab-icons, right-collapse-button
    tab-icons: chat-tab-icon, trajectory-icon
 
 tab-body
@@ -547,7 +555,8 @@ trajectory-tab
 
 composer
    children: ref-chips (above input-textarea), input-textarea, composer-footer
-   composer-footer: think-switch, search-switch, presence-mode-switch, autonomy-mode-switch, ref-btn, send-or-stop-btn
+   composer-footer: think-switch, search-switch, permission-selector, model-effort-selector(model-selector + effort-selector), ref-btn, send-or-stop-btn
+   note: presence-mode-switch / autonomy-mode-switch 已移至 chat-header（见上）；权限预设与模型/推理等级在 composer-footer 提供 DSH 风格快捷选择，侧栏 permissions-btn / models-btn modal 仍作深度配置
 
 chat-footer
    shows: session-statistics, token-usage, context-used

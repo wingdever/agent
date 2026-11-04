@@ -1926,7 +1926,7 @@ document.addEventListener("DOMContentLoaded", function () {
     currentAssistantBubble = null; toolCards = {};
     try {
       // bare-chat：不传 sessionId（core 不落库），toolNames 传空以禁用工具调用，历史仅存内存
-      await window.AgentClient.call("chat", { messages: bareHistory.slice(), toolNames: [], references: pendingRefs.slice() }, onChatEvent);
+      await window.AgentClient.call("chat", { messages: bareHistory.slice(), toolNames: [], references: pendingRefs.slice(), effort: computeEffort(), model: (modelSelector && modelSelector.value ? modelSelector.value : undefined) }, onChatEvent);
       pendingRefs = []; renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);
@@ -1954,7 +1954,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var history = await buildMessages(currentSessionId);
       history.push({ role: "user", content: text });
       var refs = pendingRefs.slice();
-      await window.AgentClient.call("chat", { messages: history, sessionId: currentSessionId, autonomy: getAutonomyMode(), activity: getActivityMode(), references: refs }, onChatEvent);
+      await window.AgentClient.call("chat", { messages: history, sessionId: currentSessionId, autonomy: getAutonomyMode(), activity: getActivityMode(), references: refs, effort: computeEffort(), model: (modelSelector && modelSelector.value ? modelSelector.value : undefined) }, onChatEvent);
       pendingRefs = []; renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);
@@ -1993,6 +1993,174 @@ document.addEventListener("DOMContentLoaded", function () {
   // 活动指示器：点击打开切换菜单
   var activityIndicator = document.getElementById("activityIndicator");
   if (activityIndicator) activityIndicator.addEventListener("click", openActivityMenu);
+
+  // ---------- composer 选择器：权限预设 / 模型 / 推理等级（DSH 风格） ----------
+  // 读取/写入 user/settings.json（与 settings.js 同源）
+  function getSettings() {
+    try { return window.AgentClient.call("settings", { op: "get" }); } catch (e) { return Promise.resolve({}); }
+  }
+  function saveSettings(patch) {
+    try { return window.AgentClient.call("settings", { op: "set", payload: patch }); } catch (e) { return Promise.resolve({}); }
+  }
+
+  // 权限预设映射（grill Q2）：
+  //  read-only        : 只读工具全部 allow，其余 deny
+  //  workspace-write  : 只读 + 工作区内写 allow，其余 deny（经 fs-policy 限制写路径）
+  //  full-access      : 全部 allow
+  //  fine-grained     : 不改写，打开侧栏 permissions modal 沿用 user/* 配置
+  var READONLY_TOOLS = { read: 1, glob: 1, grep: 1, get_current_time: 1, get_goal: 1, calculator: 1,
+    web_search: 1, web_fetch: 1, ask_user_question: 1, request_user_job: 1, job_list: 1, job_kill: 1, get_goal: 1 };
+  var WRITE_TOOLS = { write: 1, edit: 1, bash: 1, create_goal: 1, update_goal: 1, todo_write: 1, delete_goal: 1 };
+  function applyPermissionPreset(preset) {
+    if (preset === "fine-grained") {
+      // 不覆盖配置，引导用户打开权限 modal
+      var pBtn = document.getElementById("permissionsBtn");
+      if (pBtn) pBtn.click();
+      return;
+    }
+    var tools = {};
+    Object.keys(READONLY_TOOLS).forEach(function (t) { tools[t] = "allow"; });
+    if (preset === "full-access") {
+      // 全部放行
+      Object.keys(WRITE_TOOLS).forEach(function (t) { tools[t] = "allow"; });
+    } else if (preset === "workspace-write") {
+      // 工作区内写允许；其余写工具 deny
+      Object.keys(WRITE_TOOLS).forEach(function (t) { tools[t] = "allow"; });
+    } else { // read-only
+      Object.keys(WRITE_TOOLS).forEach(function (t) { tools[t] = "deny"; });
+    }
+    window.AgentClient.call("permissions", { op: "permissions.upsert", payload: { default: (preset === "full-access") ? "allow" : "deny", tools: tools } })
+      .catch(function (e) { console.error("applyPermissionPreset failed:", e); });
+    // workspace-write 额外收紧 fs-policy 到工作区（这里仅置默认 deny 之外的规则；实际路径限制由 fs-policy 承担）
+  }
+
+  var permissionSelector = document.getElementById("permissionSelector");
+  if (permissionSelector) {
+    permissionSelector.addEventListener("change", function () { applyPermissionPreset(permissionSelector.value); });
+  }
+
+  // 模型选择器：聚合 providers 的模型列表；选中持久化到 settings.model
+  var modelSelector = document.getElementById("modelSelector");
+  function refreshModelSelector() {
+    if (!modelSelector) return;
+    window.AgentClient.call("providers", { op: "get" }).then(function (list) {
+      var models = [];
+      modelSelector.innerHTML = "";
+      (list || []).forEach(function (p) {
+        if (!p.models || !p.models.length) return;
+        var grp = document.createElement("optgroup");
+        grp.label = p.name;  // 按 provider 标题分组
+        p.models.forEach(function (m) {
+          models.push(m.name);
+          var o = document.createElement("option");
+          o.value = m.name; o.textContent = m.name;
+          o.setAttribute("data-provider", p.name);  // 记录所属 provider，供能力查询
+          grp.appendChild(o);
+        });
+        modelSelector.appendChild(grp);
+      });
+      getSettings().then(function (st) {
+        if (st && st.model && models.indexOf(st.model) >= 0) {
+          modelSelector.value = st.model;
+          refreshEffortLevels(st.model);  // 初始化时按当前模型拉取等级
+        }
+      });
+    }).catch(function () {});
+  }
+  // 按模型获取推理等级列表：本地 providers.json 缓存优先，缺失时回退网络（DeepSeek effort.supported_levels / Venice ...），再兜底 low/medium/high。
+  // 始终追加 "off" 选项（关闭推理）；若后端给出 default_level 则作为初始选择。
+  function refreshEffortLevels(modelName) {
+    if (!effortSelector) return;
+    var opt = modelSelector ? modelSelector.querySelector('option[value="' + (modelName || "").replace(/"/g, '\\"') + '"]') : null;
+    var provider = opt ? opt.getAttribute("data-provider") : null;
+    // 两种不同来源、在不同 UI 渲染，必须区分：
+    //   - providers.json 的 default_level = 模型提供商侧默认推理等级（静态元数据，在「编辑模型」页面显示）
+    //   - settings.effort             = 用户实际选取的推理等级（用户偏好，在 composer 的 effort-selector 显示）
+    // composer 这里只渲染「用户选择」；仅当用户尚无保存选择（首次）时，才用 default_level 作为兜底初值。
+    getSettings().then(function (st) {
+      var savedEffort = st && st.effort;  // 用户已选（可能为 "off"/"low"/...，也可能缺省）
+      return window.AgentClient.call("modelCapabilities", { provider: provider, model: modelName }).then(function (res) {
+        var levels = (res && res.effort && res.effort.length) ? res.effort.slice() : ["low", "medium", "high"];
+        if (levels.indexOf("off") < 0) levels.unshift("off");  // 始终提供关闭推理选项，且置于列表首位
+        effortSelector.innerHTML = "";
+        levels.forEach(function (lv) {
+          var o = document.createElement("option");
+          o.value = lv; o.textContent = lv;
+          effortSelector.appendChild(o);
+        });
+        // 用户已有明确选择 → 用它（最高优先级，不被 default_level 覆盖）
+        // 用户无保存选择 → 用模型提供商的 default_level 作初次默认值，并落成新的用户选择
+        // 二者皆无 → 列表首项
+        var initial;
+        if (savedEffort && levels.indexOf(savedEffort) >= 0) {
+          initial = savedEffort;
+        } else if (res && res.default_level && levels.indexOf(res.default_level) >= 0) {
+          initial = res.default_level;
+        } else {
+          initial = levels[0];
+        }
+        effortSelector.value = initial;
+        saveSettings({ effort: effortSelector.value });
+      });
+    }).catch(function () {
+      // 网络失败：保持现有选项不变
+    });
+  }
+  if (modelSelector) {
+    modelSelector.addEventListener("change", function () {
+      saveSettings({ model: modelSelector.value });
+      refreshEffortLevels(modelSelector.value);
+    });
+    refreshModelSelector();
+  }
+
+  // 推理等级选择器：选项由 refreshEffortLevels 从网络动态填充（兜底 low/medium/high），选择持久化到 settings.effort
+  var effortSelector = document.getElementById("effortSelector");
+  if (effortSelector) {
+    effortSelector.addEventListener("change", function () { saveSettings({ effort: effortSelector.value }); });
+  }
+
+  // think-switch 与 effort-selector 语义冲突（都向模型注入推理参数），由设置 reasoningControl 决定渲染哪一个。
+  //  - "effort-selector"：显示推理等级下拉（off=关闭推理，其余=分级推理）
+  //  - "think-switch"   ：显示思考开/关按钮（开=默认推理，关=thinking disabled）
+  // 模型选择器（model-selector）两种模式都保留。
+  var reasoningControl = "think-switch";
+
+  function isThinkOn() {
+    var ts = document.getElementById("thinkSwitch");
+    return !!(ts && ts.classList.contains("active"));
+  }
+  // 按设置渲染：显示/隐藏对应推理控件
+  function applyReasoningControlVisibility() {
+    var ts = document.getElementById("thinkSwitch");
+    if (ts) ts.style.display = (reasoningControl === "think-switch") ? "" : "none";
+    var effortWrap = document.querySelector(".model-effort-selector");
+    if (effortSelector) effortSelector.style.display = (reasoningControl === "effort-selector") ? "" : "none";
+    if (effortWrap) effortWrap.style.display = (reasoningControl === "effort-selector" || reasoningControl === "think-switch") ? "" : "none";
+  }
+  // 读取设置中的 reasoningControl 并刷新可见性
+  function loadReasoningControl() {
+    return getSettings().then(function (st) {
+      reasoningControl = (st && st.reasoningControl) || "think-switch";
+      applyReasoningControlVisibility();
+    }).catch(function () {});
+  }
+  // 计算发给 core 的 effort 参数：
+  //  - think-switch 模式：开 → undefined（默认推理）；关 → "off"（thinking disabled）
+  //  - effort-selector 模式：直接透传下拉值（off→thinking disabled；其余→reasoning_effort）
+  function computeEffort() {
+    if (reasoningControl === "think-switch") {
+      return isThinkOn() ? undefined : "off";
+    }
+    if (effortSelector) return effortSelector.value || undefined;
+    return undefined;
+  }
+
+  // 设置变更（来自 settings.js 弹窗）时重新渲染推理控件
+  window.addEventListener("reasoning-control-changed", function (e) {
+    reasoningControl = e.detail || "think-switch";
+    applyReasoningControlVisibility();
+  });
 
   // 7b) @ 引用：引用文件 / 会话，作为上下文随消息发送
   var refBtn = document.getElementById("refBtn");
@@ -2092,5 +2260,6 @@ document.addEventListener("DOMContentLoaded", function () {
   var thinkSwitch = document.getElementById("thinkSwitch");
   var searchSwitch = document.getElementById("searchSwitch");
   if (thinkSwitch) thinkSwitch.addEventListener("click", function () { thinkSwitch.classList.toggle("active"); });
+  loadReasoningControl();  // 按设置渲染推理控件（think-switch / effort-selector 二选一）
   if (searchSwitch) searchSwitch.addEventListener("click", function () { searchSwitch.classList.toggle("active"); });
 });

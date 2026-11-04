@@ -47,7 +47,12 @@ function readProvidersFile() {
       var out = { name: p.name, base_url: p.base_url || null, api_key: p.api_key || null, description: p.description || null };
       out.models = (Array.isArray(p.models) ? p.models : []).map(function (m) {
         var mn = (typeof m === "string") ? m : (m && m.name);
-        return { name: mn, fee: (m && m.fee) || "unknown" };
+        var model = { name: mn, fee: (m && m.fee) || "unknown" };
+        // 保留 effort 元数据（推理等级缓存），供 modelCapabilities 本地命中，避免每次启动拉 /models
+        if (m && m.effort && Array.isArray(m.effort.supported_levels)) {
+          model.effort = { supported_levels: m.effort.supported_levels.slice(), default_level: m.effort.default_level || null };
+        }
+        return model;
       });
       return out;
     });
@@ -434,10 +439,15 @@ class AgentCore {
 
   async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false }) {
     onEvent({ type: "model-http-status", state: "on-post" });
-    const { stream: res, cap } = await this._post(
-      { model: model || this.model, messages, stream: !!stream, tools: toolDefs },
-      sessionId
-    );
+    const payload = { model: model || this.model, messages, stream: !!stream, tools: toolDefs };
+    // 推理等级（DSH effort-selector）翻译为 provider 字段：
+    //   off  -> {"thinking": {"type": "disabled"}}（关闭推理）
+    //   其他  -> {"reasoning_effort": "xxx"}
+    if (this.effort) {
+      if (this.effort === "off") payload.thinking = { type: "disabled" };
+      else payload.reasoning_effort = this.effort;
+    }
+    const { stream: res, cap } = await this._post(payload, sessionId);
     onEvent({ type: "model-http-status", state: "on-get", status: cap.status });
     const { trackCapture } = require("./network/http/client");
     trackCapture(res, cap);
@@ -508,9 +518,11 @@ class AgentCore {
     return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: finishReason };
   }
 
-  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream, autonomy, activity, references } = {}) {
+  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream, autonomy, activity, references, effort } = {}) {
     this._onEvent = onEvent;
     this.autonomy = autonomy === "autonomous" ? "autonomous" : "supervised";
+    // 推理参数：off=关闭推理(thinking disabled)，low/medium/high=分级推理(reasoning_effort)，其余=不注入。
+    this.effort = (effort === "off" || effort === "low" || effort === "medium" || effort === "high") ? effort : null;
     this.activity = activity === "goal-plan" ? "goal-plan" : (activity || "bare-chat");
     // activity=goal-plan 驱动 per-session plan-mode：选 goal-plan 即进入计划态（POLICY 生效），
     // 切到其他 activity 即退出（见 docs/agent-mode.md）。exit_plan_mode 批准后由 UI 切到 build-code。
@@ -858,6 +870,31 @@ class AgentCore {
     const { fetchModels } = require("./network/http/client");
     return fetchModels(baseurl, apikey);
   }
+  // 返回某模型的推理等级选项（effort）。优先读本地 providers.json 缓存的 effort 元数据
+  // （user/providers.json 每模型可带 effort:{supported_levels,default_level}），仅在无缓存时
+  // 才现场请求 provider 的 /models 解析（DeepSeek effort.supported_levels / Venice ...）。
+  async modelCapabilities({ provider, model } = {}) {
+    const { fetchModels } = require("./network/http/client");
+    const providers = readProvidersFile();
+    // 1) 本地缓存优先：遍历 providers，按模型名匹配到 effort 元数据
+    for (const p of (providers || [])) {
+      if (provider && p.name !== provider) continue;
+      const m = (p.models || []).find((x) => x.name === model);
+      if (m && m.effort && Array.isArray(m.effort.supported_levels)) {
+        return { model, effort: m.effort.supported_levels, default_level: m.effort.default_level || null };
+      }
+    }
+    // 2) 无缓存：现场拉取（未指定 provider 时跨所有 provider 尝试）
+    const candidates = (providers || []).filter((p) => !provider || p.name === provider);
+    for (const cand of candidates) {
+      try {
+        const list = await fetchModels(cand.base_url, cand.api_key);
+        const hit = list.find((m) => m.id === model);
+        if (hit && hit.effort) return { model, effort: hit.effort, default_level: hit.default_level || null };
+      } catch (_) {}
+    }
+    return { model, effort: null, default_level: null };
+  }
 }
 
 // 统一的「函数分发」：各传输层只负责把通道里的请求转成这次调用
@@ -904,6 +941,8 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
     }
     case "fetchModels":
       return await core.fetchProviderModels(params.baseurl, params.apikey);
+    case "modelCapabilities":
+      return await core.modelCapabilities(params);
     case "approval":
       return core.approve(params.id, params.decision);
     case "answerQuestions":

@@ -93,10 +93,23 @@
 9. ✅ **#4 状态栏补齐**：`core/_stream` 在流式 / 非流式两条路径解析模型 `usage`（`prompt_tokens`/`completion_tokens`/`total_tokens`/`cached_tokens`，兼容字段缺失与 `prompt_tokens_details` 嵌套），统一上报 `usage` 事件；前端 `onChatEvent` 消费 `usage` + `turn-end`（steps/tools/durationMs），按 DSH 风格聚合到 `chat-footer` 三段（各带中性图标，无 emoji）——`session-statistics`（`⟳ N turns M steps · K tok/s`，turns/steps 间空格、会话累计 + 最近一轮 TPS）、`token-usage`（`▤ X.XM tok · Cache hit NN%`）、`context-used`（**SVG donut**：track + 动态 fill 弧 `stroke-dasharray` 按占用百分比实时更新 + `NN%` 文本，占假设窗口 128k 的估算占比）。活动 / 权限档 / 自主度已由各自控件（activity-indicator / permissions-btn / autonomy-switch）承载，不在状态栏重复。无数据显示 `-`（Q4 决策）。`selectSession` 重置计数、`turn-end` 后刷新累计。
 10. ✅ **#5 右栏产物预览**：写文件类工具（`write`/`edit`）的 tool-call 卡片右上角加「预览」按钮（不触发现有 `showToolDetail`）；点击经新增 `fs.read` RPC（只读、200k 上限）读取文件，按扩展名在右栏 `context-panel` 的 `#artifactPreview` 区渲染——`.md`/`.markdown` 走 `marked`+`DOMPurify`，`.html` 走 `DOMPurify.sanitize` 后注入，图片（png/jpg/...）`<img>`，其余 `<pre>` 文本；超长截断提示，「在编辑器打开」按钮用 `file://` 打开。与现有工具检视器（`contextDetail`）合一，不破坏点击 tool-call 看参数/结果的功能。
 
+11. ✅ **composer/header 控件重组（DSH 风格）**：
+   - 在场 `presence-mode-switch` 与自主度 `autonomy-mode-switch` 从 composer-footer 移至 **chat-header**。
+   - composer-footer 新增 **`permission-selector`**（DSH 权限预设：read-only / workspace-write / full-access / fine-grained）与 **`model-effort-selector`**（含 `model-selector` + `effort-selector` 两个子选择器）。
+   - 权限预设映射（grill Q2）：read-only=只读工具 allow 其余 deny；workspace-write=只读+工作区写 allow 其余 deny；full-access=全 allow；fine-grained=打开侧栏权限 modal 沿用 `user/*`。经 `permissions.upsert` 写入 `permissions.json` / `fs-policy.json`。
+   - `model-selector` 按 provider 标题用 `<optgroup>` 分组展示各 provider 的模型，选中持久化 `settings.model`；`effort-selector`(low/medium/high) 持久化 `settings.effort` 并随 `chat()` 透传 core（core `chat()` 新增 `effort` 形参，注入请求 payload，provider 不支持则忽略）。
+   - **effort 等级本地缓存 + 网络兜底**：`user/providers.json` 每模型可带 `effort: { supported_levels, default_level }` 缓存（如 `deepseek-flash → ["low","high","max"]`，`default_level:"high"`）；`modelCapabilities` RPC 优先读本地缓存，仅缺失时才现场拉 provider `/models`（解析 `effort.supported_levels`(DeepSeek) / `model_spec.capabilities.reasoningEffortOptions`(Venice)），避免每次请求网络。选择器始终追加 `off` 选项（关闭推理），并优先选 `default_level`。
+   - **effort 透传语义**：core `chat()` 把 `effort` 翻译为 provider 字段——`off` → `payload.thinking = { type: "disabled" }`；其余 → `payload.reasoning_effort = "<level>"`（provider 不支持则忽略）。
+   - **think-switch 与 effort-selector 二选一（设置驱动）**：两者都向模型请求注入推理参数，同时出现会冲突。由设置 `reasoningControl`（`settings.reasoningControl`，默认 `think-switch`）决定 composer 渲染哪一个：
+     - `effort-selector`：显示推理等级下拉（`off`=关闭推理→`thinking disabled`，其余→`reasoning_effort`），随 chat 透传 core。
+     - `think-switch`：显示思考开/关按钮（开=默认推理不发送 effort，关→透传 core `effort:"off"`）。
+     - settings-modal 新增「推理参数控件」下拉用于切换该设置；变更通过 `reasoning-control-changed` 事件即时刷新 composer 可见性。`off` 选项始终置于列表首位。
+   - 侧栏 `models-btn` / `permissions-btn` modal 保留作深度配置，与 composer 快捷选择器并存。
+
 ## 8. 后续
 
-前置 A/C、#1–#5 已完成。下一步（低优先）：
-- **#6 推理等级控件**：依赖 core 模型层是否支持 reasoning effort（待确认）
+前置 A/C、#1–#5 已完成，composer/header 重组已完成。下一步（低优先）：
+- **#6 推理等级控件**：UI 已先行（effort-selector + core 透传），待 core 模型层确认 reasoning effort 真实生效
 - **#7 多模态输入**：依赖 core provider 多模态支持（待确认）
 
 详见 `PLAN.md`。

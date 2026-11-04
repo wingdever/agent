@@ -31,8 +31,8 @@
     return e;
   }
 
-  var overlay = null, streamSwitchEl = null, translateSwitchEl = null, providerSelEl = null, modelSelEl = null;
-  var state = { stream: false, provider: "", model: "", translate: { enabled: true } };
+  var overlay = null, streamSwitchEl = null, translateSwitchEl = null, providerSelEl = null, modelSelEl = null, reasoningControlSel = null;
+  var state = { stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch" };
   var providers = [];
 
   function getSettings() { return state; }
@@ -46,7 +46,7 @@
   async function loadSettings() {
     try {
       var st = await window.AgentClient.call("settings", { op: "get" });
-      state = Object.assign({ stream: false, provider: "", model: "", translate: { enabled: true } }, st || {});
+      state = Object.assign({ stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch" }, st || {});
     } catch (e) { /* 后端未就绪时用默认 */ }
     normalizeTranslate();
   }
@@ -132,6 +132,20 @@
     modelSelEl = el("select", { className: "settings-model-select", dataset: { name: "model-selector" } });
     modelSelEl.addEventListener("change", function () { state.model = modelSelEl.value; save(); });
 
+    // 推理参数控件：决定 composer 中渲染 think-switch 还是 effort-selector（二者语义冲突，只能二选一）。
+    reasoningControlSel = el("select", {
+      className: "settings-reasoning-control-select", dataset: { name: "reasoning-control-selector" },
+    }, [
+      el("option", { value: "effort-selector" }, "推理等级 (effort-selector)"),
+      el("option", { value: "think-switch" }, "思考开关 (think-switch)"),
+    ]);
+    reasoningControlSel.addEventListener("change", function () {
+      state.reasoningControl = reasoningControlSel.value;
+      save();
+      // 通知 composer 重新按设置渲染推理控件
+      window.dispatchEvent(new CustomEvent("reasoning-control-changed", { detail: state.reasoningControl }));
+    });
+
     var card = el("div", { className: "settings-card" }, [
       el("h3", null, "设置"),
       el("div", { className: "settings-row" }, [el("span", null, "流式输出"), streamSwitchEl]),
@@ -141,6 +155,10 @@
         "对话正文会发送至 index-translate.bilibili.com。翻译不落库，重新打开会话后只保留英文。"),
       el("div", { className: "settings-row" }, [el("span", null, "Provider"), providerSelEl]),
       el("div", { className: "settings-row" }, [el("span", null, "模型"), modelSelEl]),
+      el("div", { className: "settings-row" }, [el("span", null, "推理参数控件"), reasoningControlSel]),
+      el("div", { className: "settings-note" },
+        "思考开关与推理等级都向模型注入推理参数，二者冲突，只能显示一个。" +
+        "选择“推理等级”则在 composer 显示分级下拉（off/low/high…）；选择“思考开关”则显示开/关按钮。"),
       el("div", { className: "settings-actions" }, [
         el("button", { className: "close-settings-btn", dataset: { name: "close-settings-btn" }, onclick: closeSettings }, "关闭"),
       ]),
@@ -160,6 +178,9 @@
     populateModels();
     renderStreamSwitch();
     renderTranslateSwitch();
+    if (reasoningControlSel) {
+      reasoningControlSel.value = state.reasoningControl || "think-switch";
+    }
   }
   function closeSettings() { if (overlay) overlay.style.display = "none"; }
 

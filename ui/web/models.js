@@ -78,7 +78,7 @@
           api_key: p.api_key || null,
           description: p.description || null,
           models: (p.models || []).map(function (m) {
-            return { id: p.name + "#" + m.name, name: m.name, fee: m.fee || "unknown", provider_id: p.name };
+            return { id: p.name + "#" + m.name, name: m.name, fee: m.fee || "unknown", provider_id: p.name, effort: m.effort || null };
           }),
         };
       });
@@ -94,7 +94,11 @@
       if (p.base_url != null) out.base_url = p.base_url;
       if (p.api_key != null) out.api_key = p.api_key;
       if (p.description != null) out.description = p.description;
-      out.models = (p.models || []).map(function (m) { return { name: m.name, fee: m.fee || "unknown" }; });
+      out.models = (p.models || []).map(function (m) {
+        var mo = { name: m.name, fee: m.fee || "unknown" };
+        if (m.effort) mo.effort = m.effort;  // 推理等级缓存（supported_levels / default_level）
+        return mo;
+      });
       return out;
     });
   }
@@ -124,7 +128,8 @@
   }
 
   function renderProviderNode(p, itsModels, term, pMatch) {
-    var expanded = !!state.expanded[p.id];
+    // 默认展开（state.expanded 未显式设为 false 即视为展开）；仅当用户主动折叠时存 false
+    var expanded = state.expanded[p.id] !== false;
     var selected = state.view && state.view.kind === "provider-edit" && String(state.view.id) === String(p.id);
 
     var toggle = el("button", {
@@ -234,6 +239,43 @@
     sel.addEventListener("change", function () { custom.hidden = sel.value !== "__custom__"; if (sel.value === "__custom__") custom.focus(); });
     function get() { return sel.value === "__custom__" ? (custom.value.trim() || "free") : sel.value; }
     return { node: el("div", { className: "fee-selector", dataset: { name: "fee-selector" } }, [sel, custom]), get: get };
+  }
+
+  function effortEditor(value) {
+    var levels = (value && Array.isArray(value.supported_levels)) ? value.supported_levels.slice() : [];
+    var defaultLevel = (value && value.default_level) || "";
+    var levelsInput = el("input", { className: "effort-levels-input", type: "text", placeholder: "low, high, max" });
+    levelsInput.value = levels.join(", ");
+    var defaultSel = el("select", { className: "effort-default-select", dataset: { name: "effort-default-select" } }, [
+      el("option", { value: "" }, "（无）"),
+    ]);
+    // 当前选中的 default_level：首次初始化用传入的 defaultLevel 种子，之后随用户操作更新
+    var curDefault = defaultLevel;
+    function syncDefaultOptions() {
+      defaultSel.innerHTML = "";
+      defaultSel.appendChild(el("option", { value: "" }, "（无）"));
+      levels.forEach(function (lv) { defaultSel.appendChild(el("option", { value: lv }, lv)); });
+      // 保留之前选中的 default（仍在列表内时），否则回退到（无）
+      defaultSel.value = levels.indexOf(curDefault) >= 0 ? curDefault : "";
+    }
+    syncDefaultOptions();
+    levelsInput.addEventListener("input", function () {
+      levels = levelsInput.value.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+      syncDefaultOptions();
+    });
+    defaultSel.addEventListener("change", function () { curDefault = defaultSel.value; });
+    function get() {
+      var lv = levelsInput.value.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+      var dl = defaultSel.value || null;
+      if (!lv.length) return null;  // 留空表示不缓存 effort（退化为网络拉取）
+      return { supported_levels: lv, default_level: dl };
+    }
+    var node = el("div", { className: "effort-editor", dataset: { name: "effort-editor" } }, [
+      field("推理等级 supported_levels（逗号分隔）", levelsInput),
+      field("提供商默认等级 default_level", defaultSel),
+      el("div", { className: "form-note" }, "此处设定的是模型提供商的默认推理等级（静态元数据），供 composer 在无用户选择时兜底；与用户在对话界面自行选取的推理等级相互独立。"),
+    ]);
+    return { node: node, get: get };
   }
 
   function buildProviderAddTab() {
@@ -401,19 +443,21 @@
     var nameInput = el("input", { className: "name-input", type: "text", placeholder: "conatus-free", value: "conatus-free" });
     var descInput = el("textarea", { className: "description-input", placeholder: "选填" });
     var fee = feeSelector("free");
+    var effort = effortEditor(null);
     var err = el("div", { className: "form-error", hidden: "hidden" });
     var form = el("div", { className: "model-form", dataset: { name: "model-form" } }, [
       el("div", { className: "provider-display", dataset: { name: "provider-display" } }, "所属供应者：" + (provider ? provider.name : "（无）")),
       field("名称", nameInput),
       field("描述", descInput),
       field("费用", fee.node),
+      effort.node,
     ]);
     function save() {
       if (!provider) return showErr(err, "没有可用的供应者，请先新增供应者");
       var name = nameInput.value.trim();
       if (!name) return showErr(err, "名称必填");
       if (modelsOf(provider.id).some(function (m) { return m.name === name; })) return showErr(err, "该供应者下模型名已存在");
-      var m = { id: provider.id + "#" + name, name: name, fee: fee.get() || "unknown", provider_id: provider.id };
+      var m = { id: provider.id + "#" + name, name: name, fee: fee.get() || "unknown", provider_id: provider.id, effort: effort.get() };
       provider.models.push(m); state.models.push(m);
       persistProviders().then(function () {
         state.view = { kind: "model-edit", id: m.id }; state.expanded[provider.id] = true; refresh();
@@ -431,12 +475,14 @@
     var nameInput = el("input", { className: "name-input", type: "text" }); nameInput.value = m.name || "";
     var descInput = el("textarea", { className: "description-input" }); descInput.value = m.description || "";
     var fee = feeSelector(m.fee);
+    var effort = effortEditor(m.effort);
     var err = el("div", { className: "form-error", hidden: "hidden" });
     var form = el("div", { className: "model-form", dataset: { name: "model-form" } }, [
       el("div", { className: "provider-display", dataset: { name: "provider-display" }, onclick: function () { if (provider) { state.view = { kind: "provider-edit", id: provider.id }; refresh(); } } }, "所属供应者：" + (provider ? provider.name + "（点击跳转）" : "（无）")),
       field("名称", nameInput),
       field("描述", descInput),
       field("费用", fee.node),
+      effort.node,
     ]);
     var meta = el("div", { className: "model-meta", dataset: { name: "model-meta" } }, [
       el("span", { className: "created-at-label", dataset: { name: "created-at-label" } }, "创建：" + fmtDate(m.created_at)),
@@ -448,6 +494,7 @@
       if (name !== m.name && modelsOf(m.provider_id).some(function (x) { return x.name === name; })) return showErr(err, "该供应者下模型名已存在");
       m.name = name;
       m.fee = fee.get() || "unknown";
+      m.effort = effort.get();
       persistProviders().then(function () { refresh(); }).catch(function (e) { showErr(err, "保存失败：" + (e.message || e)); });
     }
     var footer = el("div", { className: "form-footer" }, [
@@ -512,7 +559,11 @@
       if (p.base_url != null) c.base_url = p.base_url;
       if (p.api_key != null) c.api_key = maskKey(p.api_key);
       if (p.description != null) c.description = p.description;
-      c.models = (p.models || []).map(function (m) { return { name: m.name, fee: m.fee || "unknown" }; });
+      c.models = (p.models || []).map(function (m) {
+        var mo = { name: m.name, fee: m.fee || "unknown" };
+        if (m.effort) mo.effort = m.effort;
+        return mo;
+      });
       return c;
     }) };
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -533,7 +584,9 @@
           var imported = (data.providers || []).map(function (p) {
             var models = (Array.isArray(p.models) ? p.models : []).map(function (m) {
               var mn = (typeof m === "string") ? m : (m && m.name);
-              return { name: mn, fee: (m && m.fee) || "unknown" };
+              var mo = { name: mn, fee: (m && m.fee) || "unknown" };
+              if (m && m.effort) mo.effort = m.effort;
+              return mo;
             });
             return { name: p.name, base_url: p.base_url || null, api_key: p.api_key || null, description: p.description || null, models: models };
           });

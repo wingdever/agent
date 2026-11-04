@@ -115,11 +115,20 @@ select, textarea, input { font-family: inherit; }
 .input-textarea { width: 100%; min-height: 60px; resize: vertical; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; }
 .composer-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .think-switch, .search-switch, .presence-switch, .autonomy-switch { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #374151; cursor: pointer; }
-.think-switch.active, .search-switch.active, .presence-switch.active, .autonomy-switch.active { background: #2563eb; color: #fff; border-color: #2563eb; }
-.presence-switch.active { background: #d97706; border-color: #d97706; }
-.autonomy-switch.active { background: #7c3aed; border-color: #7c3aed; }
-.model-selector { font-size: 12px; display: flex; align-items: center; gap: 4px; color: #374151; }
-.model-selector select { padding: 3px 6px; border-radius: 6px; border: 1px solid #d1d5db; }
+.think-switch.active, .search-switch.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.presence-switch.active { background: #d97706; border-color: #d97706; color: #fff; }
+.autonomy-switch.active { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+/* chat-header 内的在场 / 自主度按钮（从 composer 移入） */
+.chat-header .presence-switch, .chat-header .autonomy-switch { padding: 3px 8px; }
+
+/* composer 选择器（DSH 风格）：权限预设 + model-effort 组合 */
+.permission-selector, .model-selector, .effort-selector {
+  padding: 3px 6px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff;
+  font-size: 12px; color: #374151; cursor: pointer; max-width: 160px;
+}
+.model-effort-selector { display: inline-flex; align-items: center; gap: 6px; }
+.model-effort-selector .model-selector { max-width: 140px; }
+.model-effort-selector .effort-selector { max-width: 90px; }
 
 /* 活动指示器（取代 composer 的 activity-mode-selector） */
 .activity-indicator { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
@@ -291,6 +300,9 @@ select, textarea, input { font-family: inherit; }
 .form-error { color: #dc2626; font-size: 12px; margin-bottom: 10px; }
 .fee-selector { display: flex; gap: 8px; align-items: center; }
 .fee-select { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
+.effort-editor { margin-top: 4px; }
+.effort-levels-input { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; width: 100%; box-sizing: border-box; }
+.effort-default-select { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
 
 .model-list-section { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; }
 .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-weight: 600; font-size: 13px; }

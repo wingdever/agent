@@ -40,6 +40,8 @@
       <button class="left-collapse-button" id="leftCollapse" data-name="left-collapse-button" title="折叠">«</button>
       <span class="session-name" data-name="session-name"></span>
       <button class="activity-indicator" id="activityIndicator" data-name="activity-indicator" title="当前活动（点击切换）">活动: bare-chat</button>
+      <button class="presence-switch" id="presenceSwitch" data-name="presence-mode-switch" title="在场状态（in/out，自动推断，可手动切换）">在场: in</button>
+      <button class="autonomy-switch" id="autonomySwitch" data-name="autonomy-mode-switch" title="自主度（supervised/autonomous，可手动提权/降权）">自主: supervised</button>
       <div class="tab-icons" data-name="tab-icons">
         <button class="chat-tab-icon active" data-target="chat-tab" data-name="chat-tab-icon">聊天</button>
         <button class="trajectory-icon" data-target="trajectory-tab" data-name="trajectory-icon">轨迹</button>
@@ -71,8 +73,20 @@
       <div class="composer-footer" data-name="composer-footer">
         <button class="think-switch" id="thinkSwitch" data-name="think-switch" title="思考模式">思考</button>
         <button class="search-switch" id="searchSwitch" data-name="search-switch" title="联网搜索">搜索</button>
-        <button class="presence-switch" id="presenceSwitch" data-name="presence-mode-switch" title="在场状态（in/out，自动推断，可手动切换）">在场: in</button>
-        <button class="autonomy-switch" id="autonomySwitch" data-name="autonomy-mode-switch" title="自主度（supervised/autonomous，可手动提权/降权）">自主: supervised</button>
+        <select class="permission-selector" id="permissionSelector" data-name="permission-selector" title="权限预设">
+          <option value="read-only">只读模式</option>
+          <option value="workspace-write">写工作区</option>
+          <option value="full-access">完全访问</option>
+          <option value="fine-grained">精细配置</option>
+        </select>
+        <div class="model-effort-selector" data-name="model-effort-selector">
+          <select class="model-selector" id="modelSelector" data-name="model-selector" title="模型"></select>
+          <select class="effort-selector" id="effortSelector" data-name="effort-selector" title="推理等级">
+            <option value="low">low</option>
+            <option value="medium" selected>medium</option>
+            <option value="high">high</option>
+          </select>
+        </div>
         <button class="ref-btn" id="refBtn" data-name="ref-btn" title="引用文件或会话（@）">@</button>
         <button class="send-or-stop-btn" data-name="send-or-stop-btn">发送</button>
       </div>
