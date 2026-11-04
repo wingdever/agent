@@ -20,7 +20,7 @@
 | # | 特性 | 阶段 | 关键依赖 | 规划文档 |
 |---|---|---|---|---|
 | 1 | 轨迹面板落地 | 一期 | store 已有 turns/steps/messages/calls；frontend 渲染 + show-trajectory CSS | [plan-trajectory.md](plan-trajectory.md) |
-| 2 | 会话列表增强（CRUD+搜索+恢复） | 一期 | store.sessions 已有；需 UI 操作 + 回溯恢复语义 | (待写) |
+| 2 | 会话列表增强（CRUD+搜索+恢复） | ✅ 一期已完成 | store.sessions + 软删除/恢复；UI 搜索/回收站 | (已实现，见 dsh-replica.md §7.5) |
 | 3 | 上下文 @ 引用 | 二期 | composer 输入解析；core 接收引用 | (待写) |
 | 4 | 状态栏补齐（TPS/缓存/权限） | 二期 | core 事件含 TPS/缓存指标（待确认是否上报） | (待写) |
 | 5 | 右栏产物预览 | 二期 | 现有 context-panel 改造 | (待写) |
@@ -38,7 +38,7 @@
 1. ✅ 前置 A（会话 activity 字段）—— 已完成：schema `sessions.activity` + store 落库 + 新建会话传参
 2. ✅ 前置 C（活动指示器）—— 已完成：移除 composer selector，改为会话内指示器 + 切换菜单 + 强制切二次确认（supervised 弹窗 / autonomous 直切）+ 新建会话选初始活动
 3. ✅ #1 轨迹面板（plan-trajectory.md）—— 已完成：core `session.trajectory` RPC + `getTrajectory` + 前端 `renderTrajectoryTree` 时间线
-4. #2 会话列表增强（待做）
+4. ✅ #2 会话列表增强（搜索 / 重命名 / 软删 / 回溯恢复）
 5. 二期 #3–#5（待做）
 6. 低优先 #6–#7（待做）
 

@@ -67,6 +67,7 @@ export const SCHEMA_STATEMENTS = [
     name  text    NOT NULL,
     description  text,
     activity  text  NOT NULL DEFAULT 'bare-chat',
+    deleted_at   TIMESTAMP,
     created_at    TIMESTAMP NOT NULL DEFAULT now(),
     updated_at    TIMESTAMP NOT NULL DEFAULT now()
   )`,

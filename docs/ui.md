@@ -41,11 +41,14 @@
 | **agent-badge** | 当前 Agent 标识 |
 | **left-collapse-button** | 左侧会话栏折叠按钮 |
 | **new-session-button** | 新建会话按钮 |
-| **workspace-bar** | 工作区工具条（搜索/视图/新增） |
-| **search-btn** | 工作区搜索按钮 |
+| **workspace-bar** | 工作区工具条（搜索/视图/新增/回收站 + 搜索输入框） |
+| **search-btn** | 工作区搜索按钮：切换搜索输入框，按会话名过滤 `session-item` |
+| **search-input** | 会话名过滤输入框（hidden 默认，点击 search-btn 显示） |
+| **trash-btn** | 回收站按钮：切换 `deleted-sessions-list` 已软删会话视图 |
+| **deleted-sessions-list** | 回收站：列出 `deleted_at` 非空的会话，提供 恢复 / 彻底删除 |
 | **view-options-btn** | 视图选项按钮 |
 | **add-workspace-btn** | 新增工作区按钮 → folder-selector |
-| **workspace-session-tree-list** | 工作区/会话树列表 |
+| **workspace-session-tree-list** | 工作区/会话树列表（仅未软删会话） |
 | **workspace** | 工作区节点，可重复 |
 | **workspace-header** | 工作区头部 |
 | **workspace-name-label** | 工作区名称 |
@@ -54,7 +57,9 @@
 | **session** | 会话节点，可重复 |
 | **session-name-label** | 会话名称标签 |
 | **rename-session-btn** | 重命名会话按钮 |
-| **delete-session-btn** | 删除会话按钮 |
+| **delete-session-btn** | 删除会话按钮（软删除：标记 deleted_at，保留历史，可从回收站恢复） |
+| **restore-session-btn** | 回收站内：恢复已软删会话（清除 deleted_at） |
+| **purge-session-btn** | 回收站内：彻底删除（hard 删，不可恢复） |
 | **permissions-btn** | 权限配置按钮 → permissions-modal |
 | **settings-btn** | 设置按钮 → settings-modal |
 | **chat-viewport** | 中间聊天主视口 |
@@ -224,9 +229,12 @@ shell
 │  ├─ new-session-button
 │  ├─ workspace-bar
 │  │  ├─ search-btn
+│  │  ├─ search-input
 │  │  ├─ view-options-btn
-│  │  └─ add-workspace-btn
+│  │  ├─ add-workspace-btn
+│  │  └─ trash-btn
 │  ├─ workspace-session-tree-list
+│  ├─ deleted-sessions-list
 │  │  └─ workspace*
 │  │      ├─ workspace-header
 │  │      │  ├─ workspace-name-label
@@ -494,7 +502,7 @@ shell
    arrange: horizontal
 
 thread-sidebar
-   children: sidebar-header, new-session-button, workspace-session-tree-list, settings-btn
+   children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, models-btn, permissions-btn, settings-btn
    arrange: vertical
 
 sidebar-header

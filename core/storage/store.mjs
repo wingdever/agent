@@ -71,18 +71,34 @@ class Store {
   updateWorkspace({ id, ...d }) { return this._update("workspaces", id, d, ["folder_path", "folder_name"]); }
   async deleteWorkspace({ id }) {
     const sessions = await this._list("sessions", { workspace_id: id });
-    for (const s of sessions) await this.deleteSession({ id: s.id });
+    for (const s of sessions) await this.deleteSession({ id: s.id, hard: true });
     return this._delete("workspaces", id);
   }
 
-  listSessions({ workspace_id } = {}) { return this._list("sessions", workspace_id != null ? { workspace_id } : {}, "updated_at DESC"); }
+  listSessions({ workspace_id, includeDeleted } = {}) {
+    let sql = "SELECT * FROM sessions WHERE 1=1";
+    const params = [];
+    let i = 0;
+    if (!includeDeleted) { sql += " AND deleted_at IS NULL"; }
+    if (workspace_id != null) { sql += ` AND workspace_id=$${++i}`; params.push(workspace_id); }
+    sql += " ORDER BY updated_at DESC";
+    return this.db.prepare(sql).all(...params);
+  }
   getSession({ id }) { return this._get("sessions", id); }
   createSession(data) { return this._create("sessions", data, ["workspace_id", "name", "description", "activity"]); }
   updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description", "activity"]); }
-  async deleteSession({ id }) {
-    const turns = await this._list("turns", { session_id: id });
-    for (const t of turns) await this.deleteTurn({ id: t.id });
-    return this._delete("sessions", id);
+  async deleteSession({ id, hard } = {}) {
+    if (hard) {
+      // 工作区级删除：级联清 turns 后硬删
+      const turns = await this._list("turns", { session_id: id });
+      for (const t of turns) await this.deleteTurn({ id: t.id });
+      return this._delete("sessions", id);
+    }
+    // 默认软删除：标记 deleted_at，保留 turns 供回溯恢复
+    return this._update("sessions", id, { deleted_at: "now" }, ["deleted_at"]);
+  }
+  async restoreSession({ id }) {
+    return this._update("sessions", id, { deleted_at: null }, ["deleted_at"]);
   }
 
   // ---- goals（每个 session 一个当前 goal，revision 做 CAS）----
@@ -380,6 +396,7 @@ const OPS = {
   "session.create": (s, p) => s.createSession(p),
   "session.update": (s, p) => s.updateSession(p),
   "session.delete": (s, p) => s.deleteSession(p),
+  "session.restore": (s, p) => s.restoreSession(p),
   "session.prompt": (s, p) => s.getSessionPrompt(p),
   "session.trajectory": (s, p) => s.getTrajectory(p),
 

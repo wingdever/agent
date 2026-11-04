@@ -17,12 +17,17 @@
     </div>
     <button class="new-session-button" data-name="new-session-button">+ 新建会话</button>
     <div class="workspace-bar" data-name="workspace-bar">
-      <button class="search-btn" data-name="search-btn" title="搜索">搜索</button>
+      <button class="search-btn" data-name="search-btn" title="搜索会话">搜索</button>
       <button class="view-options-btn" data-name="view-options-btn" title="视图选项">视图</button>
       <button class="add-workspace-btn" data-name="add-workspace-btn">+ 工作区</button>
+      <button class="trash-btn" data-name="trash-btn" title="回收站">🗑</button>
+      <input class="search-input" data-name="search-input" type="text" placeholder="过滤会话名…" hidden />
     </div>
     <div class="workspace-session-tree-list" data-name="workspace-session-tree-list">
       <!-- 空：暂无会话 -->
+    </div>
+    <div class="deleted-sessions-list" data-name="deleted-sessions-list" hidden>
+      <!-- 回收站：已软删的会话 -->
     </div>
     <button class="models-btn" id="modelsBtn" data-name="models-btn">🧩 模型</button>
     <button class="permissions-btn" id="permissionsBtn" data-name="permissions-btn">🔐 权限</button>

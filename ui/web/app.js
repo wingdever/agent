@@ -158,6 +158,69 @@ document.addEventListener("DOMContentLoaded", function () {
   // 6) add-workspace-btn -> folder-selector -> add-workspace(folder)
   var addWsBtn = document.querySelector(".add-workspace-btn");
   var treeList = document.querySelector(".workspace-session-tree-list");
+  var searchBtn = document.querySelector(".search-btn");
+  var searchInput = document.querySelector(".search-input");
+  var trashBtn = document.querySelector(".trash-btn");
+  var deletedList = document.querySelector(".deleted-sessions-list");
+
+  // 搜索：切换输入框并按名称过滤当前会话列表
+  if (searchBtn && searchInput) {
+    searchBtn.addEventListener("click", function () {
+      searchInput.hidden = !searchInput.hidden;
+      if (!searchInput.hidden) searchInput.focus();
+      else { searchInput.value = ""; applySessionFilter(""); }
+    });
+    searchInput.addEventListener("input", function () { applySessionFilter(searchInput.value.trim().toLowerCase()); });
+  }
+  function applySessionFilter(q) {
+    document.querySelectorAll(".session-item").forEach(function (n) {
+      var label = n.querySelector(".session-name-label");
+      var name = label ? label.textContent.toLowerCase() : "";
+      n.style.display = (!q || name.indexOf(q) !== -1) ? "" : "none";
+    });
+  }
+
+  // 回收站：切换已软删会话视图（恢复 / 彻底删除）
+  if (trashBtn && deletedList) {
+    trashBtn.addEventListener("click", function () {
+      var showing = !deletedList.hidden;
+      deletedList.hidden = showing;
+      if (!showing) loadDeletedSessions(deletedList);
+    });
+  }
+  async function loadDeletedSessions(container) {
+    container.innerHTML = "";
+    try {
+      var list = await window.AgentClient.call("storage", { op: "session.list", payload: { includeDeleted: true } });
+      var deleted = (list || []).filter(function (s) { return s.deleted_at != null; });
+      if (!deleted.length) { container.innerHTML = '<div class="empty-hint">回收站为空</div>'; return; }
+      deleted.forEach(function (s) { renderDeletedSession(s, container); });
+    } catch (e) { container.innerHTML = '<div class="empty-hint">回收站加载失败</div>'; }
+  }
+  function renderDeletedSession(sess, container) {
+    var node = document.createElement("div");
+    node.className = "session-item deleted";
+    node.setAttribute("data-name", "session-item");
+    node.setAttribute("data-id", String(sess.id));
+    var label = document.createElement("span");
+    label.className = "session-name-label";
+    label.textContent = sess.name || ("会话 " + sess.id);
+    var restoreBtn = document.createElement("button");
+    restoreBtn.className = "restore-session-btn";
+    restoreBtn.textContent = "恢复";
+    var purgeBtn = document.createElement("button");
+    purgeBtn.className = "purge-session-btn";
+    purgeBtn.textContent = "彻底删除";
+    node.appendChild(label); node.appendChild(restoreBtn); node.appendChild(purgeBtn);
+    restoreBtn.addEventListener("click", async function () {
+      try { await window.AgentClient.call("storage", { op: "session.restore", payload: { id: sess.id } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
+    });
+    purgeBtn.addEventListener("click", async function () {
+      if (!(await uiConfirm("彻底删除该会话？不可恢复"))) return;
+      try { await window.AgentClient.call("storage", { op: "session.delete", payload: { id: sess.id, hard: true } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
+    });
+    container.appendChild(node);
+  }
 
   function renderWorkspace(ws) {
     var node = document.createElement("div");

@@ -86,7 +86,7 @@
 2. ✅ **新建会话流**：`new-session-button` 在点名后弹出初始活动选择（`openActivityMenu(onPick)`），写入 `selectedInitialActivity`。
 3. ✅ **活动指示器改造**：移除 composer 的 `activity-mode-selector`（`index.html` + `app.js` 读写 + `settings.js` 初始化）；改为会话头 `activity-indicator` 按钮 + 切换菜单 + 完成态 `✓`；强制切在 supervised 下 `uiConfirm` 二次确认、autonomous 直接切；建会话保留初始活动选择。
 4. ✅ **轨迹面板**：`trajectory-tab` 已渲染——core 新增 `session.trajectory` RPC + `getTrajectory` 聚合 turns/steps/messages/calls；前端 `renderTrajectoryTree` 时间线，复用 `createToolCard`/`setToolResult`/`showToolDetail`，思考可展开、点击 tool-call 联动 context-panel。详见 `plan-trajectory.md`。
-5. **会话 CRUD（待做）**：搜索 / 重命名 / 删除 / 回溯恢复的存储与 UI（规划见 PLAN.md #2）。
+5. ✅ **会话 CRUD**：搜索（侧栏搜索按钮 → 按名称过滤）、重命名（已有，保留）、删除（改为**软删除**：`deleted_at` 标记，保留 turns 供恢复）、**回溯恢复**（回收站视图列出已删会话，可恢复 / 彻底删除）。store 新增 `session.restore` op；`listSessions` 默认排除软删；`deleteWorkspace` 走硬删级联。
 6. ✅ **文档同步**：`docs/ui.md`、`docs/agent-mode.md` 的模式描述已对齐新流转模型。
 7. ✅ **完成事件上报**：`goal-plan` 经 `exit_plan_mode` 批准时 UI 置 `currentActivityCompleted=true`（同步指示器 `✓`），其余活动完成判定后续可扩展。
 
