@@ -88,7 +88,14 @@
 
   <!-- context-panel: 右侧上下文面板（默认隐藏） -->
   <aside class="context-panel" id="contextPanel" data-name="context-panel" hidden>
-    <div class="context-default">点击左侧任意 <b>tool-call</b> 卡片查看其参数与结果摘要。</div>
+    <div class="context-default">点击左侧任意 <b>tool-call</b> 卡片查看其参数与结果摘要。文件写类工具可点卡片上的「预览」查看产物。</div>
+    <div class="artifact-preview" id="artifactPreview" data-name="artifact-preview" hidden>
+      <div class="artifact-preview-head">
+        <span class="artifact-preview-title" id="artifactPreviewTitle"></span>
+        <button class="artifact-preview-open" id="artifactPreviewOpen" data-name="artifact-preview-open" hidden>在编辑器打开</button>
+      </div>
+      <div class="artifact-preview-body" id="artifactPreviewBody"></div>
+    </div>
     <div class="context-detail" id="contextDetail" hidden>
       <div class="ctx-title" id="ctxTitle"></div>
       <div class="ctx-section"><h4>参数</h4><pre id="ctxArgs"></pre></div>

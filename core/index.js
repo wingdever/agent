@@ -886,6 +886,22 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
       if (!core.store) throw new Error("storage not initialized");
       return await core.store.run(params.op, params.payload || {});
     }
+    case "fs": {
+      // 只读文件读取（供 UI 产物预览），有大小上限，不做任何写操作。
+      if (params.op === "read") {
+        const p = String(params.path || "");
+        if (!p) throw new Error("fs.read requires path");
+        const MAX = 200000;
+        try {
+          const stat = fs.statSync(p);
+          if (stat.isDirectory()) return { path: p, isDirectory: true, content: "" };
+          const size = stat.size;
+          const content = fs.readFileSync(p, "utf8");
+          return { path: p, isDirectory: false, truncated: size > MAX, content: content.length > MAX ? content.slice(0, MAX) : content };
+        } catch (e) { throw new Error("fs.read failed: " + (e.message || e)); }
+      }
+      throw new Error("unknown fs op: " + params.op);
+    }
     case "fetchModels":
       return await core.fetchProviderModels(params.baseurl, params.apikey);
     case "approval":

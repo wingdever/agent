@@ -110,7 +110,7 @@
 | **session-statistics** | 左段：`⟳ N turns M steps · K tok/s`（图标 + 会话累计 turns/steps + 最近一轮 TPS，turns/steps 间空格） |
 | **token-usage** | 中段：`▤ X.XM tok · Cache hit NN%`（图标 + total tokens 人类可读 + 缓存命中率） |
 | **context-used** | 右段：SVG donut（track + 动态 fill 弧）+ `NN%` 文本，按占上下文窗口估算占比实时更新 |
-| **context-panel** | 右侧上下文面板，展示工具详情与引用来源 |
+| **context-panel** | 右侧上下文面板：**产物预览**（`#artifactPreview`，写文件类工具「预览」按钮触发，按扩展名渲染 md/html/图片/代码 + 在编辑器打开）+ 工具检视器（`#contextDetail`，点击 tool-call 看参数/结果） |
 | **permissions-modal** | 权限配置弹窗（工具档位 + bash 命令策略 + 文件写精细策略） |
 | **permissions-sidebar** | 权限弹窗左侧栏（配置文件切换 + 概要） |
 | **config-file-tabs** | 配置文件切换标签组 |
@@ -302,6 +302,12 @@ shell
 │     ├─ token-usage
 │     └─ context-used
 └─ context-panel
+   ├─ artifact-preview
+   │  ├─ artifact-preview-head
+   │  │  ├─ artifact-preview-title
+   │  │  └─ artifact-preview-open
+   │  └─ artifact-preview-body
+   └─ context-detail
 ```
 
 models-modal
@@ -554,7 +560,9 @@ chat-footer
 context-panel
    position: right
    default: hidden
-   shows: selected tool-call detail + refs
+   shows:
+     artifact-preview: 写文件类工具「预览」按钮触发，按扩展名渲染产物（md/html/图片/代码）
+     context-detail: 点击普通 tool-call 触发，展示参数/结果/引用来源
 
 collapse
    left-collapse-button  → thread-sidebar

@@ -179,6 +179,25 @@ select, textarea, input { font-family: inherit; }
 .context-panel { width: 300px; flex: 0 0 300px; border-left: 1px solid #e5e7eb; padding: 14px; overflow: auto; background: #fafafa; transition: margin-right .15s ease; }
 .context-panel[hidden] { display: none; }
 .context-panel.collapsed { margin-right: -300px; }
+
+/* 产物预览（右栏，与工具检视器合一） */
+.artifact-preview { margin-bottom: 14px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; overflow: hidden; }
+.artifact-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; background: #f5f3ff; }
+.artifact-preview-title { font-size: 12px; font-weight: 600; color: #6d28d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-preview-open { font-size: 11px; padding: 2px 8px; border: 1px solid #c4b5fd; border-radius: 6px; background: #fff; color: #6d28d9; cursor: pointer; flex: 0 0 auto; }
+.artifact-preview-body { padding: 10px; font-size: 13px; line-height: 1.6; max-height: 60vh; overflow: auto; }
+.artifact-preview-body .artifact-code { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.artifact-preview-body .artifact-img { max-width: 100%; border-radius: 6px; }
+.artifact-preview-body .artifact-loading,
+.artifact-preview-body .artifact-error,
+.artifact-preview-body .artifact-note { color: #9ca3af; font-size: 12px; padding: 4px 0; }
+.artifact-preview-body .artifact-error { color: #dc2626; }
+
+/* 工具卡片上的「预览」按钮 */
+.tool-call-card { position: relative; }
+.artifact-preview-btn { position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 2px 8px; border: 1px solid #c4b5fd; border-radius: 6px; background: #fff; color: #6d28d9; cursor: pointer; }
+.artifact-preview-btn:hover { background: #f5f3ff; }
+
 .context-default { color: #9ca3af; font-size: 13px; line-height: 1.6; }
 .ctx-title { font-weight: 600; margin-bottom: 10px; color: #6d28d9; }
 .ctx-section { margin-bottom: 12px; }

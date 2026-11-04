@@ -23,7 +23,7 @@
 | 2 | 会话列表增强（CRUD+搜索+恢复） | ✅ 一期已完成 | store.sessions + 软删除/恢复；UI 搜索/回收站 | (已实现，见 dsh-replica.md §7.5) |
 | 3 | 上下文 @ 引用 | ✅ 一期已完成 | composer `@` 菜单选会话/文件 → chip → `references` 传给 `chat()`；core `_resolveReferences` 注入上下文 | (已实现，见 dsh-replica.md §7.8) |
 | 4 | 状态栏补齐（TPS/缓存/权限） | ✅ 已完成 | core `_stream` 解析 `usage` 上报 `usage` 事件；UI `chat-footer` 三 span 聚合活动/权限档/自主度、tokens/cached/TPS、steps/tools/耗时 | (已实现，见 dsh-replica.md §7.9) |
-| 5 | 右栏产物预览 | 二期 | 现有 context-panel 改造 | (待写) |
+| 5 | 右栏产物预览 | ✅ 已完成 | 写文件类工具(write/edit)卡片加「预览」入口；点按经 `fs.read` RPC 读取文件，按扩展名渲染(.md/.html 经 marked+DOMPurify，图片 `<img>`，其余 `<pre>`)，与现有工具检视器合一 | (已实现，见 dsh-replica.md §7.10) |
 | 6 | 推理等级控件 | 低 | core 模型层是否支持 reasoning effort（待确认） | (待写) |
 | 7 | 多模态输入 | 低 | core provider 多模态支持 | (待写) |
 

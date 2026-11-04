@@ -91,11 +91,12 @@
 7. ✅ **完成事件上报**：`goal-plan` 经 `exit_plan_mode` 批准时 UI 置 `currentActivityCompleted=true`（同步指示器 `✓`），其余活动完成判定后续可扩展。
 8. ✅ **#3 @ 引用**：composer 的 `@` 按钮（或输入 `@`）打开引用菜单，可选**历史会话**或**本地文件**；选中后以 chip 展示、可移除。发送时 `references` 随 `chat` 调用传入 core；core 新增 `_resolveReferences` 将文件内容 / 会话摘录拼为上下文块，注入到真实问题之前的 user 消息（独立于翻译步骤，不影响中文→英文翻译）。bare-chat 与正常会话模式均支持。
 9. ✅ **#4 状态栏补齐**：`core/_stream` 在流式 / 非流式两条路径解析模型 `usage`（`prompt_tokens`/`completion_tokens`/`total_tokens`/`cached_tokens`，兼容字段缺失与 `prompt_tokens_details` 嵌套），统一上报 `usage` 事件；前端 `onChatEvent` 消费 `usage` + `turn-end`（steps/tools/durationMs），按 DSH 风格聚合到 `chat-footer` 三段（各带中性图标，无 emoji）——`session-statistics`（`⟳ N turns M steps · K tok/s`，turns/steps 间空格、会话累计 + 最近一轮 TPS）、`token-usage`（`▤ X.XM tok · Cache hit NN%`）、`context-used`（**SVG donut**：track + 动态 fill 弧 `stroke-dasharray` 按占用百分比实时更新 + `NN%` 文本，占假设窗口 128k 的估算占比）。活动 / 权限档 / 自主度已由各自控件（activity-indicator / permissions-btn / autonomy-switch）承载，不在状态栏重复。无数据显示 `-`（Q4 决策）。`selectSession` 重置计数、`turn-end` 后刷新累计。
+10. ✅ **#5 右栏产物预览**：写文件类工具（`write`/`edit`）的 tool-call 卡片右上角加「预览」按钮（不触发现有 `showToolDetail`）；点击经新增 `fs.read` RPC（只读、200k 上限）读取文件，按扩展名在右栏 `context-panel` 的 `#artifactPreview` 区渲染——`.md`/`.markdown` 走 `marked`+`DOMPurify`，`.html` 走 `DOMPurify.sanitize` 后注入，图片（png/jpg/...）`<img>`，其余 `<pre>` 文本；超长截断提示，「在编辑器打开」按钮用 `file://` 打开。与现有工具检视器（`contextDetail`）合一，不破坏点击 tool-call 看参数/结果的功能。
 
 ## 8. 后续
 
-第一波改造（前置 A、前置 C、#1 轨迹面板、#2 会话列表增强、#3 @ 引用）与 #4 状态栏补齐已完成。下一步：
-- **二期 #5**：右栏产物预览
-- **低优先 #6–#7**：推理等级控件、多模态输入
+前置 A/C、#1–#5 已完成。下一步（低优先）：
+- **#6 推理等级控件**：依赖 core 模型层是否支持 reasoning effort（待确认）
+- **#7 多模态输入**：依赖 core provider 多模态支持（待确认）
 
 详见 `PLAN.md`。

@@ -155,6 +155,73 @@ document.addEventListener("DOMContentLoaded", function () {
     contextPanel.removeAttribute("hidden");
   }
 
+  // 产物预览：读取写文件类工具生成的文件，按扩展名渲染到右侧面板（与现有检视器合一）。
+  var artifactPreview = document.getElementById("artifactPreview");
+  var artifactPreviewTitle = document.getElementById("artifactPreviewTitle");
+  var artifactPreviewBody = document.getElementById("artifactPreviewBody");
+  var artifactPreviewOpen = document.getElementById("artifactPreviewOpen");
+  var IMG_EXT = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1, bmp: 1 };
+  function renderArtifactBody(filePath, text) {
+    if (!artifactPreviewBody) return;
+    artifactPreviewBody.innerHTML = "";
+    var lower = filePath.toLowerCase();
+    var ext = (lower.split(".").pop() || "").split("?")[0];
+    if (IMG_EXT[ext]) {
+      var img = document.createElement("img");
+      img.className = "artifact-img";
+      img.src = "file://" + filePath;  // 本地文件直接预览
+      img.alt = filePath;
+      artifactPreviewBody.appendChild(img);
+      return;
+    }
+    if (ext === "md" || ext === "markdown") {
+      try {
+        var html = (window.marked ? window.marked.parse(text) : text);
+        artifactPreviewBody.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
+      } catch (e) { artifactPreviewBody.textContent = text; }
+      return;
+    }
+    if (ext === "html" || ext === "htm") {
+      try {
+        artifactPreviewBody.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(text) : text;
+      } catch (e) { artifactPreviewBody.textContent = text; }
+      return;
+    }
+    // 其余：纯文本 / 代码（前置 4 空格缩进 + 等宽）
+    var pre = document.createElement("pre");
+    pre.className = "artifact-code";
+    pre.textContent = text;
+    artifactPreviewBody.appendChild(pre);
+  }
+  async function previewArtifact(filePath) {
+    if (!artifactPreview || !contextPanel) return;
+    artifactPreview.hidden = false;
+    if (ctxDetail) ctxDetail.hidden = true;
+    if (ctxDefault) ctxDefault.hidden = true;
+    contextPanel.removeAttribute("hidden");
+    artifactPreviewTitle.textContent = "预览: " + filePath;
+    artifactPreviewBody.innerHTML = "<div class='artifact-loading'>读取中…</div>";
+    artifactPreviewOpen.hidden = true;
+    try {
+      var res = await window.AgentClient.call("fs", { op: "read", path: filePath });
+      if (res && res.isDirectory) { artifactPreviewBody.innerHTML = "<div class='artifact-loading'>目录，无法预览</div>"; return; }
+      var text = (res && res.content) || "";
+      if (res && res.truncated) {
+        var note = document.createElement("div");
+        note.className = "artifact-note";
+        note.textContent = "（文件过大，已截断预览）";
+        artifactPreviewBody.appendChild(note);
+      }
+      renderArtifactBody(filePath, text);
+      if (artifactPreviewOpen) {
+        artifactPreviewOpen.hidden = false;
+        artifactPreviewOpen.onclick = function () { window.open("file://" + filePath, "_blank"); };
+      }
+    } catch (e) {
+      artifactPreviewBody.innerHTML = "<div class='artifact-error'>读取失败: " + (e && e.message ? e.message : e) + "</div>";
+    }
+  }
+
   // 6) add-workspace-btn -> folder-selector -> add-workspace(folder)
   var addWsBtn = document.querySelector(".add-workspace-btn");
   var treeList = document.querySelector(".workspace-session-tree-list");
@@ -1258,6 +1325,26 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     desc.textContent = (evt.name || "tool") + " " + argsText;
     desc.title = desc.textContent;
+    maybeAddPreviewBtn(card);
+  }
+  // 产物预览入口：仅对写文件类工具（write/edit）且在参数含 file_path 时显示「预览」按钮。
+  var ARTIFACT_TOOLS = { write: 1, edit: 1 };
+  function maybeAddPreviewBtn(card) {
+    var tool = (card.getAttribute("data-tool") || "").toLowerCase();
+    if (!ARTIFACT_TOOLS[tool]) return;
+    var args;
+    try { args = JSON.parse(card.getAttribute("data-args") || "{}"); } catch (e) { args = {}; }
+    if (!args || !args.file_path) return;
+    if (card.querySelector(".artifact-preview-btn")) return;
+    var btn = document.createElement("button");
+    btn.className = "artifact-preview-btn";
+    btn.setAttribute("data-name", "artifact-preview-btn");
+    btn.textContent = "预览";
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();  // 不触发卡片整体的 showToolDetail
+      previewArtifact(args.file_path);
+    });
+    card.appendChild(btn);
   }
 
   function truncateText(text, max) {
@@ -1792,6 +1879,7 @@ document.addEventListener("DOMContentLoaded", function () {
             desc.textContent = call.name + " " + JSON.stringify(call.arguments || {});
             desc.title = desc.textContent;
             card.appendChild(desc);
+            maybeAddPreviewBtn(card);
             // ui.md：每个 tool-call-card 都有 approval-request；回放时按 status 展示结果。
             var ap = makeEl("approval-request", "approval-request");
             var permission = call.status === "pending" ? "ask" : call.status === "denied" ? "deny" : "allow";
