@@ -36,8 +36,9 @@
     return el("label", { className: "form-field" }, [el("span", { className: "form-label" }, label), control]);
   }
 
+  // 后端封装：providers.op 一组（读写 user/providers.json，见 core/index.js）
   var api = function (op, payload) {
-    return window.AgentClient.call("storage", { op: op, payload: payload || {} });
+    return window.AgentClient.call("providers", { op: op, payload: payload || {} });
   };
   function fmtDate(v) {
     if (!v) return "—";
@@ -67,12 +68,37 @@
 
   async function loadData() {
     try {
-      var ps = await api("provider.list", {});
-      var ms = await api("model.list", {});
-      state.providers = ps || [];
-      state.models = ms || [];
-    } catch (e) { console.error("load providers/models failed:", e); }
+      // 后端返回 user/providers.json（含嵌套 models）。为兼容既有 id 逻辑，合成 id / provider_id。
+      var ps = await api("get");
+      state.providers = (ps || []).map(function (p) {
+        return {
+          id: p.name,
+          name: p.name,
+          base_url: p.base_url || null,
+          api_key: p.api_key || null,
+          description: p.description || null,
+          models: (p.models || []).map(function (m) {
+            return { id: p.name + "#" + m.name, name: m.name, fee: m.fee || "unknown", provider_id: p.name };
+          }),
+        };
+      });
+      // 扁平模型列表（仅用于 modelsOf 查找）
+      state.models = [];
+      state.providers.forEach(function (p) { (p.models || []).forEach(function (m) { state.models.push(m); }); });
+    } catch (e) { console.error("load providers failed:", e); }
   }
+  // 把内存中的 providers 结构序列化为 user/providers.json 格式后整体写回
+  function serializeProviders() {
+    return state.providers.map(function (p) {
+      var out = { name: p.name };
+      if (p.base_url != null) out.base_url = p.base_url;
+      if (p.api_key != null) out.api_key = p.api_key;
+      if (p.description != null) out.description = p.description;
+      out.models = (p.models || []).map(function (m) { return { name: m.name, fee: m.fee || "unknown" }; });
+      return out;
+    });
+  }
+  function persistProviders() { return api("upsert", serializeProviders()); }
   function providerById(id) {
     return state.providers.find(function (p) { return String(p.id) === String(id); });
   }
@@ -234,8 +260,11 @@
       var baseurl = urlInput.value.trim();
       if (!name) { return showErr(err, "名称必填"); }
       if (baseurl && !isValidUrl(baseurl)) return showErr(err, "Base URL 不是合法的 http(s) 地址");
-      api("provider.create", { name: name, description: descInput.value.trim(), baseurl: baseurl, apikey: apiInput.value }).then(function (p) {
-        return loadData().then(function () { state.view = { kind: "provider-edit", id: p.id }; refresh(); });
+      if (state.providers.some(function (p) { return p.name === name; })) return showErr(err, "供应者名称已存在");
+      var np = { id: name, name: name, base_url: baseurl || null, api_key: apiInput.value || null, description: descInput.value.trim() || null, models: [] };
+      state.providers.push(np);
+      persistProviders().then(function () {
+        state.view = { kind: "provider-edit", id: name }; refresh();
       }).catch(function (e) { showErr(err, "创建失败：" + (e.message || e)); });
     }
     var footer = el("div", { className: "form-footer" }, [
@@ -248,8 +277,8 @@
   function buildProviderEditTab(p) {
     var nameInput = el("input", { className: "name-input", type: "text", value: p.name });
     var descInput = el("textarea", { className: "description-input" }); descInput.value = p.description || "";
-    var urlInput = el("input", { className: "baseurl-input", type: "text" }); urlInput.value = p.baseurl || "";
-    var apiInput = el("input", { className: "apikey-input", type: "password" }); apiInput.value = p.apikey || "";
+    var urlInput = el("input", { className: "baseurl-input", type: "text" }); urlInput.value = p.base_url || "";
+    var apiInput = el("input", { className: "apikey-input", type: "password" }); apiInput.value = p.api_key || "";
     var toggle = el("button", { className: "apikey-toggle", type: "button" }, "显示");
     toggle.addEventListener("click", function () {
       if (apiInput.type === "password") { apiInput.type = "text"; toggle.textContent = "隐藏"; }
@@ -265,14 +294,17 @@
 
     var rows = [];
     function addOne(id, fee, btn) {
-      api("model.create", { provider_id: p.id, name: id, description: "", fee: fee }).then(function (m) {
-        state.models.push(m); renderTree();
+      if (modelsOf(p.id).some(function (m) { return m.name === id; })) {
+        if (btn) { btn.textContent = "已添加"; btn.disabled = true; btn.className = (btn.className || "") + " added"; }
+        return;
+      }
+      var m = { id: p.id + "#" + id, name: id, fee: fee || "unknown", provider_id: p.id };
+      p.models.push(m); state.models.push(m);
+      persistProviders().then(function () {
+        renderTree();
         modelCountLabel.textContent = "模型 (" + modelsOf(p.id).length + ")";
         if (btn) { btn.textContent = "已添加"; btn.disabled = true; btn.className = (btn.className || "") + " added"; }
-      }).catch(function (e) {
-        if (btn) btn.textContent = "失败";
-        else if (window.uiAlert) uiAlert("添加失败：" + (e.message || e));
-      });
+      }).catch(function (e) { if (window.uiAlert) uiAlert("添加失败：" + (e.message || e)); });
     }
     function renderRemoteList(list) {
       remoteModelsEl.innerHTML = ""; rows = [];
@@ -344,9 +376,18 @@
       var baseurl = urlInput.value.trim();
       if (!name) return showErr(err, "名称必填");
       if (baseurl && !isValidUrl(baseurl)) return showErr(err, "Base URL 不是合法的 http(s) 地址");
-      api("provider.update", { id: p.id, name: name, description: descInput.value.trim(), baseurl: baseurl, apikey: apiInput.value }).then(function () {
-        return loadData().then(refresh);
-      }).catch(function (e) { showErr(err, "保存失败：" + (e.message || e)); });
+      if (name !== p.name && state.providers.some(function (x) { return x.name === name; })) return showErr(err, "供应者名称已存在");
+      // 改名：同步 id / 其下 model 的 provider_id
+      if (name !== p.name) {
+        var oldId = p.id;
+        p.id = name; p.name = name;
+        p.models.forEach(function (m) { m.provider_id = name; m.id = name + "#" + m.name; });
+        state.models.forEach(function (m) { if (m.provider_id === oldId) { m.provider_id = name; m.id = name + "#" + m.name; } });
+      }
+      p.base_url = baseurl || null;
+      p.api_key = apiInput.value || null;
+      p.description = descInput.value.trim() || null;
+      persistProviders().then(function () { refresh(); }).catch(function (e) { showErr(err, "保存失败：" + (e.message || e)); });
     }
     var footer = el("div", { className: "form-footer" }, [
       el("button", { className: "reset-btn", onclick: function () { refresh(); } }, "重置"),
@@ -371,8 +412,11 @@
       if (!provider) return showErr(err, "没有可用的供应者，请先新增供应者");
       var name = nameInput.value.trim();
       if (!name) return showErr(err, "名称必填");
-      api("model.create", { provider_id: provider.id, name: name, description: descInput.value.trim(), fee: fee.get() }).then(function (m) {
-        return loadData().then(function () { state.view = { kind: "model-edit", id: m.id }; state.expanded[provider.id] = true; refresh(); });
+      if (modelsOf(provider.id).some(function (m) { return m.name === name; })) return showErr(err, "该供应者下模型名已存在");
+      var m = { id: provider.id + "#" + name, name: name, fee: fee.get() || "unknown", provider_id: provider.id };
+      provider.models.push(m); state.models.push(m);
+      persistProviders().then(function () {
+        state.view = { kind: "model-edit", id: m.id }; state.expanded[provider.id] = true; refresh();
       }).catch(function (e) { showErr(err, "创建失败：" + (e.message || e)); });
     }
     var footer = el("div", { className: "form-footer" }, [
@@ -401,9 +445,10 @@
     function save() {
       var name = nameInput.value.trim();
       if (!name) return showErr(err, "名称必填");
-      api("model.update", { id: m.id, name: name, description: descInput.value.trim(), fee: fee.get() }).then(function () {
-        return loadData().then(refresh);
-      }).catch(function (e) { showErr(err, "保存失败：" + (e.message || e)); });
+      if (name !== m.name && modelsOf(m.provider_id).some(function (x) { return x.name === name; })) return showErr(err, "该供应者下模型名已存在");
+      m.name = name;
+      m.fee = fee.get() || "unknown";
+      persistProviders().then(function () { refresh(); }).catch(function (e) { showErr(err, "保存失败：" + (e.message || e)); });
     }
     var footer = el("div", { className: "form-footer" }, [
       el("button", { className: "reset-btn", onclick: function () { refresh(); } }, "重置"),
@@ -421,44 +466,55 @@
   }
   function showErr(errEl, msg) { errEl.textContent = msg; errEl.hidden = false; }
 
-  // ---- 写操作 ----
+  // ---- 写操作（统一：改内存 -> 整体 upsert user/providers.json）----
+  function findProvider(id) { return state.providers.find(function (p) { return String(p.id) === String(id); }); }
+  function findModel(id) { return state.models.find(function (m) { return String(m.id) === String(id); }); }
   function doUpdateProvider(id, patch) {
-    api("provider.update", Object.assign({ id: id }, patch)).then(function () { return loadData().then(renderTree); })
+    var p = findProvider(id);
+    if (!p) return;
+    Object.assign(p, patch);
+    persistProviders().then(function () { refresh(); })
       .catch(function (e) { if (window.uiAlert) uiAlert("更新失败：" + (e.message || e)); });
   }
   function doUpdateModel(id, patch) {
-    api("model.update", Object.assign({ id: id }, patch)).then(function () { return loadData().then(renderTree); })
+    var m = findModel(id);
+    if (!m) return;
+    Object.assign(m, patch);
+    persistProviders().then(function () { renderTree(); })
       .catch(function (e) { if (window.uiAlert) uiAlert("更新失败：" + (e.message || e)); });
   }
   async function deleteProvider(id) {
     if (!(window.uiConfirm && await window.uiConfirm("删除该供应者及其下所有模型？此操作不可撤销。"))) return;
     try {
-      await api("provider.delete", { id: id });
+      state.providers = state.providers.filter(function (p) { return String(p.id) !== String(id); });
+      await persistProviders();
       if (state.view && state.view.kind === "provider-edit" && String(state.view.id) === String(id)) state.view = null;
-      await loadData(); refresh();
+      refresh();
     } catch (e) { if (window.uiAlert) uiAlert("删除失败：" + (e.message || e)); }
   }
   async function deleteModel(id) {
     if (!(window.uiConfirm && await window.uiConfirm("删除该模型？"))) return;
     try {
-      await api("model.delete", { id: id });
+      var m = findModel(id); if (!m) return;
+      var p = findProvider(m.provider_id);
+      if (p) p.models = p.models.filter(function (x) { return String(x.id) !== String(id); });
+      await persistProviders();
       if (state.view && state.view.kind === "model-edit" && String(state.view.id) === String(id)) state.view = null;
-      await loadData(); refresh();
+      refresh();
     } catch (e) { if (window.uiAlert) uiAlert("删除失败：" + (e.message || e)); }
   }
 
   // ---- 导入 / 导出 ----
   function exportConfig() {
-    var data = {
-      version: 1,
-      providers: state.providers.map(function (p) {
-        return { name: p.name, description: p.description || "", baseurl: p.baseurl || "", apikey: maskKey(p.apikey) };
-      }),
-      models: state.models.map(function (m) {
-        var p = providerById(m.provider_id);
-        return { provider_name: p ? p.name : null, name: m.name, description: m.description || "", fee: m.fee };
-      }),
-    };
+    // 直接基于 user/providers.json 的序列化结果（已含嵌套 models 与 fee）
+    var data = { version: 1, providers: serializeProviders().map(function (p) {
+      var c = { name: p.name };
+      if (p.base_url != null) c.base_url = p.base_url;
+      if (p.api_key != null) c.api_key = maskKey(p.api_key);
+      if (p.description != null) c.description = p.description;
+      c.models = (p.models || []).map(function (m) { return { name: m.name, fee: m.fee || "unknown" }; });
+      return c;
+    }) };
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -474,23 +530,24 @@
       reader.onload = function () {
         try {
           var data = JSON.parse(reader.result);
-          var pmap = {};
-          var chain = Promise.resolve();
-          (data.providers || []).forEach(function (p) {
-            chain = chain.then(function () {
-              return api("provider.create", { name: p.name, description: p.description || "", baseurl: p.baseurl || "", apikey: p.apikey || "" }).then(function (np) { pmap[p.name] = np.id; });
+          var imported = (data.providers || []).map(function (p) {
+            var models = (Array.isArray(p.models) ? p.models : []).map(function (m) {
+              var mn = (typeof m === "string") ? m : (m && m.name);
+              return { name: mn, fee: (m && m.fee) || "unknown" };
             });
+            return { name: p.name, base_url: p.base_url || null, api_key: p.api_key || null, description: p.description || null, models: models };
           });
-          chain = chain.then(function () {
-            var c2 = Promise.resolve();
-            (data.models || []).forEach(function (m) {
-              var pid = m.provider_name != null ? pmap[m.provider_name] : (state.providers[0] && state.providers[0].id);
-              if (pid == null) return;
-              c2 = c2.then(function () { return api("model.create", { provider_id: pid, name: m.name, description: m.description || "", fee: m.fee || "free" }); });
-            });
-            return c2;
+          state.providers = imported.map(function (p) {
+            var id = p.name;
+            return {
+              id: id, name: p.name, base_url: p.base_url || null, api_key: p.api_key || null, description: p.description || null,
+              models: (p.models || []).map(function (m) { return { id: id + "#" + m.name, name: m.name, fee: m.fee || "unknown", provider_id: id }; }),
+            };
           });
-          chain.then(function () { return loadData().then(refresh); }).catch(function (e) { if (window.uiAlert) uiAlert("导入部分失败：" + (e.message || e)); });
+          state.models = [];
+          state.providers.forEach(function (p) { p.models.forEach(function (m) { state.models.push(m); }); });
+          persistProviders().then(function () { state.view = null; refresh(); })
+            .catch(function (e) { if (window.uiAlert) uiAlert("导入失败：" + (e.message || e)); });
         } catch (e) { if (window.uiAlert) uiAlert("导入失败：文件格式错误"); }
       };
       reader.readAsText(f);
@@ -541,9 +598,9 @@
   async function clearAll() {
     if (!(window.uiConfirm && await window.uiConfirm("清空所有供应者与模型？此操作不可撤销。"))) return;
     try {
-      var ps = await api("provider.list", {});
-      for (var i = 0; i < (ps || []).length; i++) await api("provider.delete", { id: ps[i].id });
-      state.view = null; await loadData(); refresh();
+      state.providers = []; state.models = []; state.view = null;
+      await persistProviders();
+      refresh();
     } catch (e) { if (window.uiAlert) uiAlert("清空失败：" + (e.message || e)); }
   }
 

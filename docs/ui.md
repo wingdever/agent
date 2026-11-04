@@ -13,9 +13,25 @@
 
 ---
 
+## 目录
+
+- [1. 界面要素 Name 与 Desc](#1-界面要素-name-与-desc)
+  - [1.1 布局要素（含运行期动态节点）](#布局要素)
+- [2. 包含关系](#2-包含关系)
+  - [2.1 布局树（第一真值）](#布局树第一真值)
+- [3. 事件回调](#3-事件回调)
+  - [3.1 会话栏（shell 外）](#31-会话栏shell-外)
+  - [3.2 models-modal](#32-models-modal)
+  - [3.3 permissions-modal](#33-permissions-modal)
+  - [3.4 user-job（运行期交互）](#34-user-job运行期交互)
+- [4. 布局关系](#4-布局关系)
+- [5. 元素样式](#5-元素样式)
+
+---
+
 ## 1. 界面要素 Name 与 Desc
 
-### 布局要素
+陈列有哪些界面要素以及简要说明各界面要素。
 
 | Name | Desc |
 |---|---|
@@ -58,6 +74,20 @@
 | **tool-call** | 工具调用 |
 | **answer** | 最终回答 |
 | **ask-user-prompt** | 向用户展示的追问/提示 |
+| **tool-call-card** | 工具调用卡片（嵌入 `model-response`）；含 tool-call-desc / approval-request / ask-user-question? / user-job-request? / action-bar? / tool-result |
+| **tool-call-desc** | 工具调用描述（名称 + 入参摘要） |
+| **tool-result** | 工具执行结果展示（read 默认折叠） |
+| **text-file** | 文本文件工具：read / write / edit / search |
+| **bash** | Bash 工具：grep / list / file / run |
+| **sql** | SQL 工具：add / delete / query / insert |
+| **script** | 脚本工具：run |
+| **web** | Web 工具：search |
+| **action-bar** | 消息/任务操作栏；附着于 `response-message` 或 `tool-call` |
+| **branch-picker** | 对话分支选择器；附着于 `response-message` |
+| **user-job-request** | 请求用户手动完成任务并回报结果的交互卡片（嵌入 `tool-call-card`） |
+| **sub-agent-tree** | 子 Agent 执行树；在 `trajectory-tab` 内展示 |
+| **agent-trace-node** | 执行树节点追踪；在 `trajectory-tab` 内展示 |
+| **attachment-tray** | 附件托盘；附着于 `composer`；状态：ready / extracting / fallback |
 | **trajectory-tab** | 轨迹标签页 |
 | **composer** | 输入区 |
 | **input-textarea** | 文本输入框 |
@@ -76,7 +106,55 @@
 | **context-used** | 上下文占用 |
 | **context-panel** | 右侧上下文面板，展示工具详情与引用来源 |
 | **permissions-modal** | 权限配置弹窗（工具档位 + bash 命令策略 + 文件写精细策略） |
-| **settings-modal** | 设置弹窗（供应者/模型配置） |
+| **permissions-sidebar** | 权限弹窗左侧栏（配置文件切换 + 概要） |
+| **config-file-tabs** | 配置文件切换标签组 |
+| **tool-permissions-tab-btn** | 工具权限标签按钮 → tool-permissions-tab（对应 permissions.json） |
+| **bash-policy-tab-btn** | Bash 命令策略标签按钮 → bash-policy-tab（对应 bash-policy.json） |
+| **fs-policy-tab-btn** | 文件写策略标签按钮 → fs-policy-tab（对应 fs-policy.json） |
+| **permission-summary** | 权限概要区 |
+| **default-tier-label** | 当前 default 档位展示（permissions.json default：allow/ask/deny） |
+| **bash-rule-count-label** | bash-policy 规则条数 |
+| **rule-count-label** | fs-policy 规则条数 |
+| **permissions-viewport** | 权限弹窗中间内容区（随标签切换） |
+| **tool-permissions-tab** | 工具权限标签页（permissions.json） |
+| **tab-header** | 标签头部 |
+| **tab-title** | 标签标题 |
+| **default-tier-row** | default 档位行 |
+| **default-tier-select** | default 档位选择（ask / allow / deny；缺省 ask） |
+| **tool-permissions-table** | 工具档位表格 |
+| **tool-permission-row** | 单个工具档位行（每个已声明工具一行） |
+| **tool-name-label** | 工具名（registry 工具名，只读） |
+| **tier-select** | 该工具档位选择（inherit / allow / ask / deny） |
+| **clear-tier-btn** | 清除显式档位，回退 inherit |
+| **add-tool-permission-btn** | 新增工具档位行 |
+| **config-footer** | 标签页底部保存/重置栏 |
+| **reset-btn** | 重置按钮（放弃未保存修改） |
+| **save-btn** | 保存按钮（写回对应配置文件，经 permissions op *.upsert） |
+| **bash-policy-tab** | Bash 命令策略标签页（bash-policy.json） |
+| **bash-default-row** | default 档位行 |
+| **bash-default-label** | default 标签 |
+| **bash-default-select** | default 档位选择（固定 ask；无匹配默认 ask，fail-closed） |
+| **bash-global-env** | 顶层 env：约束未在具体规则声明的 dynamic 变量（key=value* 多行） |
+| **bash-rules-table** | bash 命令规则表格 |
+| **bash-rule-row** | 单条命令规则行 |
+| **program-input** | IR 程序名（字面；dynamic 程序为 null 不在此列） |
+| **args-input** | argv 前缀精确匹配（省略表示只按程序名） |
+| **decision-select** | 决策选择（allow / ask / deny） |
+| **reason-input** | 可解释决策理由（回传审批 UI/日志） |
+| **env-input** | dynamic 变量具体化（如 URL 白名单 / 脚本路径白名单，key=value* 多行） |
+| **remove-rule-btn** | 删除规则行 |
+| **add-bash-rule-btn** | 新增 bash 规则行 |
+| **fs-policy-tab** | 文件写策略标签页（fs-policy.json） |
+| **fs-scope-note** | 作用域说明（仅作用于 write / edit） |
+| **fs-rules-table** | 文件写规则表格 |
+| **fs-rule-row** | 单条 path 规则行 |
+| **path-input** | 路径 glob（** 跨层 / * 单段 / ? 单字符；支持绝对或相对 workspace） |
+| **permission-select** | 路径权限选择（allow / deny；先扫 deny 命中即拒） |
+| **add-fs-rule-btn** | 新增 fs 规则行 |
+| **permissions-panel** | 权限弹窗右侧常驻操作栏 |
+| **reset-defaults-btn** | 恢复默认按钮（default=ask，清空所有显式档位与规则） |
+| **close-permissions-btn** | 关闭权限弹窗按钮 |
+| **settings-modal** | 设置弹窗（运行时设置：流式开关 + 供应者/模型选择） |
 | **settings-sidebar** | 设置弹窗左侧栏 |
 | **provider-model-tree-list** | 供应者/模型树列表 |
 | **tree-search-input** | 树过滤输入框（按名称过滤） |
@@ -89,8 +167,8 @@
 | **provider-delete-btn** | 删除供应者（级联删 models） |
 | **add-model-btn** | 新增模型按钮 → model-add-tab |
 | **model** | 模型节点，可重复（展开时渲染） |
-| **model-name-label** | 模型名称（models.name） |
-| **model-fee-badge** | 模型费用徽标（free/paid） |
+| **model-name-label** | 模型名称（存储于 providers.json 的 provider.models[].name） |
+| **model-fee-badge** | 模型费用徽标（providers.json 模型 fee，缺省 "unknown"） |
 | **model-rename-btn** | 快捷重命名模型 |
 | **model-delete-btn** | 删除模型 |
 | **settings-viewport** | 设置弹窗中间视口 |
@@ -104,7 +182,7 @@
 | **apikey-input** | API Key 输入框（password + 显示/隐藏） |
 | **form-footer** | 表单底部工具栏 |
 | **cancel-btn** | 取消按钮 |
-| **save-btn** | 保存按钮（INSERT / UPDATE） |
+| **save-btn** | 保存按钮（整体写回 user/providers.json，经 providers op upsert） |
 | **provider-edit-tab** | 编辑供应者标签页 |
 | **fetch-row** | 功能行：拉取远端模型按钮 + 拉取状态 |
 | **fetch-models-btn** | 拉取远端模型按钮（后端代理 /models，兼连通性测试） |
@@ -120,52 +198,23 @@
 | **section-header** | 区块头部（模型 N + add-model-btn） |
 | **model-item** | 单个本地模型行 |
 | **model-edit-btn** | 打开模型编辑标签 |
-| **provider-meta** | 供应者元信息区 |
-| **created-at-label** | 创建时间（providers.created_at） |
-| **updated-at-label** | 更新时间（providers.updated_at） |
 | **reset-btn** | 重置按钮（恢复未保存修改） |
 | **model-add-tab** | 新增模型标签页（需 provider_id） |
 | **model-form** | 模型表单 |
 | **provider-display** | 所属供应者展示（只读） |
-| **fee-selector** | 费用选择器（free / paid / 自定义） |
+| **fee-selector** | 费用选择器（free / paid / 自定义，默认 free；存储为 providers.json 模型 fee，缺省 "unknown"） |
 | **model-edit-tab** | 编辑模型标签页 |
-| **model-meta** | 模型元信息区 |
 | **settings-panel** | 设置弹窗右侧常驻操作栏 |
 | **import-config-btn** | 导入配置按钮 |
 | **export-config-btn** | 导出配置按钮 |
 | **danger-zone** | 危险区（可选：清空配置） |
 | **close-settings-btn** | 关闭设置按钮 |
 
-### 过程要素（横切，非布局树节点）
-
-| Name | Desc |
-|---|---|
-| **thought** | 推理链/思考过程展示；嵌入 `response-message` |
-| **tool-call** | 工具调用卡片；嵌入 `response-message` |
-| **text-file** | 文本文件工具：read / write / edit / search |
-| **bash** | Bash 工具：grep / list / file / run |
-| **sql** | SQL 工具：add / delete / query / insert |
-| **script** | 脚本工具：run |
-| **web** | Web 工具：search |
-| **sub-agent-tree** | 子 Agent 执行树；在 `trajectory-tab` 内展示 |
-| **agent-trace-node** | 执行树节点追踪；在 `trajectory-tab` 内展示 |
-
-### 人控要素（横切，非布局树节点）
-
-|         Name          |                Desc                       |
-|         ---           |                ---                        |
-| **approval-request**  | 审批请求；嵌入 `response-message`         |
-| **ask-user-question** | 询问用户手动确定信息并填写答案的交互卡片  |
-| **user-job-request**  | 请求用户手动完成任务并回报结果的交互卡片  |
-| **action-bar**        | 消息/任务操作栏；附着于 `response-message` 或 `tool-call` |
-| **branch-picker**     | 对话分支选择器；附着于 `response-message` |
-| **attachment-tray**   | 附件托盘；附着于 `composer`；状态：ready / extracting / fallback |
+> 运行期动态节点（thought / tool-call 及其子类型 / approval-request / ask-user-question / user-job-request / action-bar / branch-picker / sub-agent-tree / agent-trace-node / attachment-tray 等）不再单列「过程要素 / 人控要素」分块，已并入上表并作为布局树的子节点呈现（见 §2 包含关系）。布局树为第一真值。
 
 ---
 
-## 2. 包含关系
-
-### 布局树（第一真值）
+## 2. 包含关系 布局树（第一真值）
 
 ```text
 shell
@@ -214,13 +263,19 @@ shell
 │  │  │             ├─ answer?
 │  │  │             │  ├─ english-primary-answer 
 │  │  │             │  └─ chinese-translate-answer
+│  │  │             ├─ ask-user-prompt?
+│  │  │             ├─ branch-picker?
 │  │  │             └─ tool-call-card*
 │  │  │                 ├─ tool-call-desc
+│  │  │                 ├─ approval-request
 │  │  │                 ├─ ask-user-question?
 │  │  │                 ├─ user-job-request?
-│  │  │                 ├─ approval-request
+│  │  │                 ├─ action-bar?
 │  │  │                 └─ tool-result
+│  │  │                 （工具类型：text-file / bash / sql / script / web）
 │  │  └─ trajectory-tab
+│  │     ├─ sub-agent-tree
+│  │     └─ agent-trace-node
 │  ├─ composer
 │  │  ├─ model-http-status(on-wait|on-post|on-get)
 │  │  ├─ attachment-tray
@@ -243,159 +298,153 @@ shell
 models-modal
 ├─ models-sidebar
 │  └─ provider-model-tree-list
-│      ├─ tree-search-input                (可选：按名称过滤 provider/model)
-│      ├─ add-provider-btn                 → 打开 provider-add-tab
-│      └─ provider*                        (选中态 / 折叠态)
+│      ├─ tree-search-input
+│      ├─ add-provider-btn
+│      └─ provider*                
 │          ├─ provider-header
-│          │  ├─ provider-collapse-toggle  (展开/折叠 model 列表)
-│          │  ├─ provider-name-label       (providers.name)
-│          │  ├─ provider-rename-btn       (快捷重命名 → 内联编辑 name)
-│          │  ├─ provider-delete-btn       (级联删除 models)
-│          │  └─ add-model-btn             → 打开 model-add-tab(provider_id)
-│          └─ model*                       (仅在展开时渲染)
-│              ├─ model-name-label         (models.name)
-│              ├─ model-fee-badge          (models.fee: free/paid)
-│              ├─ model-rename-btn         (快捷重命名 → 内联编辑 name)
+│          │  ├─ provider-collapse-toggle
+│          │  ├─ provider-name-label
+│          │  ├─ provider-rename-btn
+│          │  ├─ provider-delete-btn
+│          │  └─ add-model-btn
+│          └─ model*          
+│              ├─ model-name-label
+│              ├─ model-fee-badge
+│              ├─ model-rename-btn
 │              └─ model-delete-btn
 │
 ├─ models-viewport
 │  ├─ provider-add-tab
 │  │  ├─ tab-header
-│  │  │  └─ tab-title ("新增供应者")
+│  │  │  └─ tab-title
 │  │  ├─ provider-form
-│  │  │  ├─ name-input         (必填, placeholder "qiniu", 默认值 qiniu)
-│  │  │  ├─ description-input  (多行 textarea, 选填)
-│  │  │  ├─ baseurl-input      (URL 校验, 例: https://api.example.com/v1)
-│  │  │  └─ apikey-input       (password 输入 + 显示/隐藏切换)
-│  │  └─ form-footer
-│  │     ├─ cancel-btn
-│  │     └─ save-btn           (提交 → INSERT providers, 成功后切到 edit-tab)
-│  │
-│  ├─ provider-edit-tab        (选中某个 provider)
-│  │  ├─ tab-header
-│  │  │  └─ tab-title ("编辑供应者")
-│  │  ├─ provider-form         (字段同上, 从行内回填)
 │  │  │  ├─ name-input
 │  │  │  ├─ description-input
 │  │  │  ├─ baseurl-input
-│  │  │  ├─ apikey-input      (password + 显示/隐藏)
-│  │  │  ├─ fetch-row          (功能行: 拉取远端模型 + 状态)
-│  │  │  │  ├─ fetch-models-btn   (拉取远端模型: 后端代理 /models，兼连通性测试)
-│  │  │  │  └─ remote-status      (拉取状态 / 错误提示)
-│  │  │  └─ remote-models-section (拉取后展示远端模型列表)
+│  │  │  └─ apikey-input
+│  │  └─ form-footer
+│  │     ├─ cancel-btn
+│  │     └─ save-btn
+│  │
+│  ├─ provider-edit-tab  
+│  │  ├─ tab-header
+│  │  │  └─ tab-title
+│  │  ├─ provider-form
+│  │  │  ├─ name-input
+│  │  │  ├─ description-input
+│  │  │  ├─ baseurl-input
+│  │  │  ├─ apikey-input
+│  │  │  ├─ fetch-row
+│  │  │  │  ├─ fetch-models-btn
+│  │  │  │  └─ remote-status
+│  │  │  └─ remote-models-section
 │  │  │     ├─ remote-toolbar
-│  │  │     │  └─ add-all-btn       (全部添加远端模型)
-│  │  │     └─ remote-model-item*   (单个远端模型行)
-│  │  │        ├─ remote-model-id   (远端模型 id)
-│  │  │        ├─ fee-select        (free / paid)
-│  │  │        └─ remote-add-btn   (添加到本地; 已添加则禁用并显示「已添加」)
-│  │  ├─ model-list-section    (只读概览该 provider 下的 models)
-│  │  │  ├─ section-header   ("模型 (N)" + add-model-btn)
+│  │  │     │  └─ add-all-btn
+│  │  │     └─ remote-model-item*
+│  │  │        ├─ remote-model-id
+│  │  │        ├─ fee-select
+│  │  │        └─ remote-add-btn
+│  │  ├─ model-list-section
+│  │  │  ├─ section-header
 │  │  │  └─ model-item*
 │  │  │     ├─ model-name-label
 │  │  │     ├─ model-fee-badge
-│  │  │     └─ model-edit-btn → 打开 model-edit-tab(model.id)
-│  │  ├─ provider-meta
-│  │  │  ├─ created-at-label  (providers.created_at)
-│  │  │  └─ updated-at-label  (providers.updated_at)
+│  │  │     └─ model-edit-btn
 │  │  └─ form-footer
-│  │     ├─ reset-btn         (恢复未保存修改)
-│  │     └─ save-btn          (UPDATE providers)
+│  │     ├─ reset-btn
+│  │     └─ save-btn
 │  │
-│  ├─ model-add-tab            (需携带 provider_id)
+│  ├─ model-add-tab    
 │  │  ├─ tab-header
-│  │  │  └─ tab-title ("新增模型")
+│  │  │  └─ tab-title
 │  │  ├─ model-form
-│  │  │  ├─ provider-display   (只读: 所属 provider.name)
-│  │  │  ├─ name-input         (必填, placeholder "conatus-free", 默认 conatus-free)
-│  │  │  ├─ description-input  (多行 textarea, 选填)
-│  │  │  └─ fee-selector       (free / paid / 自定义输入; 默认 free)
+│  │  │  ├─ provider-display
+│  │  │  ├─ name-input
+│  │  │  ├─ description-input
+│  │  │  └─ fee-selector
 │  │  └─ form-footer
 │  │     ├─ cancel-btn
-│  │     └─ save-btn           (INSERT models)
+│  │     └─ save-btn
 │  │
-│  └─ model-edit-tab           (选中某个 model)
+│  └─ model-edit-tab      
 │     ├─ tab-header
-│     │  └─ tab-title ("编辑模型")
+│     │  └─ tab-title
 │     ├─ model-form
-│     │  ├─ provider-display   (只读, 可点击跳转 provider-edit-tab)
+│     │  ├─ provider-display
 │     │  ├─ name-input
 │     │  ├─ description-input
 │     │  └─ fee-selector
-│     ├─ model-meta
-│     │  ├─ created-at-label   (models.created_at)
-│     │  └─ updated-at-label   (models.updated_at)
 │     └─ form-footer
 │        ├─ reset-btn
-│        └─ save-btn           (UPDATE models)
+│        └─ save-btn
 │
-└─ models-panel              (底部/右侧常驻操作栏, 与具体 tab 无关)
-   ├─ import-config-btn        (JSON/文件导入)
-   ├─ export-config-btn        (导出 providers+models, apikey 脱敏)
-   ├─ danger-zone              (可选: 清空所有配置)
+└─ models-panel
+   ├─ import-config-btn
+   ├─ export-config-btn
+   ├─ danger-zone
    └─ close-models-btn
 
 permissions-modal
 ├─ permissions-sidebar
 │  ├─ config-file-tabs
-│  │  ├─ tool-permissions-tab-btn   ("工具权限" → permissions.json)
-│  │  ├─ bash-policy-tab-btn        ("Bash 命令策略" → bash-policy.json)
-│  │  └─ fs-policy-tab-btn          ("文件写策略" → fs-policy.json)
+│  │  ├─ tool-permissions-tab-btn
+│  │  ├─ bash-policy-tab-btn
+│  │  └─ fs-policy-tab-btn
 │  └─ permission-summary
-│     ├─ default-tier-label         (permissions.json 的 default 档位: allow/ask/deny)
-│     ├─ bash-rule-count-label      (bash-policy 规则条数)
-│     └─ rule-count-label           (fs-policy 规则条数)
+│     ├─ default-tier-label
+│     ├─ bash-rule-count-label
+│     └─ rule-count-label
 ├─ permissions-viewport
-│  ├─ tool-permissions-tab          (对应 permissions.json)
+│  ├─ tool-permissions-tab
 │  │  ├─ tab-header
-│  │  │  └─ tab-title ("工具权限")
+│  │  │  └─ tab-title
 │  │  ├─ default-tier-row
-│  │  │  ├─ default-tier-label       ("default")
-│  │  │  └─ default-tier-select     (ask / allow / deny；缺省 ask)
+│  │  │  ├─ default-tier-label
+│  │  │  └─ default-tier-select
 │  │  ├─ tool-permissions-table
-│  │  │  ├─ tool-permission-row*     (每个已声明工具一行)
-│  │  │  │  ├─ tool-name-label        (registry 工具名，只读)
-│  │  │  │  ├─ tier-select            (inherit / allow / ask / deny)
-│  │  │  │  └─ clear-tier-btn?        (清除显式档位，回退 inherit)
-│  │  │  └─ add-tool-permission-btn  (新增工具档位行)
+│  │  │  ├─ tool-permission-row*
+│  │  │  │  ├─ tool-name-label
+│  │  │  │  ├─ tier-select
+│  │  │  │  └─ clear-tier-btn?
+│  │  │  └─ add-tool-permission-btn
 │  │  └─ config-footer
-│  │     ├─ reset-btn                (放弃未保存修改)
-│  │     └─ save-btn                 (写 permissions.json)
-│  ├─ bash-policy-tab                (对应 bash-policy.json)
+│  │     ├─ reset-btn
+│  │     └─ save-btn
+│  ├─ bash-policy-tab
 │  │  ├─ tab-header
-│  │  │  └─ tab-title ("Bash 命令策略")
+│  │  │  └─ tab-title
 │  │  ├─ bash-default-row
-│  │  │  ├─ bash-default-label        ("default")
-│  │  │  └─ bash-default-select      (固定 ask；无匹配时默认 ask，fail-closed)
-│  │  ├─ bash-global-env?            (顶层 env：约束未在具体规则声明的 dynamic 变量，key=value* 多行；与 rules 内 env 共享)
+│  │  │  ├─ bash-default-label
+│  │  │  └─ bash-default-select
+│  │  ├─ bash-global-env?
 │  │  ├─ bash-rules-table
-│  │  │  ├─ bash-rule-row*           (每条命令规则一行)
-│  │  │  │  ├─ program-input         (IR 程序名，字面；dynamic 程序为 null 不在此列)
-│  │  │  │  ├─ args-input?           (argv 前缀精确匹配；省略表示只按程序名)
-│  │  │  │  ├─ decision-select       (allow / ask / deny)
-│  │  │  │  ├─ reason-input?         (可解释决策理由，回传审批 UI/日志)
-│  │  │  │  ├─ env-input?            (仅 dynamic 规则：把标记为 dynamic 的变量具体化为受约束值，如 URL 白名单 / 脚本路径白名单；key=value* 多行)
+│  │  │  ├─ bash-rule-row*
+│  │  │  │  ├─ program-input
+│  │  │  │  ├─ args-input?
+│  │  │  │  ├─ decision-select
+│  │  │  │  ├─ reason-input?
+│  │  │  │  ├─ env-input?
 │  │  │  │  └─ remove-rule-btn
 │  │  │  └─ add-bash-rule-btn
 │  │  └─ config-footer
-│  │     ├─ reset-btn               (放弃未保存修改)
-│  │     └─ save-btn                (写 bash-policy.json)
-│  └─ fs-policy-tab                  (对应 fs-policy.json)
+│  │     ├─ reset-btn
+│  │     └─ save-btn
+│  └─ fs-policy-tab
 │     ├─ tab-header
-│     │  └─ tab-title ("文件写策略")
-│     ├─ fs-scope-note               ("仅作用于 write / edit")
+│     │  └─ tab-title
+│     ├─ fs-scope-note
 │     ├─ fs-rules-table
-│     │  ├─ fs-rule-row*             (每条 path 规则一行)
-│     │  │  ├─ path-input            (glob：** 跨层 / * 单段 / ? 单字符；支持绝对或相对 workspace)
-│     │  │  ├─ permission-select     (allow / deny；先扫 deny 命中即拒)
+│     │  ├─ fs-rule-row*
+│     │  │  ├─ path-input
+│     │  │  ├─ permission-select
 │     │  │  └─ remove-rule-btn
 │     │  └─ add-fs-rule-btn
 │     └─ config-footer
-│        ├─ reset-btn               (放弃未保存修改)
-│        └─ save-btn                (写 fs-policy.json)
+│        ├─ reset-btn
+│        └─ save-btn
 └─ permissions-panel
-   ├─ export-config-btn?            (导出 permissions.json + bash-policy.json + fs-policy.json)
-   ├─ danger-zone                   (恢复默认：default=ask，清空所有显式档位与规则)
+   ├─ reset-defaults-btn
+   ├─ danger-zone
    └─ close-permissions-btn
 
 settings-modal
@@ -403,48 +452,34 @@ settings-modal
 ├─ provider-selector
 └─ model-selector
 
-
-### 横切组件
-
-```text
-Process（非布局树节点）
-├─ thought：嵌入 response-message
-├─ tool-call：嵌入 response-message
-│  ├─ text-file：read / write / edit / search
-│  ├─ bash：grep / list / file / run
-│  ├─ sql：insert / delete / query / select
-│  ├─ script：run
-│  └─ web：search
-└─ trajectory-tab 内展示
-   ├─ sub-agent-tree
-   └─ agent-trace-node
-
-HumanControl（非布局树节点）
-├─ approval-request：嵌入 response-message
-├─ ask-user-question：嵌入 tool-call-card
-├─ user-job-request：嵌入 tool-call-card
-├─ action-bar：附着 response-message / tool-call
-├─ branch-picker：附着 response-message
-└─ attachment-tray：附着 composer
-   └─ 状态：ready / extracting / fallback
-```
-
-> `Process` 和 `HumanControl` 不是 `shell` 的布局子节点，而是嵌入在 `response-message`、`tool-call`、`trajectory-tab` 和 `composer` 附近的横切组件。
-
 ---
 
 ## 3. 事件回调
+
+### 3.1 会话栏（shell 外）
 
 add-workspace-btn -> folder-selector -> add-workspace(folder)
 add-session-btn -> name-prompt -> add-session(worksapce,name)
 models-btn -> models-modal
 permissions-btn -> permissions-modal
-save-btn(tool-permissions) -> AgentClient.call("storage", {op:"permissions.upsert", payload:{default, tools}}) -> 写 user/permissions.json
-save-btn(bash-policy) -> AgentClient.call("storage", {op:"bashpolicy.upsert", payload:{default:"ask", rules}}) -> 写 user/bash-policy.json
-save-btn(fs-policy) -> AgentClient.call("storage", {op:"fspolicy.upsert", payload:{rules}}) -> 写 user/fs-policy.json
+
+### 3.2 models-modal
+
+add-provider-btn -> provider-add-tab（打开新增供应者标签页）
+add-model-btn(provider_id) -> model-add-tab（打开新增模型标签页，携带 provider_id）
+model-edit-btn(model.id) -> model-edit-tab（打开模型编辑标签页）
+save-btn(providers) -> AgentClient.call("providers", {op:"upsert", payload:<整体 providers 数组>}) -> 整体写回 user/providers.json
 fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote-models-section（渲染 remote-model-item*）
-remote-add-btn -> AgentClient.call("storage", {op:"model.create", payload:{provider_id, name, fee}}) -> model-list-section
-add-all-btn -> 对每条未添加 remote-model-item 触发 model.create
+remote-add-btn -> AgentClient.call("providers", {op:"upsert", payload:<整体 providers 数组>}) -> model-list-section
+add-all-btn -> 对每条未添加 remote-model-item 触发 providers upsert
+
+### 3.3 permissions-modal
+
+save-btn(tool-permissions) -> AgentClient.call("permissions", {op:"permissions.upsert", payload:{default, tools}}) -> 写 user/permissions.json
+save-btn(bash-policy) -> AgentClient.call("permissions", {op:"bashpolicy.upsert", payload:{default:"ask", rules}}) -> 写 user/bash-policy.json
+save-btn(fs-policy) -> AgentClient.call("permissions", {op:"fspolicy.upsert", payload:{rules}}) -> 写 user/fs-policy.json
+
+### 3.4 user-job（运行期交互）
 
 user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文本框 + 提交/取消按钮
   提交按钮 -> AgentClient.call("answerUserJob", {id, result}) -> 工具结果为用户回报文本
@@ -454,22 +489,66 @@ user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文
 
 ## 4. 布局关系
 
-- **整体三栏**：左侧 `thread-sidebar`，中间 `chat-viewport`，右侧 `context-panel`。
-- **`thread-sidebar` 纵向排列**：`sidebar-header` → `new-session-button` → `workspace-session-tree-list` → `settings-btn`。
-- **`sidebar-header`**：展示 `agent-badge` 和 `left-collapse-button`。
-- **`workspace-session-tree-list`**：包含可重复的 `workspace`，每个 `workspace` 下包含可重复的 `session`。
-- **`chat-viewport` 纵向排列**：`chat-header` → `tab-body` → `composer` → `chat-footer`。
-- **`chat-header`**：包含 `session-name`、`tab-icons` 和 `right-collapse-button`；`tab-icons` 包含 `chat-tab-icon` 与 `trajectory-icon`。
-- **`tab-body`**：在 `chat-tab` 与 `trajectory-tab` 之间切换。
-- **`chat-tab` 内部**：`request-prompt` 在上，`response-message` 在下；`response-message` 内按需渲染 `approval-request`、`ask-user-question`、`thought`、`tool-call`、`answer`、`ask-user-prompt`，顺序不固定。
-- **`user-job-request` 嵌入 `tool-call-card`**：request_user_job 工具触发，展示任务描述与结果输入框，由用户提交或取消后继续本轮。
-- **`composer` 位于 `chat-viewport` 底部**：包含 `input-textarea` 与 `composer-footer`；`composer-footer` 放 `think-switch`、`search-switch`、`presence-mode-switch`、`autonomy-mode-switch`、`activity-mode-selector`、`add-files-btn`、`send-or-stop-btn`；`attachment-tray` 附着于 `composer` 顶部（`input-textarea` 之前）。
-- **`chat-footer`**：展示 `session-statistics`、`token-usage`、`context-used`。
-- **`context-panel` 居右**：默认隐藏，展示选中 `tool-call` 的详情与引用来源。
-- **折叠关系**：`left-collapse-button` 控制 `thread-sidebar` 折叠；`right-collapse-button` 控制 `context-panel` 折叠。
-- **Process 嵌入**：`thought`、`tool-call` 显示在 `response-message` 中；`sub-agent-tree`、`agent-trace-node` 在 `trajectory-tab` 中展示。
-- **HumanControl 嵌入**：`approval-request` 显示在 `response-message` 中；`action-bar`、`branch-picker` 附着在消息或工具卡片旁；`attachment-tray` 附着在 `composer` 附近。
-- **附件交互**：附件上传由 `add-files-btn` 触发，附件状态通过 `attachment-tray` 展示；不单独设置 `AttachmentDropzone` 布局节点。
+shell
+   children: thread-sidebar | chat-viewport | context-panel
+   arrange: horizontal
+
+thread-sidebar
+   children: sidebar-header, new-session-button, workspace-session-tree-list, settings-btn
+   arrange: vertical
+
+sidebar-header
+   contains: agent-badge, left-collapse-button
+
+workspace-session-tree-list
+   children: workspace*
+   workspace*
+      children: session*
+
+chat-viewport
+   children: chat-header, tab-body, composer, chat-footer
+   arrange: vertical
+
+chat-header
+   contains: session-name, tab-icons, right-collapse-button
+   tab-icons: chat-tab-icon, trajectory-icon
+
+tab-body
+   toggle: chat-tab | trajectory-tab
+
+chat-tab
+   children: request-prompt (top), model-response (bottom)
+   model-response
+      dynamic, order-free: thought? / answer? / ask-user-prompt? / branch-picker? / tool-call-card*
+
+tool-call-card*
+   children: tool-call-desc, approval-request, ask-user-question?, user-job-request?, action-bar?, tool-result
+   user-job-request?
+      trigger: request_user_job；展示任务描述 + 结果输入框，提交/取消后继续本轮
+   type: text-file / bash / sql / script / web
+
+trajectory-tab
+   children: sub-agent-tree, agent-trace-node
+
+composer
+   children: attachment-tray (top, before input-textarea), input-textarea, composer-footer
+   composer-footer: think-switch, search-switch, presence-mode-switch, autonomy-mode-switch, activity-mode-selector, add-files-btn, send-or-stop-btn
+
+chat-footer
+   shows: session-statistics, token-usage, context-used
+
+context-panel
+   position: right
+   default: hidden
+   shows: selected tool-call detail + refs
+
+collapse
+   left-collapse-button  → thread-sidebar
+   right-collapse-button → context-panel
+
+attachment
+   add-files-btn → attachment-tray (states: ready / extracting / fallback)
+   no AttachmentDropzone node
 
 ---
 

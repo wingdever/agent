@@ -278,6 +278,9 @@ class Store {
   }
 
   // ================= 注册表：供应者 / 模型 / 工具 / 技能 / 配置 =================
+  // DEPRECATED: 供应者/模型现已改由 user/providers.json 承载（见 core/index.js 的 case "providers"，
+  // 由 ui/web/models.js 读写）。以下 provider.* / model.* 方法仅保留以兼容旧 store.db 数据，
+  // 运行时不再使用，后续可整体删除。
   listProviders() { return this._list("providers"); }
   createProvider(data) { return this._create("providers", data, ["name", "description", "baseurl", "apikey"]); }
   updateProvider({ id, ...d }) { return this._update("providers", id, d, ["name", "description", "baseurl", "apikey"]); }
@@ -287,6 +290,7 @@ class Store {
     return this._delete("providers", id);
   }
 
+  // DEPRECATED: 见上方 provider.* 说明。
   listModels({ provider_id } = {}) { return this._list("models", provider_id != null ? { provider_id } : {}); }
   createModel(data) { return this._create("models", data, ["provider_id", "name", "description", "fee"]); }
   updateModel({ id, ...d }) { return this._update("models", id, d, ["provider_id", "name", "description", "fee"]); }
@@ -380,6 +384,8 @@ const OPS = {
   "call.update": (s, p) => s.updateCall(p),
   "call.delete": (s, p) => s.deleteCall(p),
 
+  // DEPRECATED: 供应者/模型 OPS 已由 core/index.js 的 case "providers"（读写 user/providers.json）取代，
+  // ui/web/models.js 不再调用以下 op。仅保留以兼容旧 store.db，后续可删除。
   "provider.list": (s) => s.listProviders(),
   "provider.get": (s, p) => s._get("providers", p.id),
   "provider.create": (s, p) => s.createProvider(p),

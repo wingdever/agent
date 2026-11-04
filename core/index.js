@@ -35,6 +35,29 @@ function writePermissionFile(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
   return data;
 }
+
+// user/providers.json：供应者/模型配置（本机，不入 git）。
+// 这是运行时默认模型/baseUrl/apiKey 的真正来源（见 resolveProvider / resolveDefaultFromProviders）。
+// schema 允许扩展字段并保持可空：base_url / api_key / description 可空；模型含可选 fee（缺省 "unknown"）。
+function readProvidersFile() {
+  try {
+    var arr = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8"));
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function (p) {
+      var out = { name: p.name, base_url: p.base_url || null, api_key: p.api_key || null, description: p.description || null };
+      out.models = (Array.isArray(p.models) ? p.models : []).map(function (m) {
+        var mn = (typeof m === "string") ? m : (m && m.name);
+        return { name: mn, fee: (m && m.fee) || "unknown" };
+      });
+      return out;
+    });
+  } catch (_) { return []; }
+}
+function writeProvidersFile(arr) {
+  fs.mkdirSync(path.dirname(PROVIDERS_FILE), { recursive: true });
+  fs.writeFileSync(PROVIDERS_FILE, JSON.stringify(arr || [], null, 2));
+  return arr || [];
+}
 function resolveProvider(name) {  if (!name) return null;  let providers;  try { providers = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8")); } catch (_) { return null; }  if (!Array.isArray(providers)) return null;  const p = providers.find((x) => x.name === name);  if (!p) return null;  const models = Array.isArray(p.models) ? p.models : [];  const model = models.length ? (models[0].name || models[0]) : null;  return { baseUrl: p.base_url, apiKey: p.api_key, model };}
 
 // 调用方未显式指定 model 时，从 user/providers.json 取首个含模型的供应者作为默认：
@@ -789,6 +812,11 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
       if (params.op === "bashpolicy.upsert") return writePermissionFile(BASH_POLICY_FILE, params.payload || { default: "ask", rules: [] });
       if (params.op === "fspolicy.upsert") return writePermissionFile(FS_POLICY_FILE, params.payload || { rules: [] });
       throw new Error("unknown permissions op: " + params.op);
+    }
+    case "providers": {
+      if (params.op === "get") return readProvidersFile();
+      if (params.op === "upsert") return writeProvidersFile(params.payload || []);
+      throw new Error("unknown providers op: " + params.op);
     }
     case "listFunctions": return core.listFunctions();
     case "storage": {
