@@ -371,27 +371,88 @@ document.addEventListener("DOMContentLoaded", function () {
   var liveUserTranslation = null;   // 用户消息的中文原文副块
   var liveAssistantTranslation = null; // 助手回答的中文译文副块
 
-  var planModeSwitch = document.getElementById("planModeSwitch");
+  // plan-mode 由 activity=plan 驱动（见 docs/agent-mode.md）：选 plan 即进入计划态，
+  // 切到其他 activity 即退出。UI 不再有独立按钮；core 的 plan-mode 状态以 activity 为准。
   var currentPlanMode = false;
-  function setPlanModeUi(active) {
-    currentPlanMode = active === true;
-    if (planModeSwitch) {
-      planModeSwitch.classList.toggle("active", currentPlanMode);
-      planModeSwitch.textContent = currentPlanMode ? "计划中" : "计划";
-    }
+  function setActivityMode(v) {
+    var sel = document.querySelector(".activity-mode-selector select");
+    if (sel) sel.value = v;
+    localStorage.setItem("agent.activity", v);
   }
-  async function refreshPlanMode(sessionId) {
-    if (!sessionId) { setPlanModeUi(false); return; }
+  // 据当前 activity 同步 core 的 per-session plan-mode（即时，不依赖发消息）
+  async function syncPlanModeFromActivity() {
+    if (!currentSessionId) return;
+    var active = getActivityMode() === "plan";
+    currentPlanMode = active;
     try {
-      var result = await window.AgentClient.call("planMode", { op: "get", session_id: sessionId });
-      setPlanModeUi(result && result.active === true);
-    } catch (e) {
-      setPlanModeUi(false);
+      await window.AgentClient.call("planMode", { op: "set", session_id: currentSessionId, active: active });
+    } catch (e) { /* 忽略同步失败 */ }
+  }
+  function getPresenceMode() {
+    var btn = document.getElementById("presenceSwitch");
+    return (btn && btn.getAttribute("data-mode")) || "in";
+  }
+  function getAutonomyMode() {
+    var btn = document.getElementById("autonomySwitch");
+    return (btn && btn.getAttribute("data-mode")) || "supervised";
+  }
+  function getActivityMode() {
+    var sel = document.querySelector(".activity-mode-selector select");
+    return sel ? sel.value : "chat";
+  }
+
+  // ---------- presence 自动机（在场状态：in/out） ----------
+  // 规则（见 docs/agent-mode.md）：
+  //   in -> out：用户无操作且未主动挂起，持续 >=10 分钟（idle 检测）
+  //   out -> in：用户插话（发送/输入）或手动切回 in
+  //   out 自动触发 autonomy: supervised -> autonomous（永久提权，presence 回 in 不降）
+  //   autonomous 下 ask 自动 deny 由 agent 行为层负责，此处只切状态
+  var IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+  var PRESENCE_TICK_MS = 30 * 1000;
+  var lastUserActivity = Date.now();
+  var presenceAuto = true; // 自动跟踪开启；用户手动改 presence 时关闭
+
+  function setPresenceMode(v) {
+    var btn = document.getElementById("presenceSwitch");
+    if (btn) {
+      btn.setAttribute("data-mode", v);
+      btn.textContent = "在场: " + v;
+      btn.classList.toggle("active", v === "out");
+    }
+    if (v === "in") lastUserActivity = Date.now();
+  }
+  function setAutonomyMode(v) {
+    var btn = document.getElementById("autonomySwitch");
+    if (btn) {
+      btn.setAttribute("data-mode", v);
+      btn.textContent = "自主: " + v;
+      btn.classList.toggle("active", v === "autonomous");
     }
   }
-  function getComposerMode() {
-    var sel = document.querySelector(".mode-selector select");
-    return sel ? sel.value : "turn-step";
+  // 用户产生活动（插话）：恢复自动跟踪，回到 in，不触碰 autonomy
+  function markUserActivity() {
+    presenceAuto = true;
+    if (getPresenceMode() !== "in") setPresenceMode("in");
+    else lastUserActivity = Date.now();
+  }
+  // 定时检查：自动 in -> out，并提权 autonomy
+  function tickPresence() {
+    if (!presenceAuto) return;
+    if (getPresenceMode() !== "in") return;
+    if (Date.now() - lastUserActivity < IDLE_TIMEOUT_MS) return;
+    setPresenceMode("out");
+    // 被迫自治：supervised -> autonomous（永久提权）
+    if (getAutonomyMode() === "supervised") setAutonomyMode("autonomous");
+  }
+  // presence selector 手动变更：用户接管；手动 out = 主动离开/挂起（抑制自动机），手动 in = 恢复跟踪
+  function onPresenceManualChange() {
+    var v = getPresenceMode();
+    if (v === "out") {
+      presenceAuto = false;
+    } else {
+      presenceAuto = true;
+      lastUserActivity = Date.now();
+    }
   }
   function hideEmptyHint() { var h = chatTab.querySelector(".empty-hint"); if (h) h.remove(); }
   function showEmptyHint() {
@@ -801,6 +862,17 @@ document.addEventListener("DOMContentLoaded", function () {
     card.className = "tool-call approval";
     var head = document.createElement("div");
     head.className = "tool-head";
+    // autonomous 模式下的自动拒绝：静态卡，无授权按钮（core 已 deny 且未挂起等待）
+    if (evt.autoDenied) {
+      head.textContent = "autonomous 自动拒绝：" + (evt.name || "tool");
+      var args = document.createElement("div");
+      args.className = "tool-args";
+      args.textContent = JSON.stringify(evt.arguments || {}, null, 2);
+      card.appendChild(head); card.appendChild(args);
+      chatTab.appendChild(card);
+      scrollChatToBottom();
+      return;
+    }
     var auto = evt.permission === "allow" || evt.permission === "deny";
     head.textContent = auto
       ? (evt.permission === "allow" ? "已自动允许：" : "策略拒绝：") + (evt.name || "tool")
@@ -870,7 +942,9 @@ document.addEventListener("DOMContentLoaded", function () {
       currentThoughtBubble = null;
       resetFlatTranslationState();
     } else if (evt.type === "plan-mode") {
-      setPlanModeUi(evt.active === true);
+      currentPlanMode = evt.active === true;
+      // exit_plan_mode 批准后 core 退出 plan-mode：UI 同步把 activity 切到 build（批准=同意实施）
+      if (!evt.active) setActivityMode("build");
     } else if (evt.type === "approval-request") {
       createApprovalCard(evt);
     } else if (evt.type === "error") {
@@ -981,7 +1055,7 @@ document.addEventListener("DOMContentLoaded", function () {
     ap.innerHTML = "";
     var status = document.createElement("span");
     status.className = "approval-status";
-    status.textContent = meta.label;
+    status.textContent = opts.autoDenied ? "autonomous 自动拒绝" : meta.label;
     var tool = document.createElement("span");
     tool.className = "approval-tool";
     tool.textContent = opts.name || "tool";
@@ -1039,7 +1113,8 @@ document.addEventListener("DOMContentLoaded", function () {
       permission: permission,
       name: evt.name,
       arguments: evt.arguments,
-      onDecision: permission === "ask" ? function (decision) {
+      autoDenied: evt.autoDenied === true,
+      onDecision: (permission === "ask" && !evt.autoDenied) ? function (decision) {
         AgentClient.call("approval", { id: evt.id, decision: decision });
       } : null
     });
@@ -1232,11 +1307,11 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!evt || !evt.type) return;
     if (evt.type === "model-http-status") { setModelHttpStatus(evt.state, evt.status); return; }
     if (evt.type === "translation") {
-      if (getComposerMode() === "bare-chat") handleTranslationFlat(evt);
+      if (getActivityMode() === "chat") handleTranslationFlat(evt);
       else handleTranslationTurn(evt);
       return;
     }
-    if (getComposerMode() === "bare-chat") { onChatEventFlat(evt); return; }
+    if (getActivityMode() === "chat") { onChatEventFlat(evt); return; }
     // turn-step：按层级渲染
     if (evt.type === "reasoning") {
       ensureLiveStep();
@@ -1273,7 +1348,9 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (evt.type === "plan-review") {
       renderPlanReview(getToolCard(evt.callId || evt.id), evt);
     } else if (evt.type === "plan-mode") {
-      setPlanModeUi(evt.active === true);
+      currentPlanMode = evt.active === true;
+      // exit_plan_mode 批准后 core 退出 plan-mode：UI 同步把 activity 切到 build（批准=同意实施）
+      if (!evt.active) setActivityMode("build");
     } else if (evt.type === "approval-request") {
       setApproval(getToolCard(evt.callId || evt.id), evt);
     } else if (evt.type === "system-prompt") {
@@ -1423,7 +1500,7 @@ document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll(".session-item").forEach(function (n) { n.classList.remove("active"); });
     if (node) node.classList.add("active");
     renderSessionMessages(sess.id);
-    refreshPlanMode(sess.id);
+    syncPlanModeFromActivity();
     if (input) input.focus();
   }
   async function runBareChat(text) {
@@ -1447,7 +1524,8 @@ document.addEventListener("DOMContentLoaded", function () {
   async function onSend() {
     var text = input.value.trim();
     if (!text) return;
-    if (getComposerMode() === "bare-chat") { await runBareChat(text); return; }
+    markUserActivity();
+    if (getActivityMode() === "chat") { await runBareChat(text); return; }
     if (!currentSessionId) { await uiAlert("请先在左侧选择或新建一个会话"); return; }
     input.value = "";
     hideEmptyHint();
@@ -1463,7 +1541,7 @@ document.addEventListener("DOMContentLoaded", function () {
     try {
       var history = await buildMessages(currentSessionId);
       history.push({ role: "user", content: text });
-      await window.AgentClient.call("chat", { messages: history, sessionId: currentSessionId }, onChatEvent);
+      await window.AgentClient.call("chat", { messages: history, sessionId: currentSessionId, autonomy: getAutonomyMode(), activity: getActivityMode() }, onChatEvent);
     } catch (e) {
       console.error("chat failed:", e);
       AgentMarkdown.append(ensureAnswer(), "[出错] " + (e && e.message ? e.message : e));
@@ -1474,10 +1552,25 @@ document.addEventListener("DOMContentLoaded", function () {
 
   if (sendBtn) sendBtn.addEventListener("click", onSend);
   if (input) input.addEventListener("keydown", function (e) {
+    markUserActivity();
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); }
   });
 
   loadWorkspaces();
+
+  // presence 自动机：定时 idle 检测 + 手动切换接管
+  var presenceSwitch = document.getElementById("presenceSwitch");
+  if (presenceSwitch) presenceSwitch.addEventListener("click", function () {
+    setPresenceMode(getPresenceMode() === "in" ? "out" : "in");
+    onPresenceManualChange();
+  });
+  var autonomySwitch = document.getElementById("autonomySwitch");
+  if (autonomySwitch) autonomySwitch.addEventListener("click", function () {
+    var next = getAutonomyMode() === "supervised" ? "autonomous" : "supervised";
+    setAutonomyMode(next);
+    localStorage.setItem("agent.autonomy", next);
+  });
+  setInterval(tickPresence, PRESENCE_TICK_MS);
 
   // 5) add-files-btn -> 演示 attachment-tray 状态变化（ready/extracting/fallback）
   var addFilesBtn = document.getElementById("addFilesBtn");
@@ -1500,17 +1593,8 @@ document.addEventListener("DOMContentLoaded", function () {
   var searchSwitch = document.getElementById("searchSwitch");
   if (thinkSwitch) thinkSwitch.addEventListener("click", function () { thinkSwitch.classList.toggle("active"); });
   if (searchSwitch) searchSwitch.addEventListener("click", function () { searchSwitch.classList.toggle("active"); });
-  if (planModeSwitch) planModeSwitch.addEventListener("click", async function () {
-    if (!currentSessionId) { await uiAlert("请先在左侧选择或新建一个会话"); return; }
-    try {
-      var result = await window.AgentClient.call("planMode", {
-        op: "set",
-        session_id: currentSessionId,
-        active: !currentPlanMode,
-      });
-      setPlanModeUi(result && result.active === true);
-    } catch (e) {
-      await uiAlert("切换计划模式失败：" + (e && e.message ? e.message : e));
-    }
-  });
+
+  // activity selector 变更：即时同步 per-session plan-mode 到 core（切到 plan 即进入计划态）
+  var activitySel = document.querySelector(".activity-mode-selector select");
+  if (activitySel) activitySel.addEventListener("change", function () { syncPlanModeFromActivity(); });
 });

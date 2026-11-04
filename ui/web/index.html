@@ -68,12 +68,18 @@
       <div class="composer-footer" data-name="composer-footer">
         <button class="think-switch" id="thinkSwitch" data-name="think-switch" title="思考模式">思考</button>
         <button class="search-switch" id="searchSwitch" data-name="search-switch" title="联网搜索">搜索</button>
-        <button class="plan-mode-switch" id="planModeSwitch" data-name="plan-mode-switch" title="计划模式">计划</button>
-        <label class="permission-selector" data-name="permission-selector">权限
-          <select><option>自动</option><option>每次询问</option><option>仅只读</option></select>
-        </label>
-        <label class="mode-selector" data-name="mode-selector">模式
-          <select><option value="bare-chat">bare-chat</option><option value="turn-step">turn-step</option><option value="goal-plan">goal-plan</option></select>
+        <button class="presence-switch" id="presenceSwitch" data-name="presence-mode-switch" title="在场状态（in/out，自动推断，可手动切换）">在场: in</button>
+        <button class="autonomy-switch" id="autonomySwitch" data-name="autonomy-mode-switch" title="自主度（supervised/autonomous，可手动提权/降权）">自主: supervised</button>
+        <label class="activity-mode-selector" data-name="activity-mode-selector">活动
+          <select>
+            <option value="chat">chat</option>
+            <option value="plan">plan</option>
+            <option value="build">build</option>
+            <option value="discuss">discuss</option>
+            <option value="research">research</option>
+            <option value="review">review</option>
+            <option value="diagnose">diagnose</option>
+          </select>
         </label>
         <button class="add-files-btn" id="addFilesBtn" data-name="add-files-btn">+ 文件</button>
         <button class="send-or-stop-btn" data-name="send-or-stop-btn">发送</button>

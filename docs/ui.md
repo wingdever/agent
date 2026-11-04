@@ -64,9 +64,10 @@
 | **think-switch** | 思考模式开关 |
 | **search-switch** | 联网搜索开关 |
 | **add-files-btn** | 添加文件按钮 |
-| **permission-selector** | 权限选择器 |
 | **model-selector** | 模型选择器（settings-modal 内） |
-| **mode-selector** | 模式选择器（composer-footer：bare-chat / turn-step / goal-plan） |
+| **presence-mode-switch** | 在场状态开关（composer-footer：in / out，运行时自动态，可手动切换） |
+| **autonomy-mode-switch** | 自主度开关（composer-footer：supervised / autonomous，用户显式提权/降权） |
+| **activity-mode-selector** | 活动选择器（composer-footer：chat / plan / build / discuss / research / review / diagnose；chat 即原 bare-chat 轻量模式） |
 | **send-or-stop-btn** | 发送/停止按钮 |
 | **chat-footer** | 聊天底部状态区 |
 | **session-statistics** | 会话统计 |
@@ -224,8 +225,9 @@ shell
 │  │  └─ composer-footer
 │  │     ├─ think-switch
 │  │     ├─ search-switch
-│  │     ├─ permission-selector
-│  │     ├─ mode-selector
+│  │     ├─ presence-mode-switch
+│  │     ├─ autonomy-mode-switch
+│  │     ├─ activity-mode-selector
 │  │     ├─ add-files-btn
 │  │     └─ send-or-stop-btn
 │  └─ chat-footer
@@ -391,7 +393,7 @@ user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文
 - **`tab-body`**：在 `chat-tab` 与 `trajectory-tab` 之间切换。
 - **`chat-tab` 内部**：`request-prompt` 在上，`response-message` 在下；`response-message` 内按需渲染 `approval-request`、`ask-user-question`、`thought`、`tool-call`、`answer`、`ask-user-prompt`，顺序不固定。
 - **`user-job-request` 嵌入 `tool-call-card`**：request_user_job 工具触发，展示任务描述与结果输入框，由用户提交或取消后继续本轮。
-- **`composer` 位于 `chat-viewport` 底部**：包含 `input-textarea` 与 `composer-footer`；`composer-footer` 放 `think-switch`、`search-switch`、`permission-selector`、`mode-selector`、`add-files-btn`、`send-or-stop-btn`；`attachment-tray` 附着于 `composer` 顶部（`input-textarea` 之前）。
+- **`composer` 位于 `chat-viewport` 底部**：包含 `input-textarea` 与 `composer-footer`；`composer-footer` 放 `think-switch`、`search-switch`、`presence-mode-switch`、`autonomy-mode-switch`、`activity-mode-selector`、`add-files-btn`、`send-or-stop-btn`；`attachment-tray` 附着于 `composer` 顶部（`input-textarea` 之前）。
 - **`chat-footer`**：展示 `session-statistics`、`token-usage`、`context-used`。
 - **`context-panel` 居右**：默认隐藏，展示选中 `tool-call` 的详情与引用来源。
 - **折叠关系**：`left-collapse-button` 控制 `thread-sidebar` 折叠；`right-collapse-button` 控制 `context-panel` 折叠。

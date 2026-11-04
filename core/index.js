@@ -115,11 +115,23 @@ class AgentCore {
     this.userJobs = new Map();
     this.goals = null;
     this._onEvent = () => {};
+    // 当前自主度：由 chat() 的 autonomy 参数注入（supervised | autonomous）。
+    // autonomous 下所有 ask 自动 deny（见 docs/agent-mode.md），不挂起等待用户。
+    this.autonomy = "supervised";
+  }
+
+  isAutonomous() {
+    return this.autonomy === "autonomous";
   }
 
   // 请求用户授权执行某工具调用：发 approval-request 事件并挂起，直至 approve() 唤醒。
   // callId 绑定到对应的 tool call 卡片，id 只用于回传审批结果。
+  // autonomous 模式：自动 deny，不挂起（emit autoDenied 供 UI 渲染静态卡）。
   requestApproval({ callId, name, args, permission = "ask" }) {
+    if (this.isAutonomous()) {
+      this._onEvent({ type: "approval-request", callId, name, arguments: args, permission, autoDenied: true });
+      return Promise.resolve("deny");
+    }
     return new Promise((resolve) => {
       const id = (this._approvalSeq = (this._approvalSeq || 0) + 1);
       this.pendingApprovals.set(id, resolve);
@@ -142,6 +154,11 @@ class AgentCore {
   // with no custom, matching DSH's answer shape.
   requestUserQuestion({ callId, questions }) {
     const list = Array.isArray(questions) ? questions : [];
+    // autonomous 模式：不等待用户回答，直接返回空答案让模型继续。
+    if (this.isAutonomous()) {
+      const answers = list.map((q) => ({ id: q.id, selected: [] }));
+      return Promise.resolve({ answers });
+    }
     return new Promise((resolve) => {
       const id = (this._questionSeq = (this._questionSeq || 0) + 1);
       this.pendingQuestions.set(id, { resolve, questions: list, callId });
@@ -211,6 +228,11 @@ class AgentCore {
   // record lives in memory (this.userJobs) and, when a session store exists, is
   // mirrored there.
   requestUserJob({ callId, description, title, sessionId }) {
+    // autonomous 模式：不等待用户委派，直接标记取消让模型继续。
+    if (this.isAutonomous()) {
+      const jobId = "ujob_" + Date.now().toString(36) + "_" + ((this._userJobSeq = (this._userJobSeq || 0) + 1)).toString(36);
+      return Promise.resolve({ jobId, cancelled: true });
+    }
     return new Promise((resolve) => {
       this._userJobSeq = (this._userJobSeq || 0) + 1;
       const jobId = "ujob_" + Date.now().toString(36) + "_" + this._userJobSeq.toString(36);
@@ -394,8 +416,13 @@ class AgentCore {
     return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: finishReason };
   }
 
-  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream } = {}) {
+  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream, autonomy, activity } = {}) {
     this._onEvent = onEvent;
+    this.autonomy = autonomy === "autonomous" ? "autonomous" : "supervised";
+    this.activity = activity === "plan" ? "plan" : (activity || "chat");
+    // activity=plan 驱动 per-session plan-mode：选 plan 即进入计划态（POLICY 生效），
+    // 切到其他 activity 即退出（见 docs/agent-mode.md）。exit_plan_mode 批准后由 UI 切到 build。
+    if (sessionId) planMode.setActive(sessionId, this.activity === "plan");
     const store = this.store;
     const persist = !!(sessionId && store);
     // DSH resets the todo projection on turn/start; one chat() call is one turn.

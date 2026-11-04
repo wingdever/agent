@@ -163,17 +163,34 @@
   }
   function closeSettings() { if (overlay) overlay.style.display = "none"; }
 
-  function composerModeSelect() {
-    var wrap = document.querySelector(".mode-selector");
+  function modeSelect(dataName) {
+    var wrap = document.querySelector("." + dataName);
     return wrap ? wrap.querySelector("select") : null;
   }
-  function getMode() { return localStorage.getItem("agent.mode") || "turn-step"; }
-  function setMode(v) { if (v) localStorage.setItem("agent.mode", v); }
-  function initComposerMode() {
-    var sel = composerModeSelect();
+  function initModeSelect(dataName, storageKey, fallback) {
+    var sel = modeSelect(dataName);
     if (!sel) return;
-    sel.value = getMode();
-    sel.addEventListener("change", function () { setMode(sel.value); });
+    var saved = localStorage.getItem(storageKey);
+    sel.value = saved || fallback;
+    sel.addEventListener("change", function () { localStorage.setItem(storageKey, sel.value); });
+  }
+  // 按钮开关：恢复持久化值并渲染（data-mode + 文字 + active 高亮）
+  function initModeSwitch(btnId, storageKey, fallback, label) {
+    var btn = document.getElementById(btnId);
+    if (!btn) return;
+    var v = localStorage.getItem(storageKey) || fallback;
+    btn.setAttribute("data-mode", v);
+    btn.textContent = label + ": " + v;
+    btn.classList.toggle("active", v === "out" || v === "autonomous");
+  }
+  function initComposerMode() {
+    // activity：含 chat（轻量/原 bare-chat）等，跨会话持久化用户选择
+    initModeSelect("activity-mode-selector", "agent.activity", "chat");
+    // autonomy：supervised/autonomous，用户显式提权/降权，跨会话保留
+    initModeSwitch("autonomySwitch", "agent.autonomy", "supervised", "自主");
+    // presence：运行时自动态（idle 检测/插话），默认 in，不持久化
+    var pBtn = document.getElementById("presenceSwitch");
+    if (pBtn) { pBtn.setAttribute("data-mode", "in"); pBtn.textContent = "在场: in"; pBtn.classList.remove("active"); }
   }
 
   ready(function () {
