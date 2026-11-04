@@ -66,18 +66,14 @@
         <span class="state on-post" hidden>post</span>
         <span class="state on-get" hidden>get</span>
       </div>
-      <div class="attachment-tray" data-name="attachment-tray">
-        <span class="state ready">ready</span>
-        <span class="state extracting" hidden>extracting…</span>
-        <span class="state fallback" hidden>fallback</span>
-      </div>
-      <textarea class="input-textarea" data-name="input-textarea" placeholder="输入消息，Enter 发送（Shift+Enter 换行）"></textarea>
+      <div class="ref-chips" data-name="ref-chips" hidden></div>
+      <textarea class="input-textarea" data-name="input-textarea" placeholder="输入消息，Enter 发送（Shift+Enter 换行）；输入 @ 或点 @ 按钮引用文件/会话"></textarea>
       <div class="composer-footer" data-name="composer-footer">
         <button class="think-switch" id="thinkSwitch" data-name="think-switch" title="思考模式">思考</button>
         <button class="search-switch" id="searchSwitch" data-name="search-switch" title="联网搜索">搜索</button>
         <button class="presence-switch" id="presenceSwitch" data-name="presence-mode-switch" title="在场状态（in/out，自动推断，可手动切换）">在场: in</button>
         <button class="autonomy-switch" id="autonomySwitch" data-name="autonomy-mode-switch" title="自主度（supervised/autonomous，可手动提权/降权）">自主: supervised</button>
-        <button class="add-files-btn" id="addFilesBtn" data-name="add-files-btn">+ 文件</button>
+        <button class="ref-btn" id="refBtn" data-name="ref-btn" title="引用文件或会话（@）">@</button>
         <button class="send-or-stop-btn" data-name="send-or-stop-btn">发送</button>
       </div>
     </div>

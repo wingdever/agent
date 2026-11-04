@@ -92,14 +92,15 @@
 | **user-job-request** | 请求用户手动完成任务并回报结果的交互卡片（嵌入 `tool-call-card`） |
 | **sub-agent-tree** | 子 Agent 执行树；在 `trajectory-tab` 内展示 |
 | **agent-trace-node** | 执行树节点追踪；在 `trajectory-tab` 内展示 |
-| **attachment-tray** | 附件托盘；附着于 `composer`；状态：ready / extracting / fallback |
 | **trajectory-tab** | 轨迹标签页：按 turns → steps → (messages + calls) 渲染会话轨迹时间线（思考可展开、工具调用点击联动 context-panel）；详见 `docs/dsh/plan-trajectory.md` |
 | **composer** | 输入区 |
 | **input-textarea** | 文本输入框 |
 | **composer-footer** | 输入区底部工具栏 |
 | **think-switch** | 思考模式开关 |
 | **search-switch** | 联网搜索开关 |
-| **add-files-btn** | 添加文件按钮 |
+| **ref-btn** | `@` 引用按钮：打开引用菜单（历史会话 / 本地文件），选中的引用以 chip 展示于 `ref-chips` |
+| **ref-chips** | 引用 chip 容器（hidden 默认，有引用时显示），每个 chip 可单独移除 |
+| **ref-chip** | 单个引用 chip（`ref-file` / `ref-session` 修饰），含移除按钮 |
 | **model-selector** | 模型选择器（settings-modal 内） |
 | **presence-mode-switch** | 在场状态开关（composer-footer：in / out，运行时自动态，可手动切换） |
 | **autonomy-mode-switch** | 自主度开关（composer-footer：supervised / autonomous，用户显式提权/降权） |
@@ -215,7 +216,7 @@
 | **danger-zone** | 危险区（可选：清空配置） |
 | **close-settings-btn** | 关闭设置按钮 |
 
-> 运行期动态节点（thought / tool-call 及其子类型 / approval-request / ask-user-question / user-job-request / action-bar / branch-picker / sub-agent-tree / agent-trace-node / attachment-tray 等）不再单列「过程要素 / 人控要素」分块，已并入上表并作为布局树的子节点呈现（见 §2 包含关系）。布局树为第一真值。
+> 运行期动态节点（thought / tool-call 及其子类型 / approval-request / ask-user-question / user-job-request / action-bar / branch-picker / sub-agent-tree / agent-trace-node 等）不再单列「过程要素 / 人控要素」分块，已并入上表并作为布局树的子节点呈现（见 §2 包含关系）。布局树为第一真值。
 
 ---
 
@@ -287,14 +288,14 @@ shell
 │  │     └─ agent-trace-node
 │  ├─ composer
 │  │  ├─ model-http-status(on-wait|on-post|on-get)
-│  │  ├─ attachment-tray
+│  │  ├─ ref-chips
 │  │  ├─ input-textarea
 │  │  └─ composer-footer
 │  │     ├─ think-switch
 │  │     ├─ search-switch
 │  │     ├─ presence-mode-switch
 │  │     ├─ autonomy-mode-switch
-│  │     ├─ add-files-btn
+│  │     ├─ ref-btn
 │  │     └─ send-or-stop-btn
 │  └─ chat-footer
 │     ├─ session-statistics
@@ -539,8 +540,8 @@ trajectory-tab
    children: sub-agent-tree, agent-trace-node
 
 composer
-   children: attachment-tray (top, before input-textarea), input-textarea, composer-footer
-   composer-footer: think-switch, search-switch, presence-mode-switch, autonomy-mode-switch, add-files-btn, send-or-stop-btn
+   children: ref-chips (above input-textarea), input-textarea, composer-footer
+   composer-footer: think-switch, search-switch, presence-mode-switch, autonomy-mode-switch, ref-btn, send-or-stop-btn
 
 chat-footer
    shows: session-statistics, token-usage, context-used
@@ -555,8 +556,7 @@ collapse
    right-collapse-button → context-panel
 
 attachment
-   add-files-btn → attachment-tray (states: ready / extracting / fallback)
-   no AttachmentDropzone node
+   no AttachmentDropzone node; 文件引用由 ref-btn 的「引用本地文件」承接
 
 ---
 

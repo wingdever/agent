@@ -1735,7 +1735,8 @@ document.addEventListener("DOMContentLoaded", function () {
     currentAssistantBubble = null; toolCards = {};
     try {
       // bare-chat：不传 sessionId（core 不落库），toolNames 传空以禁用工具调用，历史仅存内存
-      await window.AgentClient.call("chat", { messages: bareHistory.slice(), toolNames: [] }, onChatEvent);
+      await window.AgentClient.call("chat", { messages: bareHistory.slice(), toolNames: [], references: pendingRefs.slice() }, onChatEvent);
+      pendingRefs = []; renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);
       appendMessage("assistant", "[出错] " + (e && e.message ? e.message : e));
@@ -1761,7 +1762,9 @@ document.addEventListener("DOMContentLoaded", function () {
     try {
       var history = await buildMessages(currentSessionId);
       history.push({ role: "user", content: text });
-      await window.AgentClient.call("chat", { messages: history, sessionId: currentSessionId, autonomy: getAutonomyMode(), activity: getActivityMode() }, onChatEvent);
+      var refs = pendingRefs.slice();
+      await window.AgentClient.call("chat", { messages: history, sessionId: currentSessionId, autonomy: getAutonomyMode(), activity: getActivityMode(), references: refs }, onChatEvent);
+      pendingRefs = []; renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);
       AgentMarkdown.append(ensureAnswer(), "[出错] " + (e && e.message ? e.message : e));
@@ -1796,19 +1799,97 @@ document.addEventListener("DOMContentLoaded", function () {
   var activityIndicator = document.getElementById("activityIndicator");
   if (activityIndicator) activityIndicator.addEventListener("click", openActivityMenu);
 
-  // 5) add-files-btn -> 演示 attachment-tray 状态变化（ready/extracting/fallback）
-  var addFilesBtn = document.getElementById("addFilesBtn");
-  var tray = document.querySelector(".attachment-tray");
-  if (addFilesBtn && tray) {
-    addFilesBtn.addEventListener("click", function () {
-      var states = tray.querySelectorAll(".state");
-      var visible = Array.prototype.find.call(states, function (s) { return !s.hidden; });
-      Array.prototype.forEach.call(states, function (s) { s.hidden = true; });
-      var order = ["ready", "extracting", "fallback"];
-      var idx = visible ? order.indexOf(visible.className.replace("state ", "")) : 0;
-      var next = order[(idx + 1) % order.length];
-      var el = tray.querySelector(".state." + next);
-      if (el) el.hidden = false;
+  // 7b) @ 引用：引用文件 / 会话，作为上下文随消息发送
+  var refBtn = document.getElementById("refBtn");
+  var refChips = document.querySelector(".ref-chips");
+  var pendingRefs = [];
+
+  function renderRefChips() {
+    if (!refChips) return;
+    refChips.innerHTML = "";
+    if (!pendingRefs.length) { refChips.hidden = true; return; }
+    refChips.hidden = false;
+    pendingRefs.forEach(function (ref, idx) {
+      var chip = document.createElement("span");
+      chip.className = "ref-chip ref-" + ref.type;
+      chip.setAttribute("data-name", "ref-chip");
+      chip.textContent = (ref.type === "file" ? "📄 " : "💬 ") + ref.label;
+      var x = document.createElement("button");
+      x.className = "ref-chip-remove";
+      x.setAttribute("data-name", "ref-chip-remove");
+      x.textContent = "×";
+      x.addEventListener("click", function () {
+        pendingRefs.splice(idx, 1);
+        renderRefChips();
+      });
+      chip.appendChild(x);
+      refChips.appendChild(chip);
+    });
+  }
+
+  function openRefMenu() {
+    var overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.setAttribute("data-name", "ref-menu-overlay");
+    var box = document.createElement("div");
+    box.className = "modal-box ref-menu";
+    box.setAttribute("data-name", "ref-menu");
+    var title = document.createElement("div");
+    title.className = "modal-title";
+    title.textContent = "引用为上下文";
+    box.appendChild(title);
+
+    var sessionItem = document.createElement("button");
+    sessionItem.className = "ref-menu-item";
+    sessionItem.textContent = "💬 引用历史会话…";
+    sessionItem.addEventListener("click", function () {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      pickSessionRef();
+    });
+    box.appendChild(sessionItem);
+
+    var fileItem = document.createElement("button");
+    fileItem.className = "ref-menu-item";
+    fileItem.textContent = "📄 引用本地文件…";
+    fileItem.addEventListener("click", function () {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      pickFileRef();
+    });
+    box.appendChild(fileItem);
+
+    overlay.appendChild(box);
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.parentNode.removeChild(overlay); });
+    document.body.appendChild(overlay);
+  }
+
+  async function pickSessionRef() {
+    try {
+      var list = await window.AgentClient.call("storage", { op: "session.list", payload: { includeDeleted: true } });
+      if (!list || !list.length) { await uiAlert("没有可引用的会话"); return; }
+      var options = list.map(function (s) { return (s.name || ("会话 " + s.id)) + (s.deleted_at ? " (已删)" : ""); }).join("\n");
+      var pick = await uiPrompt("输入要引用的会话序号（0 取消）:\n" + options.split("\n").map(function (n, i) { return (i + 1) + ". " + n; }).join("\n"), "1");
+      var i = parseInt(pick, 10);
+      if (!i || i < 1 || i > list.length) return;
+      var s = list[i - 1];
+      pendingRefs.push({ type: "session", id: s.id, name: s.name || ("会话 " + s.id), label: s.name || ("会话 " + s.id) });
+      renderRefChips();
+    } catch (e) { console.error("pick session ref failed:", e); }
+  }
+
+  async function pickFileRef() {
+    var p = await uiPrompt("输入要引用的本地文件路径", "");
+    if (!p) return;
+    pendingRefs.push({ type: "file", path: p, label: p.split("/").pop() || p });
+    renderRefChips();
+  }
+
+  if (refBtn) refBtn.addEventListener("click", openRefMenu);
+  if (input) {
+    input.addEventListener("input", function () {
+      // 输入 "@" 且当前无选中文本时打开引用菜单
+      if (input.value.slice(-1) === "@" && window.getSelection && getSelection().isCollapsed) {
+        openRefMenu();
+      }
     });
   }
 

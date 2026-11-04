@@ -382,6 +382,40 @@ class AgentCore {
     return process.cwd();
   }
 
+  // @引用解析：把 UI 传来的 references 解析为可注入对话的上下文文本块。
+  // 支持：{ type: "file", path } 读取本地文件；{ type: "session", id } 摘录历史会话。
+  async _resolveReferences(references, sessionId) {
+    const MAX_FILE = 20000; // 单文件上限，避免超长上下文
+    const parts = [];
+    for (const ref of references) {
+      if (!ref || typeof ref !== "object") continue;
+      if (ref.type === "file" && typeof ref.path === "string") {
+        try {
+          const abs = path.resolve(ref.path);
+          const stat = fs.statSync(abs);
+          if (stat.isDirectory()) { parts.push(`[引用目录] ${ref.path}（目录，未读取内容）`); continue; }
+          const content = fs.readFileSync(abs, "utf8");
+          const trimmed = content.length > MAX_FILE ? content.slice(0, MAX_FILE) + `\n…(截断，原 ${content.length} 字符)` : content;
+          parts.push(`[引用文件] ${ref.path}\n\`\`\`\n${trimmed}\n\`\`\``);
+        } catch (e) {
+          parts.push(`[引用文件] ${ref.path}（读取失败：${e.message}）`);
+        }
+      } else if (ref.type === "session" && ref.id != null) {
+        try {
+          const tree = await this.store.run("session.trajectory", { session_id: ref.id });
+          const name = (ref.name || ("会话 " + ref.id));
+          let excerpt = "";
+          let turns = 0, steps = 0, calls = 0;
+          (tree || []).forEach((t) => { turns++; (t.steps || []).forEach((s) => { steps++; (s.calls || []).forEach((c) => { calls++; excerpt += `- 工具 ${c.name}: ${String(c.description || c.arguments || "").slice(0, 200)}\n`; }); if (s.messages) s.messages.forEach((m) => { if (m.content && m.role === "user") excerpt += `用户: ${String(m.content).slice(0, 300)}\n`; if (m.content && m.role === "assistant") excerpt += `助手: ${String(m.content).slice(0, 300)}\n`; }); }); });
+          parts.push(`[引用会话] ${name}（${turns} turns / ${steps} steps / ${calls} 工具调用）\n${excerpt.slice(0, MAX_FILE)}`);
+        } catch (e) {
+          parts.push(`[引用会话] ${ref.id}（读取失败：${e.message}）`);
+        }
+      }
+    }
+    return parts.length ? "以下为本次对话的引用上下文，请基于其内容回答：\n\n" + parts.join("\n\n") : "";
+  }
+
   async _stream({ messages, toolDefs, model, onEvent, sessionId, stream = false }) {
     onEvent({ type: "model-http-status", state: "on-post" });
     const { stream: res, cap } = await this._post(
@@ -455,7 +489,7 @@ class AgentCore {
     return { role: "assistant", content, reasoning_content, tool_calls, finish_reason: finishReason };
   }
 
-  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream, autonomy, activity } = {}) {
+  async chat({ messages, toolNames, model, onEvent = () => {}, sessionId, stream, autonomy, activity, references } = {}) {
     this._onEvent = onEvent;
     this.autonomy = autonomy === "autonomous" ? "autonomous" : "supervised";
     this.activity = activity === "goal-plan" ? "goal-plan" : (activity || "bare-chat");
@@ -535,6 +569,16 @@ class AgentCore {
       onEvent({ type: "system-prompt", content: system });
     }
     const conv = [{ role: "system", content: system }, ...messages];
+    // @引用：把引用文件/会话内容作为上下文注入（位于真实问题之前，独立于翻译步骤）
+    if (Array.isArray(references) && references.length && persist && store) {
+      try {
+        const refBlock = await this._resolveReferences(references, sessionId);
+        if (refBlock) {
+          const insertAt = Math.max(1, conv.length - 1);
+          conv.splice(insertAt, 0, { role: "user", content: refBlock });
+        }
+      } catch (e) { console.error("[core] resolve references failed:", e.message); }
+    }
     // Replace only the last user turn with its English translation. Earlier
     // turns are already English in the persisted history.
     if (translatedUser != null && conv.length > 1) {

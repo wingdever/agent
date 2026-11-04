@@ -118,7 +118,6 @@ select, textarea, input { font-family: inherit; }
 .think-switch.active, .search-switch.active, .presence-switch.active, .autonomy-switch.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 .presence-switch.active { background: #d97706; border-color: #d97706; }
 .autonomy-switch.active { background: #7c3aed; border-color: #7c3aed; }
-.add-files-btn { border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 6px; padding: 4px 10px; }
 .model-selector { font-size: 12px; display: flex; align-items: center; gap: 4px; color: #374151; }
 .model-selector select { padding: 3px 6px; border-radius: 6px; border: 1px solid #d1d5db; }
 
@@ -132,6 +131,17 @@ select, textarea, input { font-family: inherit; }
 .activity-menu-item.active { background: #2563eb; color: #fff; }
 .send-or-stop-btn { margin-left: auto; border: none; background: #2563eb; color: #fff; border-radius: 8px; padding: 6px 18px; }
 
+/* @ 引用 chips + 菜单 */
+.ref-btn { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 4px 10px; font-weight: 600; }
+.ref-btn:hover { border-color: #2563eb; color: #2563eb; }
+.ref-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.ref-chip { display: inline-flex; align-items: center; gap: 4px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 2px 8px; font-size: 12px; color: #334155; }
+.ref-chip.ref-file { background: #eff6ff; border-color: #bfdbfe; }
+.ref-chip.ref-session { background: #f0fdf4; border-color: #bbf7d0; }
+.ref-chip-remove { border: none; background: transparent; color: #64748b; cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px; }
+.ref-menu-item { display: block; width: 100%; text-align: left; border: none; background: #fff; padding: 10px 12px; font-size: 13px; cursor: pointer; border-radius: 6px; }
+.ref-menu-item:hover { background: #eff6ff; }
+
 /* 轨迹面板（trajectory-tab） */
 .traj-turn { border-left: 3px solid #2563eb; margin: 12px 0; padding-left: 12px; }
 .traj-turn-head { font-weight: 600; color: #1e3a8a; font-size: 13px; margin-bottom: 6px; }
@@ -143,13 +153,6 @@ select, textarea, input { font-family: inherit; }
 .traj-answer { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 10px; margin: 4px 0; }
 .traj-answer .markdown-body { font-size: 13px; }
 .traj-step .tool-call { margin: 4px 0; }
-
-/* attachment-tray */
-.attachment-tray { display: flex; gap: 8px; font-size: 11px; }
-.attachment-tray .state { padding: 1px 6px; border-radius: 4px; }
-.attachment-tray .ready { background: #dcfce7; color: #166534; }
-.attachment-tray .extracting { background: #fef9c3; color: #854d0e; }
-.attachment-tray .fallback { background: #fee2e2; color: #991b1b; }
 
 /* model-http-status: composer 内模型 HTTP 请求状态（on-wait / on-post / on-get） */
 .model-http-status { display: flex; gap: 8px; font-size: 11px; }
