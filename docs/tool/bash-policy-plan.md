@@ -54,7 +54,11 @@
     // 显式放行受信 dynamic 模式（可选）
     { "match": { "program": "bash", "args": ["-c", "$BUILD_SCRIPT"] }, "decision": "allow",
       "env": { "BUILD_SCRIPT": "/repo/scripts/*.sh" } }
-  ]
+  ],
+  "env": {
+    // 全局 dynamic 变量白名单（可选）：未在具体规则内声明的 dynamic 变量可在此统一定义约束
+    "SCRIPT_DIR": "/repo/scripts/*"
+  }
 }
 ```
 
@@ -62,6 +66,9 @@
 - `program`：IR `SimpleCommand.program`（字面程序名；`$CMD` 类 dynamic 名为 `null`，单独处理）。
 - `args`：argv **前缀**精确匹配（按顺序）；省略 `args` 表示只按程序名匹配。
 - `env`：仅用于 dynamic 具体化——把 IR 标记为 dynamic 的参数/变量，若能在策略中表达为受约束的具体值（如 URL 白名单、脚本路径白名单），则按具体值参与匹配，否则回落默认 ask。
+  - 规则级 `env`：写在单条规则内，约束该规则匹配用到的 dynamic 变量（如 `URL`、`BUILD_SCRIPT`）。
+  - 全局 `env`：写在策略文件顶层（与 `default`、`rules` 并列），约束未在具体规则内声明的 dynamic 变量，供所有规则共享。
+  - 值支持 glob（`*` 单段 / `**` 跨层）：`https://internal.example.com/*`、`/repo/scripts/*.sh`。
 - `reason`：决策的可解释字符串，回传给审批 UI / 日志。
 
 ## 决策算法（evaluate）

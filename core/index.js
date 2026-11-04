@@ -16,9 +16,25 @@ const {
 // 当调用方未显式提供 model 时，作为默认模型来源。
 const PROVIDERS_FILE = path.join(__dirname, "..", "user", "providers.json");
 const SETTINGS_FILE = path.join(__dirname, "..", "user", "settings.json");
+const PERMISSIONS_FILE = path.join(__dirname, "..", "user", "permissions.json");
+const BASH_POLICY_FILE = path.join(__dirname, "..", "user", "bash-policy.json");
+const FS_POLICY_FILE = path.join(__dirname, "..", "user", "fs-policy.json");
 
 function readSettings() {  try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch (_) { return {}; }}
 function writeSettings(patch) {  const cur = readSettings();  const next = Object.assign({}, cur, patch || {});  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));  return next;}
+
+// 权限门控三配置文件（均不入 git，见 docs/tool.md）：
+//   permissions.json  -> 工具级档位 default + 每工具 allow/ask/deny
+//   bash-policy.json   -> bash 工具内部命令级门控（default + 按 program/args 前缀规则）
+//   fs-policy.json     -> 仅 write/edit 的按 path glob 精细规则
+function readPermissionFile(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return fallback; }
+}
+function writePermissionFile(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  return data;
+}
 function resolveProvider(name) {  if (!name) return null;  let providers;  try { providers = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8")); } catch (_) { return null; }  if (!Array.isArray(providers)) return null;  const p = providers.find((x) => x.name === name);  if (!p) return null;  const models = Array.isArray(p.models) ? p.models : [];  const model = models.length ? (models[0].name || models[0]) : null;  return { baseUrl: p.base_url, apiKey: p.api_key, model };}
 
 // 调用方未显式指定 model 时，从 user/providers.json 取首个含模型的供应者作为默认：
@@ -763,6 +779,17 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
   switch (fn) {
     case "chat": return await core.chat(Object.assign({ onEvent }, params));
     case "settings": {      if (params.op === "get") return readSettings();      if (params.op === "set") return writeSettings(params.payload);      if (params.op === "providers") {        try { return JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8")); } catch (_) { return []; }      }      throw new Error("unknown settings op: " + params.op);    }
+    case "permissions": {
+      if (params.op === "get") return {
+        permissions: readPermissionFile(PERMISSIONS_FILE, { default: "ask", tools: [] }),
+        bashPolicy: readPermissionFile(BASH_POLICY_FILE, { default: "ask", rules: [] }),
+        fsPolicy: readPermissionFile(FS_POLICY_FILE, { rules: [] }),
+      };
+      if (params.op === "permissions.upsert") return writePermissionFile(PERMISSIONS_FILE, params.payload || { default: "ask", tools: [] });
+      if (params.op === "bashpolicy.upsert") return writePermissionFile(BASH_POLICY_FILE, params.payload || { default: "ask", rules: [] });
+      if (params.op === "fspolicy.upsert") return writePermissionFile(FS_POLICY_FILE, params.payload || { rules: [] });
+      throw new Error("unknown permissions op: " + params.op);
+    }
     case "listFunctions": return core.listFunctions();
     case "storage": {
       if (!core.store) throw new Error("storage not initialized");

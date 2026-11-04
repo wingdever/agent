@@ -39,6 +39,7 @@
 | **session-name-label** | 会话名称标签 |
 | **rename-session-btn** | 重命名会话按钮 |
 | **delete-session-btn** | 删除会话按钮 |
+| **permissions-btn** | 权限配置按钮 → permissions-modal |
 | **settings-btn** | 设置按钮 → settings-modal |
 | **chat-viewport** | 中间聊天主视口 |
 | **chat-header** | 聊天头部 |
@@ -74,6 +75,7 @@
 | **token-usage** | Token 用量 |
 | **context-used** | 上下文占用 |
 | **context-panel** | 右侧上下文面板，展示工具详情与引用来源 |
+| **permissions-modal** | 权限配置弹窗（工具档位 + bash 命令策略 + 文件写精细策略） |
 | **settings-modal** | 设置弹窗（供应者/模型配置） |
 | **settings-sidebar** | 设置弹窗左侧栏 |
 | **provider-model-tree-list** | 供应者/模型树列表 |
@@ -186,6 +188,7 @@ shell
 │  │          ├─ rename-session-btn
 │  │          └─ delete-session-btn
 │  ├─ models-btn
+│  ├─ permissions-btn
 │  └─ settings-btn
 ├─ chat-viewport
 │  ├─ chat-header
@@ -332,6 +335,69 @@ models-modal
    ├─ danger-zone              (可选: 清空所有配置)
    └─ close-models-btn
 
+permissions-modal
+├─ permissions-sidebar
+│  ├─ config-file-tabs
+│  │  ├─ tool-permissions-tab-btn   ("工具权限" → permissions.json)
+│  │  ├─ bash-policy-tab-btn        ("Bash 命令策略" → bash-policy.json)
+│  │  └─ fs-policy-tab-btn          ("文件写策略" → fs-policy.json)
+│  └─ permission-summary
+│     ├─ default-tier-label         (permissions.json 的 default 档位: allow/ask/deny)
+│     ├─ bash-rule-count-label      (bash-policy 规则条数)
+│     └─ rule-count-label           (fs-policy 规则条数)
+├─ permissions-viewport
+│  ├─ tool-permissions-tab          (对应 permissions.json)
+│  │  ├─ tab-header
+│  │  │  └─ tab-title ("工具权限")
+│  │  ├─ default-tier-row
+│  │  │  ├─ default-tier-label       ("default")
+│  │  │  └─ default-tier-select     (ask / allow / deny；缺省 ask)
+│  │  ├─ tool-permissions-table
+│  │  │  ├─ tool-permission-row*     (每个已声明工具一行)
+│  │  │  │  ├─ tool-name-label        (registry 工具名，只读)
+│  │  │  │  ├─ tier-select            (inherit / allow / ask / deny)
+│  │  │  │  └─ clear-tier-btn?        (清除显式档位，回退 inherit)
+│  │  │  └─ add-tool-permission-btn  (新增工具档位行)
+│  │  └─ config-footer
+│  │     ├─ reset-btn                (放弃未保存修改)
+│  │     └─ save-btn                 (写 permissions.json)
+│  ├─ bash-policy-tab                (对应 bash-policy.json)
+│  │  ├─ tab-header
+│  │  │  └─ tab-title ("Bash 命令策略")
+│  │  ├─ bash-default-row
+│  │  │  ├─ bash-default-label        ("default")
+│  │  │  └─ bash-default-select      (固定 ask；无匹配时默认 ask，fail-closed)
+│  │  ├─ bash-global-env?            (顶层 env：约束未在具体规则声明的 dynamic 变量，key=value* 多行；与 rules 内 env 共享)
+│  │  ├─ bash-rules-table
+│  │  │  ├─ bash-rule-row*           (每条命令规则一行)
+│  │  │  │  ├─ program-input         (IR 程序名，字面；dynamic 程序为 null 不在此列)
+│  │  │  │  ├─ args-input?           (argv 前缀精确匹配；省略表示只按程序名)
+│  │  │  │  ├─ decision-select       (allow / ask / deny)
+│  │  │  │  ├─ reason-input?         (可解释决策理由，回传审批 UI/日志)
+│  │  │  │  ├─ env-input?            (仅 dynamic 规则：把标记为 dynamic 的变量具体化为受约束值，如 URL 白名单 / 脚本路径白名单；key=value* 多行)
+│  │  │  │  └─ remove-rule-btn
+│  │  │  └─ add-bash-rule-btn
+│  │  └─ config-footer
+│  │     ├─ reset-btn               (放弃未保存修改)
+│  │     └─ save-btn                (写 bash-policy.json)
+│  └─ fs-policy-tab                  (对应 fs-policy.json)
+│     ├─ tab-header
+│     │  └─ tab-title ("文件写策略")
+│     ├─ fs-scope-note               ("仅作用于 write / edit")
+│     ├─ fs-rules-table
+│     │  ├─ fs-rule-row*             (每条 path 规则一行)
+│     │  │  ├─ path-input            (glob：** 跨层 / * 单段 / ? 单字符；支持绝对或相对 workspace)
+│     │  │  ├─ permission-select     (allow / deny；先扫 deny 命中即拒)
+│     │  │  └─ remove-rule-btn
+│     │  └─ add-fs-rule-btn
+│     └─ config-footer
+│        ├─ reset-btn               (放弃未保存修改)
+│        └─ save-btn                (写 fs-policy.json)
+└─ permissions-panel
+   ├─ export-config-btn?            (导出 permissions.json + bash-policy.json + fs-policy.json)
+   ├─ danger-zone                   (恢复默认：default=ask，清空所有显式档位与规则)
+   └─ close-permissions-btn
+
 settings-modal
 ├─ stream-switch
 ├─ provider-selector
@@ -372,6 +438,10 @@ HumanControl（非布局树节点）
 add-workspace-btn -> folder-selector -> add-workspace(folder)
 add-session-btn -> name-prompt -> add-session(worksapce,name)
 models-btn -> models-modal
+permissions-btn -> permissions-modal
+save-btn(tool-permissions) -> AgentClient.call("storage", {op:"permissions.upsert", payload:{default, tools}}) -> 写 user/permissions.json
+save-btn(bash-policy) -> AgentClient.call("storage", {op:"bashpolicy.upsert", payload:{default:"ask", rules}}) -> 写 user/bash-policy.json
+save-btn(fs-policy) -> AgentClient.call("storage", {op:"fspolicy.upsert", payload:{rules}}) -> 写 user/fs-policy.json
 fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote-models-section（渲染 remote-model-item*）
 remote-add-btn -> AgentClient.call("storage", {op:"model.create", payload:{provider_id, name, fee}}) -> model-list-section
 add-all-btn -> 对每条未添加 remote-model-item 触发 model.create

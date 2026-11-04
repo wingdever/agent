@@ -254,6 +254,65 @@ select, textarea, input { font-family: inherit; }
 .danger-zone .clear-all-btn { width: 100%; color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
 .close-models-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
 
+/* ============ permissions-modal ============ */
+.permissions-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
+.permissions-window { display: flex; width: 92vw; max-width: 1100px; height: 82vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+
+/* 侧栏：配置文件切换标签 + 概要 */
+.permissions-sidebar { width: 270px; flex: 0 0 270px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; padding: 12px; gap: 10px; }
+.config-file-tabs { display: flex; flex-direction: column; gap: 6px; }
+.config-file-tab-btn { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px 10px; font-size: 13px; text-align: left; color: #374151; cursor: pointer; }
+.config-file-tab-btn.active { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.permission-summary { margin-top: 4px; padding: 10px; border: 1px dashed #cbd5e1; border-radius: 8px; font-size: 12px; color: #475569; display: flex; flex-direction: column; gap: 4px; }
+
+/* 视口：三个权限 tab */
+.permissions-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.permissions-tab { display: flex; flex-direction: column; height: 100%; }
+.tab-header { padding: 12px 18px; border-bottom: 1px solid #e5e7eb; }
+.tab-title { font-weight: 600; font-size: 15px; color: #1f2937; }
+.tab-body-inner { flex: 1; overflow: auto; padding: 16px 18px; }
+.form-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.form-label { font-size: 12px; color: #6b7280; }
+.form-error { color: #dc2626; font-size: 12px; margin-bottom: 10px; }
+.default-tier-row, .bash-default-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.default-tier-label, .bash-default-label { font-size: 13px; font-weight: 600; color: #334155; }
+.default-tier-select, .bash-default-select, .tier-select, .decision-select, .permission-select { border: 1px solid #d1d5db; border-radius: 8px; padding: 7px 9px; font-size: 13px; background: #fff; }
+.name-input, .path-input, .program-input, .args-input, .reason-input, .env-input, .bash-global-env { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 10px; font-size: 14px; outline: none; font-family: inherit; }
+.name-input:focus, .path-input:focus, .program-input:focus, .args-input:focus, .reason-input:focus, .env-input:focus, .bash-global-env:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+.bash-global-env { min-height: 48px; resize: vertical; font-family: ui-monospace, monospace; }
+
+/* 表格行（工具档位 / bash 规则 / fs 规则） */
+.tool-permissions-table, .bash-rules-table, .fs-rules-table { display: flex; flex-direction: column; gap: 6px; }
+.tool-permission-row, .bash-rule-row, .fs-rule-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.tool-name-label { flex: 1 1 auto; font-family: ui-monospace, monospace; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #334155; }
+.bash-rule-row .program-input { flex: 0 0 130px; }
+.bash-rule-row .args-input { flex: 1 1 auto; }
+.bash-rule-row .decision-select { flex: 0 0 90px; }
+.bash-rule-row .reason-input { flex: 1 1 auto; }
+.bash-rule-row .env-input { flex: 1 1 auto; }
+.fs-rule-row .path-input { flex: 1 1 auto; }
+.fs-rule-row .permission-select { flex: 0 0 110px; }
+.clear-tier-btn, .remove-rule-btn, .add-tool-permission-btn, .add-bash-rule-btn, .add-fs-rule-btn { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #475569; white-space: nowrap; }
+.remove-rule-btn { color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
+.section-header { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 6px; font-weight: 600; font-size: 13px; }
+.fs-scope-note { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
+
+/* 底部保存/重置栏（每个 tab 内） */
+.config-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid #e5e7eb; background: #fafafa; }
+.config-footer button { border-radius: 8px; padding: 6px 16px; font-size: 13px; border: 1px solid #d1d5db; background: #fff; color: #374151; }
+.config-footer .save-btn { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+/* 右侧操作栏 */
+.permissions-panel { width: 170px; flex: 0 0 170px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
+.permissions-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
+.danger-zone { margin-top: 4px; }
+.danger-zone .reset-defaults-btn { width: 100%; color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
+.close-permissions-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
+
+/* 侧栏底部：权限按钮 */
+.thread-sidebar .permissions-btn { margin-top: 4px; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
+.thread-sidebar .permissions-btn:hover { background: #eff6ff; color: #1d4ed8; }
+
 /* 侧栏底部：设置按钮 */
 .thread-sidebar .settings-btn { margin-top: auto; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .settings-btn:hover { background: #eff6ff; color: #1d4ed8; }
