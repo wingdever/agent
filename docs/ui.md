@@ -65,8 +65,9 @@
 | **loops-btn** | 循环编排按钮 → loops-modal |
 | **settings-btn** | 设置按钮 → settings-modal |
 | **chat-viewport** | 中间聊天主视口 |
-| **chat-header** | 聊天头部 |
-| **session-name** | 当前会话名 |
+| **chat-header** | 聊天头部；两段式布局：左组贴左（left-collapse-button + session-name，普通布局包裹、无 data-name），右组 `header-controls-group` 由 `margin-left:auto` 靠右；中间为弹性空白 |
+| **session-name** | 当前会话名（左组，尽量完整展开不省略；空间不足时挤压右组） |
+| **header-controls-group** | 聊天头部右侧控件组（chat-header：靠右合并容器，含 session-mode-indicator / activity-indicator / presence-mode-switch / autonomy-mode-switch / tab-icons / right-collapse-button；由 margin-left:auto 推到右侧；空间不足时切紧凑样式，见 app.js 的 ResizeObserver） |
 | **tab-icons** | 标签图标组 |
 | **chat-tab-icon** | 聊天标签图标 |
 | **trajectory-icon** | 轨迹标签图标 |
@@ -283,14 +284,15 @@ shell
 │  ├─ chat-header
 │  │  ├─ left-collapse-button
 │  │  ├─ session-name
-│  │  ├─ activity-indicator
-│  │  ├─ session-mode-indicator
-│  │  ├─ presence-mode-switch
-│  │  ├─ autonomy-mode-switch
-│  │  ├─ tab-icons
-│  │  │   ├─ chat-tab-icon
-│  │  │   └─ trajectory-icon
-│  │  └─ right-collapse-button
+│  │  └─ header-controls-group
+│  │     ├─ session-mode-indicator
+│  │     ├─ activity-indicator
+│  │     ├─ presence-mode-switch
+│  │     ├─ autonomy-mode-switch
+│  │     ├─ tab-icons
+│  │     │  ├─ chat-tab-icon
+│  │     │  └─ trajectory-icon
+│  │     └─ right-collapse-button
 │  ├─ tab-body
 │  │  ├─ chat-tab
 │  │  │  └─ turn*
@@ -595,8 +597,9 @@ chat-viewport
    arrange: vertical
 
 chat-header
-   contains: session-name, activity-indicator, session-mode-indicator, presence-mode-switch, autonomy-mode-switch, tab-icons, right-collapse-button
+   contains: left-collapse-button, session-name, header-controls-group (session-mode-indicator, activity-indicator, presence-mode-switch, autonomy-mode-switch, tab-icons, right-collapse-button)
    tab-icons: chat-tab-icon, trajectory-icon
+   note: 两段式，左组贴左（left-collapse-button + session-name，普通布局包裹、无 data-name）、右组 header-controls-group margin-left:auto 靠右，中间为弹性空白；session-name 尽量展开不省略；空间不足时右组切紧凑（收间距 + 文案缩写，见 app.js 的 ResizeObserver）
 
 tab-body
    toggle: chat-tab | trajectory-tab

@@ -121,15 +121,38 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   // 2) 左侧栏折叠
-  document.getElementById("leftCollapse").addEventListener("click", function () {
+  // 折叠按钮的箭头/标题/语义属性由 syncCollapseButtons() 从真实状态派生（D4）。
+  // 左：collapsed=true → »/展开；右：hidden=true → «/展开右栏。
+  var leftCollapseBtn = document.getElementById("leftCollapse");
+  var rightCollapseBtn = document.getElementById("rightCollapse");
+  function syncCollapseButtons() {
+    var leftCollapsed = sidebar.classList.contains("collapsed");
+    var rightCollapsed = contextPanel.hasAttribute("hidden");
+    if (leftCollapseBtn) {
+      leftCollapseBtn.textContent = leftCollapsed ? "»" : "«";
+      leftCollapseBtn.setAttribute("title", leftCollapsed ? "展开" : "折叠");
+      leftCollapseBtn.setAttribute("data-collapsed", leftCollapsed ? "1" : "0");
+      leftCollapseBtn.setAttribute("aria-expanded", leftCollapsed ? "false" : "true");
+    }
+    if (rightCollapseBtn) {
+      rightCollapseBtn.textContent = rightCollapsed ? "«" : "»";
+      rightCollapseBtn.setAttribute("title", rightCollapsed ? "展开右栏" : "折叠右栏");
+      rightCollapseBtn.setAttribute("data-collapsed", rightCollapsed ? "1" : "0");
+      rightCollapseBtn.setAttribute("aria-expanded", rightCollapsed ? "false" : "true");
+    }
+  }
+  if (leftCollapseBtn) leftCollapseBtn.addEventListener("click", function () {
     sidebar.classList.toggle("collapsed");
+    syncCollapseButtons();
   });
 
   // 3) 右侧 context-panel 折叠/显示
-  document.getElementById("rightCollapse").addEventListener("click", function () {
+  if (rightCollapseBtn) rightCollapseBtn.addEventListener("click", function () {
     if (contextPanel.hasAttribute("hidden")) contextPanel.removeAttribute("hidden");
     else contextPanel.setAttribute("hidden", "");
+    syncCollapseButtons();
   });
+  syncCollapseButtons();  // 启动同步一次初始态
 
   // 4) 点击 tool-call -> 填充并显示 context-panel
   var ctxDefault = document.querySelector(".context-default");
@@ -153,6 +176,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (ctxDefault) ctxDefault.hidden = true;
     ctxDetail.hidden = false;
     contextPanel.removeAttribute("hidden");
+    syncCollapseButtons();  // 右栏被工具检视器重开，同步折叠按钮状态（D4）
   }
 
   // 产物预览：读取写文件类工具生成的文件，按扩展名渲染到右侧面板（与现有检视器合一）。
@@ -199,6 +223,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (ctxDetail) ctxDetail.hidden = true;
     if (ctxDefault) ctxDefault.hidden = true;
     contextPanel.removeAttribute("hidden");
+    syncCollapseButtons();  // 右栏被产物预览重开，同步折叠按钮状态（D4）
     artifactPreviewTitle.textContent = "预览: " + filePath;
     artifactPreviewBody.innerHTML = "<div class='artifact-loading'>读取中…</div>";
     artifactPreviewOpen.hidden = true;
@@ -566,11 +591,52 @@ document.addEventListener("DOMContentLoaded", function () {
   var currentActivityCompleted = false;
   var activityIndicatorEl = null;
 
+  // ---------- 表头紧凑模式 + 双标签（D7/D8） ----------
+  // 单一真值：headerCompact。CSS 通过 .chat-header[data-compact="1"] 收缩间距/水平内边距，
+  // 但不隐藏控件；JS 通过 applyLabel 把 4 个状态控件切成短标签。高度/圆角/字号恒定。
+  var headerCompact = false;
+  // 内容/标签变化后请求一次紧凑评估；由末尾 initHeaderCompact() 覆盖为真实实现。
+  // 占位保证 setLabels()/selectSession() 在初始化阶段调用时不会报错。
+  var scheduleHeaderEval = function () {};
+  function applyLabel(el) {
+    if (!el) return;
+    var d = el.dataset;
+    // 双标签由 setLabels 写入；若某控件尚未初始化（如仅静态 HTML），回退到现有 textContent。
+    var full = d.labelFull;
+    var short = d.labelShort;
+    if (full == null || short == null) return;
+    el.textContent = headerCompact ? short : full;
+  }
+  function setLabels(el, full, short) {
+    if (!el) return;
+    el.dataset.labelFull = full;
+    el.dataset.labelShort = short;
+    applyLabel(el);        // 按当前 headerCompact 决定用长/短
+    scheduleHeaderEval();  // 标签文本变了 → 重新评估是否需要紧凑（D6 内容变化触发）
+  }
+  // 切换紧凑态：仅在值变化时改动，并重刷 4 个控件的标签（直接 applyLabel，避免
+  // 在 resize 回调里反复调用完整 render setter 触发 renderStatusBar 等副作用）。
+  function applyCompact(compact) {
+    compact = !!compact;
+    if (compact === headerCompact) return;
+    headerCompact = compact;
+    var header = document.querySelector(".chat-header");
+    if (header) {
+      if (compact) header.setAttribute("data-compact", "1");
+      else header.removeAttribute("data-compact");
+    }
+    applyLabel(document.getElementById("sessionModeIndicator"));
+    applyLabel(document.getElementById("activityIndicator"));
+    applyLabel(document.getElementById("presenceSwitch"));
+    applyLabel(document.getElementById("autonomySwitch"));
+  }
+
   function renderActivityIndicator() {
     if (!activityIndicatorEl) activityIndicatorEl = document.getElementById("activityIndicator");
     if (!activityIndicatorEl) return;
     var mark = currentActivityCompleted ? " ✓" : "";
-    activityIndicatorEl.textContent = "活动: " + currentActivity + mark;
+    // full: "活动: <value>[ ✓]"；short: "<value>[ ✓]"（去掉前缀，保留完成标记与 data-completed 配色）
+    setLabels(activityIndicatorEl, "活动: " + currentActivity + mark, currentActivity + mark);
     activityIndicatorEl.setAttribute("data-activity", currentActivity);
     renderStatusBar();   // 活动变化同步到状态栏左段
     activityIndicatorEl.setAttribute("data-completed", currentActivityCompleted ? "1" : "0");
@@ -583,7 +649,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var el = document.getElementById("sessionModeIndicator");
     if (!el) return;
     var mode = getSessionMode();
-    el.textContent = isBare() ? "模式: bare-chat" : "模式: turn-step";
+    setLabels(el, isBare() ? "模式: bare-chat" : "模式: turn-step", isBare() ? "bare" : "step");
     el.setAttribute("data-mode", mode);
     el.setAttribute("title", "bare-chat：不落库、无工具、纯内存历史、每轮仅 1 step；turn-step：选会话、落库、支持工具调用与多 step 循环。");
   }
@@ -741,7 +807,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var btn = document.getElementById("presenceSwitch");
     if (btn) {
       btn.setAttribute("data-mode", v);
-      btn.textContent = "在场: " + v;
+      setLabels(btn, "在场: " + v, v);
       btn.classList.toggle("active", v === "out");
     }
     if (v === "in") lastUserActivity = Date.now();
@@ -750,7 +816,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var btn = document.getElementById("autonomySwitch");
     if (btn) {
       btn.setAttribute("data-mode", v);
-      btn.textContent = "自主: " + v;
+      // short: supervised -> super, autonomous -> auto（D8 缩写表）
+      setLabels(btn, "自主: " + v, v === "supervised" ? "super" : "auto");
       btn.classList.toggle("active", v === "autonomous");
     }
   }
@@ -2080,6 +2147,7 @@ document.addEventListener("DOMContentLoaded", function () {
     currentActivity = (sess && sess.activity) || "research";
     trajectoryLoadedFor = null;  // 切换会话后轨迹需重新拉取
     if (sessionNameLabel) sessionNameLabel.textContent = sess.name || ("会话 " + sess.id);
+    scheduleHeaderEval();  // 会话名变了（D2 可能撑大左组）→ 重新评估紧凑（D6）
     document.querySelectorAll(".session-item").forEach(function (n) { n.classList.remove("active"); });
     if (node) node.classList.add("active");
     renderSessionMessages(sess.id);
@@ -2451,4 +2519,79 @@ document.addEventListener("DOMContentLoaded", function () {
   if (searchSwitch) searchSwitch.addEventListener("click", function () { searchSwitch.classList.toggle("active"); });
 
   renderSessionModeIndicator();  // 启动时按当前模式（无选中会话=bare）渲染一次
+
+  // ---------- 表头紧凑模式：ResizeObserver + 内容自然宽度测量（D6） ----------
+  // 触发源有两个：① header 可用宽度变化（ResizeObserver 观察盒尺寸）；② 内容变化
+  //（会话名变长 / 标签文案变，经 setLabels / selectSession 调 scheduleHeaderEval）。
+  // 不用 @media、不绑折叠状态。
+  //
+  // 判据：把「两组内容在【非紧凑长标签态】下的自然宽度之和」与 header.clientWidth 比。
+  // 关键：不能用 header.scrollWidth 当基线——header 是占满父宽的 flex 容器、右组
+  // margin-left:auto，内容放得下时 scrollWidth===clientWidth===视口宽，并非内容自然宽；
+  // 且 ResizeObserver 只观察盒尺寸，长会话名撑大内容（scrollWidth 增大但 clientWidth 不变）
+  // 时不会回调，会漏掉最该紧凑的场景。故每次评估都临时强制「非紧凑 + 长标签」测一次
+  // 两组自然宽，再与可用宽比较。测量在同一 rAF 回调内同步完成/恢复，浏览器不会 paint
+  // 中间态，因此无闪烁；20px 迟滞带 + change-only 开关防止临界抖动；紧凑只改水平
+  // padding/gap/标签、高度恒定，不改变 header 盒尺寸，不会自触发观察器循环。
+  (function initHeaderCompact() {
+    // 启动时先给 4 个控件补齐双标签（presence/autonomy 默认来自静态 HTML，
+    // activity 在未选会话时未被 render 过），避免首次紧凑切换时短标签缺失。
+    renderActivityIndicator();
+    var p = document.getElementById("presenceSwitch");
+    if (p) setPresenceMode(p.getAttribute("data-mode") || "in");
+    var a = document.getElementById("autonomySwitch");
+    if (a) setAutonomyMode(a.getAttribute("data-mode") || "supervised");
+
+    var header = document.querySelector(".chat-header");
+    if (!header || typeof ResizeObserver === "undefined") return;  // 环境不支持则不做紧凑
+    var leftGroup = header.querySelector(".header-left-group");
+    var rightGroup = header.querySelector(".header-controls-group");
+    var labelEls = ["sessionModeIndicator", "activityIndicator", "presenceSwitch", "autonomySwitch"]
+      .map(function (id) { return document.getElementById(id); })
+      .filter(Boolean);
+
+    // 临时把 header 强制切到「非紧凑长标签」态，测两组内容自然宽度之和，再恢复。
+    function measureNaturalWidth() {
+      var wasCompact = header.hasAttribute("data-compact");
+      if (wasCompact) header.removeAttribute("data-compact");
+      labelEls.forEach(function (el) {
+        if (el.dataset.labelFull != null) el.textContent = el.dataset.labelFull;
+      });
+      var cs = getComputedStyle(header);
+      var padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      var gap = parseFloat(cs.columnGap || cs.gap) || 0;
+      var leftW = leftGroup ? leftGroup.scrollWidth : 0;
+      var rightW = rightGroup ? rightGroup.scrollWidth : 0;
+      var natural = padX + leftW + gap + rightW;
+      // 恢复：标签按当前 headerCompact 回写，紧凑属性按原样恢复。
+      labelEls.forEach(function (el) { applyLabel(el); });
+      if (wasCompact) header.setAttribute("data-compact", "1");
+      return natural;
+    }
+
+    var HYSTERESIS = 20;  // px：进入/退出之间的迟滞带，防临界闪烁
+    var scheduled = false;
+    function evaluate() {
+      scheduled = false;
+      var natural = measureNaturalWidth();
+      var avail = header.clientWidth;
+      if (!natural || !avail) return;  // 尚未布局，等下一次回调
+      if (!headerCompact) {
+        if (avail < natural - HYSTERESIS) applyCompact(true);    // 放不下 → 紧凑
+      } else {
+        if (avail >= natural + HYSTERESIS) applyCompact(false);  // 富余足够 → 恢复长标签
+      }
+    }
+    function schedule() {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(evaluate);
+    }
+    // 暴露给 setLabels()/selectSession()，让内容变化也能触发评估（不只是窗口尺寸变化）。
+    scheduleHeaderEval = schedule;
+
+    var ro = new ResizeObserver(schedule);
+    ro.observe(header);
+    schedule();  // 启动即评估一次初始态
+  })();
 });

@@ -32,12 +32,37 @@ select, textarea, input { font-family: inherit; }
 
 /* chat-viewport */
 .chat-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #fff; }
-.chat-header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #e5e7eb; }
-.session-name { font-weight: 600; }
+.chat-header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #e5e7eb; flex-wrap: nowrap; min-width: 0; }
+.header-left-group { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 0 auto; }
+.session-name { font-weight: 600; flex: 0 0 auto; white-space: nowrap; min-width: 0; }
+.header-controls-group { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
 .tab-icons { display: flex; gap: 6px; }
 .chat-tab-icon, .trajectory-icon { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 4px 10px; font-size: 13px; }
 .chat-tab-icon.active, .trajectory-icon.active { background: #2563eb; color: #fff; border-color: #2563eb; }
-.right-collapse-button { margin-left: auto; border: 1px solid #d1d5db; background: #fff; border-radius: 6px; width: 28px; height: 28px; }
+.right-collapse-button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; width: 28px; height: 28px; }
+
+/* chat-header: 统一所有控件到 28px 高 / radius 6px / padding 0 10px / font 12px */
+.chat-header .left-collapse-button,
+.chat-header .right-collapse-button,
+.chat-header .session-mode-indicator,
+.chat-header .activity-indicator,
+.chat-header .presence-switch,
+.chat-header .autonomy-switch,
+.chat-header .chat-tab-icon,
+.chat-header .trajectory-icon { height: 28px; box-sizing: border-box; border-radius: 6px; padding: 0 10px; font-size: 12px; line-height: 1; }
+.chat-header .left-collapse-button,
+.chat-header .right-collapse-button { width: 28px; padding: 0; flex: 0 0 28px; }
+/* session-mode-indicator 是 span（非 button），被 flex 块化后需显式垂直居中，
+   否则 line-height:1 会让文本顶部对齐，与并列按钮不齐。 */
+.chat-header .session-mode-indicator { display: inline-flex; align-items: center; }
+
+/* chat-header: 紧凑态只收缩横向间距与水平内边距，高度 28px 恒定 */
+.chat-header[data-compact="1"] .header-controls-group { gap: 4px; }
+.chat-header[data-compact="1"] .header-controls-group > * { padding-left: 6px; padding-right: 6px; }
+.chat-header[data-compact="1"] .header-controls-group .right-collapse-button { padding: 0; }
+
+/* chat-header: 折叠态按钮视觉弱化 */
+.chat-header [data-collapsed="1"] { border-color: #e5e7eb; background: #fafafa; color: #9ca3af; }
 
 /* tab-body + tab 切换 */
 .tab-body { flex: 1; overflow: auto; padding: 16px; }
@@ -118,9 +143,6 @@ select, textarea, input { font-family: inherit; }
 .think-switch.active, .search-switch.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 .presence-switch.active { background: #d97706; border-color: #d97706; color: #fff; }
 .autonomy-switch.active { background: #7c3aed; border-color: #7c3aed; color: #fff; }
-/* chat-header 内的在场 / 自主度按钮（从 composer 移入） */
-.chat-header .presence-switch, .chat-header .autonomy-switch { padding: 3px 8px; }
-
 /* composer 选择器（DSH 风格）：权限预设 + model-effort 组合 */
 .permission-selector, .model-selector, .effort-selector {
   padding: 3px 6px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff;
@@ -577,6 +599,5 @@ select, textarea, input { font-family: inherit; }
 
 /* 会话模式指示器（只读，派生自 currentSessionId：bare-chat / turn-step） */
 .session-mode-indicator { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 4px 10px; font-size: 12px; color: #374151; font-weight: 500; }
-.chat-header .session-mode-indicator { padding: 3px 8px; }
 .session-mode-indicator[data-mode="bare"] { border-color: #94a3b8; color: #64748b; }
 .session-mode-indicator[data-mode="persisted"] { border-color: #2563eb; color: #2563eb; }
