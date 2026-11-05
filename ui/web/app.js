@@ -482,9 +482,13 @@ document.addEventListener("DOMContentLoaded", function () {
   var footerTokenUsage = document.querySelector(".token-usage");            // 中：tokens / cache hit
   var footerContextUsed = document.querySelector(".context-used");          // 右：上下文占用
   var currentSessionId = null;
-  var currentActivity = "bare-chat";   // 当前会话的活动（来自会话存储，可被指示器切换）
-  var selectedInitialActivity = "bare-chat";  // 新建会话时的初始活动
-  var bareHistory = [];  // bare-chat 模式：纯内存对话历史，不落库
+  var currentActivity = "research";   // 当前会话的活动（来自会话存储，可被指示器切换）
+  var selectedInitialActivity = "research";  // 新建会话时的初始活动
+  // Session mode is derived from currentSessionId: no selected session -> bare (no persistence),
+  // a selected session -> persisted (loop engine). bare is NOT an activity value.
+  function getSessionMode() { return currentSessionId ? "persisted" : "bare"; }
+  function isBare() { return getSessionMode() === "bare"; }
+  var bareHistory = [];  // bare session mode: 纯内存对话历史，不落库
   var chatScroller = chatTab.closest(".tab-body");
   function scrollChatToBottom() {
     if (chatScroller) chatScroller.scrollTop = chatScroller.scrollHeight;
@@ -558,7 +562,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // ---------- 活动指示器（取代 composer 的 activity-mode-selector） ----------
   // 单一真值为 currentActivity（见 selectSession / setActivityMode）。
   // currentActivityCompleted：当前活动是否已由 model 上报完成（如 plan 经 exit_plan_mode 批准）。
-  var ACTIVITIES = ["bare-chat", "goal-plan", "build-code", "discuss-doc", "research", "review-proj", "human-learn", "diagnose"];
+  var ACTIVITIES = ["goal-plan", "build-code", "discuss-doc", "research", "review-proj", "human-learn", "diagnose"];
   var currentActivityCompleted = false;
   var activityIndicatorEl = null;
 
@@ -1722,11 +1726,11 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
     if (evt.type === "translation") {
-      if (getActivityMode() === "bare-chat") handleTranslationFlat(evt);
+      if (isBare()) handleTranslationFlat(evt);
       else handleTranslationTurn(evt);
       return;
     }
-    if (getActivityMode() === "bare-chat") { onChatEventFlat(evt); return; }
+    if (isBare()) { onChatEventFlat(evt); return; }
     // turn-step：按层级渲染
     if (evt.type === "reasoning") {
       ensureLiveStep();
@@ -1910,9 +1914,9 @@ document.addEventListener("DOMContentLoaded", function () {
       await uiAlert("用法：/compact（无参数）");
       return;
     }
-    if (getActivityMode() === "bare-chat") {
+    if (isBare()) {
       input.value = "";
-      await uiAlert("bare-chat 不落库，没有可压缩的历史。");
+      await uiAlert("纯对话模式不落库，没有可压缩的历史。");
       return;
     }
     input.value = "";
@@ -2052,7 +2056,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function selectSession(sess, node) {
     currentSessionId = sess.id;
-    currentActivity = (sess && sess.activity) || "bare-chat";
+    currentActivity = (sess && sess.activity) || "research";
     trajectoryLoadedFor = null;  // 切换会话后轨迹需重新拉取
     if (sessionNameLabel) sessionNameLabel.textContent = sess.name || ("会话 " + sess.id);
     document.querySelectorAll(".session-item").forEach(function (n) { n.classList.remove("active"); });
@@ -2075,8 +2079,8 @@ document.addEventListener("DOMContentLoaded", function () {
     bareHistory.push({ role: "user", content: text });
     currentAssistantBubble = null; toolCards = {};
     try {
-      // bare-chat：不传 sessionId（core 不落库），toolNames 传空以禁用工具调用，历史仅存内存
-      await window.AgentClient.call("chat", { messages: bareHistory.slice(), toolNames: [], references: pendingRefs.slice(), effort: computeEffort(), model: (modelSelector && modelSelector.value ? modelSelector.value : undefined) }, onChatEvent);
+      // bare session mode: 显式 mode:"bare" 让 core 分发到 bare-chat（不落库、core 强制 tools=[]），历史仅存内存
+      await window.AgentClient.call("chat", { mode: "bare", messages: bareHistory.slice(), references: pendingRefs.slice(), effort: computeEffort(), model: (modelSelector && modelSelector.value ? modelSelector.value : undefined) }, onChatEvent);
       pendingRefs = []; renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);
@@ -2089,7 +2093,7 @@ document.addEventListener("DOMContentLoaded", function () {
     markUserActivity();
     // 斜杠命令：以 / 开头且是命令（目前仅 /compact），不进入对话历史。
     if (text.charAt(0) === "/") { await runSlashCommand(text); return; }
-    if (getActivityMode() === "bare-chat") { await runBareChat(text); return; }
+    if (isBare()) { await runBareChat(text); return; }
     if (!currentSessionId) { await uiAlert("请先在左侧选择或新建一个会话"); return; }
     input.value = "";
     hideEmptyHint();

@@ -15,6 +15,7 @@ const {
 const compaction = require("./compaction");
 const tokenMeter = require("./token-meter");
 const loopsConfig = require("./loops/loops-config");
+const { runBareChat } = require("./bare-chat");
 
 // user/providers.json：用户侧供应者配置，含 base_url / api_key / models。
 // 当调用方未显式提供 model 时，作为默认模型来源。
@@ -948,9 +949,13 @@ class AgentCore {
   }
 
   async chat(ctx = {}) {
-    // 统一入口：按 AGENT_LOOP_ENGINE 选择 agent-loop 引擎并委托执行。
-    // 原 chat() 主循环（已抽离到 core/loops/linear.js），
-    // 保证向后兼容与现有测试不退化。第二种 "node-graph" 引擎见 docs/agent-loop-node-graph.md。
+    // 统一入口：按显式 session-mode 信号分发。ctx.mode === "bare" 走 bare-chat
+    // （无状态、单请求、不落库、无工具）；否则走 agent-loop 引擎（linear / node-graph）。
+    // 用显式信号而非 !sessionId：历史上存在「无 sessionId 但仍需工具循环」的 chat()
+    // 调用方（persist 只控制是否落库，与工具执行无关），不能靠 sessionId 推断模式。
+    // bare-chat 是 session-mode 层，不是第三个 loop 引擎，不进 loops 注册表，
+    // 也不是 AGENT_LOOP_ENGINE 的取值（见 docs/agent-mode.md）。
+    if (ctx.mode === "bare") return runBareChat(this, ctx);
     // loopEngine 属实现层（如同 AGENT_TRANSPORT），由环境变量配置，不进入用户 settings.json。
     return this._runLoop(ctx);
   }

@@ -66,7 +66,7 @@ export const SCHEMA_STATEMENTS = [
     workspace_id  INTEGER     NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
     name  text    NOT NULL,
     description  text,
-    activity  text  NOT NULL DEFAULT 'bare-chat',
+    activity  text  NOT NULL DEFAULT 'research',
     deleted_at   TIMESTAMP,
     next_seq  integer NOT NULL DEFAULT 0,  -- per-session event sequence (messages + compaction events)
     created_at    TIMESTAMP NOT NULL DEFAULT now(),

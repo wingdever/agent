@@ -37,9 +37,9 @@
     {
       "id": "bare-chat-vs-session",
       "name": "bare-chat vs persisted session modes",
-      "description": "bare-chat keeps history in memory only with no tool calls; session mode selects a workspace, persists turns/steps/messages to the DB, and supports tool calls.",
+      "description": "Session-mode layer: core.chat() dispatches by an EXPLICIT ctx.mode === \"bare\" signal (sent by the UI's runBareChat) BEFORE choosing a loop engine; NOT inferred from !sessionId (there are legitimate no-sessionId callers that still need the tool loop). bare goes to core/bare-chat.js runBareChat — NOT a loop engine — with tools=[] hard-forced, per-request system prompt, in-memory history (bareHistory), no persistence, but still input/output translation and the linear termination/[turn]/turn-end contract. persisted selects a workspace, persists turns/steps/messages to the DB, supports tool calls, and chooses the engine (linear/node-graph) only in this branch via AGENT_LOOP_ENGINE.",
       "status": "pass",
-      "evidence": "core/index.js chat() branches on persist = sessionId && store; docs/behavior.md 'mode-selector' section; ui.md activity selector.",
+      "evidence": "core/index.js chat() dispatches ctx.mode===\"bare\" -> runBareChat() else _runLoop(); ui/web/app.js runBareChat passes mode:\"bare\"; core/bare-chat.js runBareChat(core, ctx); docs/behavior.md 'mode-selector' section; docs/agent-mode.md session-mode layer.",
       "testedAt": "2026-11-05"
     },
     {
@@ -333,9 +333,9 @@
     {
       "id": "agent-mode-axes",
       "name": "Agent mode (presence / autonomy / activity)",
-      "description": "Three orthogonal axes: presence (in/out), autonomy (supervised/autonomous, where autonomous auto-denies all ask calls), and activity (bare-chat/goal-plan/build-code/...).",
+      "description": "Three orthogonal axes: presence (in/out), autonomy (supervised/autonomous, where autonomous auto-denies all ask calls), and activity (7 values: goal-plan/build-code/discuss-doc/research/review-proj/human-learn/diagnose, default research). bare-chat is no longer an activity value but a separate session mode (bare/persisted) dispatched by an explicit ctx.mode===\"bare\" signal in core.chat() (not inferred from !sessionId).",
       "status": "pass",
-      "evidence": "docs/agent-mode.md; core/index.js isAutonomous() checks in requestApproval()/requestUserQuestion()/requestUserJob(); ui.md presence-mode-switch/autonomy-mode-switch/activity-indicator; composer permission-selector feedback.",
+      "evidence": "docs/agent-mode.md (7-value activity enum + session-mode layer); core/index.js isAutonomous() checks in requestApproval()/requestUserQuestion()/requestUserJob() and chat() session-mode dispatch; ui.md presence-mode-switch/autonomy-mode-switch/activity-indicator (7 values); composer permission-selector feedback.",
       "testedAt": "2026-11-05"
     },
     {

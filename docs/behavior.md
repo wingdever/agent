@@ -1,13 +1,19 @@
-# mode-selector:
-## bare-chat
-if not select workspace
-agent-loop: between user_input and model_reply
-not save just in memory
-not support tool_call 
-continously interact
-## turn-step
-should select workspace
+# mode-selector (session mode layer: bare / persisted)
+`core.chat()` 先在**选择 loop engine 之前**按**显式信号** `ctx.mode === "bare"` 分发：命中 → bare，否则 → persisted。bare 是会话模式，不是 activity，也不是 `AGENT_LOOP_ENGINE` 的取值（不进 `core/loops/` 注册表）。
+判定用显式 `mode` 而非 `!sessionId`：`persist = sessionId && store` 只控制落库，工具执行与 sessionId 无关；存在无 sessionId 但需完整工具循环的合法调用方，不能用「无会话」推断 bare。UI 的 `runBareChat` 显式传 `mode:"bare"`。
+
+## bare (bare-chat)
+if caller explicitly passes mode:"bare" (UI: not select session/workspace)
+entry: core/bare-chat.js runBareChat() — NOT a loop engine
+no persistence: not save, history kept in memory only (bareHistory, UI passes full messages)
+no tool_call: tools=[] hard-forced by core (does not rely on UI passing toolNames:[])
+system prompt assembled per request (no DB read, no cache, not shown)
+still does input/output translation + linear termination/[turn] log/turn-end contract (steps=1, tools=0)
+continously interact (flat render via onChatEventFlat)
+## persisted (turn-step)
+should select session/workspace (sessionId present)
 agent-loop: user_input start one turn and loop steps
+loop engine chosen ONLY in this branch: AGENT_LOOP_ENGINE -> linear / node-graph
 save in database
 support tool_call
 continously interact
