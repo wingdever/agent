@@ -574,3 +574,9 @@ select, textarea, input { font-family: inherit; }
 /* Sidebar bottom: loops button (sits between permissions and settings) */
 .thread-sidebar .loops-btn { margin-top: 4px; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .loops-btn:hover { background: #eff6ff; color: #1d4ed8; }
+
+/* 会话模式指示器（只读，派生自 currentSessionId：bare-chat / turn-step） */
+.session-mode-indicator { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 4px 10px; font-size: 12px; color: #374151; font-weight: 500; }
+.chat-header .session-mode-indicator { padding: 3px 8px; }
+.session-mode-indicator[data-mode="bare"] { border-color: #94a3b8; color: #64748b; }
+.session-mode-indicator[data-mode="persisted"] { border-color: #2563eb; color: #2563eb; }

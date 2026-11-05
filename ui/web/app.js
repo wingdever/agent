@@ -576,6 +576,18 @@ document.addEventListener("DOMContentLoaded", function () {
     activityIndicatorEl.setAttribute("data-completed", currentActivityCompleted ? "1" : "0");
   }
 
+  // 会话模式指示器（只读，单一真值为 currentSessionId → getSessionMode/isBare）。
+  // bare-chat：不落库、无工具、纯内存历史、每轮仅 1 step；
+  // turn-step：选会话、落库、支持工具调用与多 step 循环。不提供切换能力。
+  function renderSessionModeIndicator() {
+    var el = document.getElementById("sessionModeIndicator");
+    if (!el) return;
+    var mode = getSessionMode();
+    el.textContent = isBare() ? "模式: bare-chat" : "模式: turn-step";
+    el.setAttribute("data-mode", mode);
+    el.setAttribute("title", "bare-chat：不落库、无工具、纯内存历史、每轮仅 1 step；turn-step：选会话、落库、支持工具调用与多 step 循环。");
+  }
+
   function switchActivity(target) {
     if (target === currentActivity) { renderActivityIndicator(); return; }
     // 未完成 + supervised → 二次确认；completed 或 autonomous → 直接切
@@ -1251,6 +1263,15 @@ document.addEventListener("DOMContentLoaded", function () {
       if (evt.status !== "succeeded") {
         appendMessage("assistant", "[本轮终止] " + (evt.reason || "unknown") + (evt.error ? ": " + evt.error : ""));
       }
+      // 状态栏：bare 与 turn-step 同构（每 turn 1 step），同样累计 turns/steps 并重算 tok/s。
+      // usage/token 已在 onChatEvent 的 isBare() 分流之前处理，这里不再重复。
+      // 上面的 translation-error 分支已 return，翻译失败不计入一轮。
+      turnStat.steps = (evt.steps != null) ? evt.steps : turnStat.steps;
+      turnStat.tools = (evt.tools != null) ? evt.tools : turnStat.tools;
+      turnStat.durationMs = (evt.durationMs != null) ? evt.durationMs : turnStat.durationMs;
+      sessionStat.turns += 1;
+      if (evt.steps != null) sessionStat.steps += evt.steps;
+      renderStatusBar();
       currentAssistantBubble = null;
       currentThoughtBubble = null;
       resetFlatTranslationState();
@@ -2064,6 +2085,7 @@ document.addEventListener("DOMContentLoaded", function () {
     renderSessionMessages(sess.id);
     currentActivityCompleted = false;
     renderActivityIndicator();
+    renderSessionModeIndicator();   // currentSessionId 刚变化，同步模式指示器
     syncPlanModeFromActivity();
     resetStatusBar();   // 切换会话清空上一轮 token / 耗时统计
     if (input) input.focus();
@@ -2427,4 +2449,6 @@ document.addEventListener("DOMContentLoaded", function () {
   if (thinkSwitch) thinkSwitch.addEventListener("click", function () { thinkSwitch.classList.toggle("active"); });
   loadReasoningControl();  // 按设置渲染推理控件（think-switch / effort-selector 二选一）
   if (searchSwitch) searchSwitch.addEventListener("click", function () { searchSwitch.classList.toggle("active"); });
+
+  renderSessionModeIndicator();  // 启动时按当前模式（无选中会话=bare）渲染一次
 });
