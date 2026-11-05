@@ -135,7 +135,7 @@ async function fetchModels(baseUrl, apiKey) {
     : Array.isArray(json.models)
     ? json.models
     : [];
-  return list
+  const normalized = list
     .map((m) => {
       const out = { id: m.id || m.name, owned_by: m.owned_by || "" };
       // 推理等级：优先 DeepSeek 风格 effort.supported_levels，其次 Venice 风格 model_spec.capabilities.reasoningEffortOptions
@@ -148,6 +148,8 @@ async function fetchModels(baseUrl, apiKey) {
       return out;
     })
     .filter((m) => m.id);
+  // 同时返回远端原始响应（HTTP 状态 + 报文），供 UI 在 remote-model-response 中展示排查。
+  return { list: normalized, response: { status: cap.status, body: cap.response.body } };
 }
 
 module.exports = { postChatCompletions, fetchModels, trackCapture };

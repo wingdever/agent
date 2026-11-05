@@ -1,0 +1,7 @@
+{
+  "id": "auto-compact",
+  "next": "model-request",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "assemble-system",
+  "next": "build-context",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

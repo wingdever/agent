@@ -1,0 +1,7 @@
+{
+  "id": "resolve-input",
+  "next": "resolve-model",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "plan-review",
+  "next": "decide-next",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

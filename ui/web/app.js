@@ -2202,6 +2202,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var grp = document.createElement("optgroup");
         grp.label = p.name;  // 按 provider 标题分组
         p.models.forEach(function (m) {
+          if (m.enabled !== true) return;  // 仅启用（enabled===true）的模型进入选择器
           models.push(m.name);
           var o = document.createElement("option");
           o.value = m.name; o.textContent = m.name;
@@ -2219,7 +2220,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }).catch(function () {});
   }
   // 按模型获取推理等级列表：本地 providers.json 缓存优先，缺失时回退网络（DeepSeek effort.supported_levels / Venice ...），再兜底 low/medium/high。
-  // 始终追加 "off" 选项（关闭推理）；若后端给出 default_level 则作为初始选择。
+  // 始终追加 "none" 选项（关闭推理，对应 provider 原生 none 档）；若后端给出 default_level 则作为初始选择。
   function refreshEffortLevels(modelName) {
     if (!effortSelector) return;
     var opt = modelSelector ? modelSelector.querySelector('option[value="' + (modelName || "").replace(/"/g, '\\"') + '"]') : null;
@@ -2229,10 +2230,10 @@ document.addEventListener("DOMContentLoaded", function () {
     //   - settings.effort             = 用户实际选取的推理等级（用户偏好，在 composer 的 effort-selector 显示）
     // composer 这里只渲染「用户选择」；仅当用户尚无保存选择（首次）时，才用 default_level 作为兜底初值。
     getSettings().then(function (st) {
-      var savedEffort = st && st.effort;  // 用户已选（可能为 "off"/"low"/...，也可能缺省）
+      var savedEffort = st && st.effort;  // 用户已选（可能为 "none"/"low"/...，也可能缺省）
       return window.AgentClient.call("modelCapabilities", { provider: provider, model: modelName }).then(function (res) {
         var levels = (res && res.effort && res.effort.length) ? res.effort.slice() : ["low", "medium", "high"];
-        if (levels.indexOf("off") < 0) levels.unshift("off");  // 始终提供关闭推理选项，且置于列表首位
+        if (levels.indexOf("none") < 0) levels.unshift("none");  // 始终提供关闭推理选项，且置于列表首位
         effortSelector.innerHTML = "";
         levels.forEach(function (lv) {
           var o = document.createElement("option");
@@ -2259,12 +2260,19 @@ document.addEventListener("DOMContentLoaded", function () {
   }
   if (modelSelector) {
     modelSelector.addEventListener("change", function () {
-      saveSettings({ model: modelSelector.value });
+      var opt = modelSelector.querySelector('option[value="' + (modelSelector.value || "").replace(/"/g, '\\"') + '"]');
+      var provider = opt ? opt.getAttribute("data-provider") : null;
+      // 选取其它 provider 下的模型时，同步切换 settings.provider（凭据 baseUrl/apiKey 由它决定）
+      var patch = { model: modelSelector.value };
+      if (provider) patch.provider = provider;
+      saveSettings(patch);
       refreshEffortLevels(modelSelector.value);
       refreshContextWindow();
     });
     refreshModelSelector();
     refreshContextWindow();
+    // 模型配置（增删 provider / model）变更后，重新同步下拉列表
+    window.addEventListener("providers-changed", function () { refreshModelSelector(); });
   }
 
   // 推理等级选择器：选项由 refreshEffortLevels 从网络动态填充（兜底 low/medium/high），选择持久化到 settings.effort
@@ -2274,7 +2282,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // think-switch 与 effort-selector 语义冲突（都向模型注入推理参数），由设置 reasoningControl 决定渲染哪一个。
-  //  - "effort-selector"：显示推理等级下拉（off=关闭推理，其余=分级推理）
+  //  - "effort-selector"：显示推理等级下拉（none=关闭推理，其余=分级推理）
   //  - "think-switch"   ：显示思考开/关按钮（开=默认推理，关=thinking disabled）
   // 模型选择器（model-selector）两种模式都保留。
   var reasoningControl = "think-switch";
@@ -2299,11 +2307,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }).catch(function () {});
   }
   // 计算发给 core 的 effort 参数：
-  //  - think-switch 模式：开 → undefined（默认推理）；关 → "off"（thinking disabled）
-  //  - effort-selector 模式：直接透传下拉值（off→thinking disabled；其余→reasoning_effort）
+  //  - think-switch 模式：开 → undefined（默认推理）；关 → "none"（对应 thinking disabled / reasoning_effort:none）
+  //  - effort-selector 模式：直接透传下拉值（none→关闭推理；其余→reasoning_effort）
   function computeEffort() {
     if (reasoningControl === "think-switch") {
-      return isThinkOn() ? undefined : "off";
+      return isThinkOn() ? undefined : "none";
     }
     if (effortSelector) return effortSelector.value || undefined;
     return undefined;

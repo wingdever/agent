@@ -9,6 +9,7 @@ const { startTransport } = require("./core/transport");
 
 const AGENT_UI = process.env.AGENT_UI || "electron";
 const TRANSPORT = process.env.AGENT_TRANSPORT || "http";
+const LOOP_ENGINE = process.env.AGENT_LOOP_ENGINE || "node-graph";
 
 // UI 子项目注册表：将来新增 UI（如 web）在此登记即可，无需改协调逻辑。
 const UIS = {
@@ -36,7 +37,7 @@ app.whenReady()
   })
   .then((s) => {
     server = s || null;
-    console.log(`[launcher] transport=${TRANSPORT} ready, ui=${AGENT_UI}`);
+    console.log(`[launcher] transport=${TRANSPORT} ready, ui=${AGENT_UI}, loopEngine=${LOOP_ENGINE}`);
     ui.createWindow();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) ui.createWindow();

@@ -1,0 +1,7 @@
+{
+  "id": "builtin.translate-output",
+  "next": "model-request",
+  "type": "builtin",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

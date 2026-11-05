@@ -1,0 +1,446 @@
+{
+  "project": "agent",
+  "description": "A micro AI agent for learning harness engineering: three-layer (core / transport / UI) Electron app with a pluggable tool system, event-sourced storage, and DSH-style context compaction.",
+  "features": [
+    {
+      "id": "layered-architecture",
+      "name": "Layered Architecture (core / transport / UI)",
+      "description": "Business logic lives in core/, the UI only renders, and a launcher coordinator wires them together via a transport registry so clients can be swapped.",
+      "status": "pass",
+      "evidence": "launcher.js selects UI from UIS registry (AGENT_UI) and starts transport (AGENT_TRANSPORT); core/index.js exports createCore()/handleCall(); README.md 'Architecture' section.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "transport-registry",
+      "name": "Pluggable Transport (http / ipc)",
+      "description": "Core-to-UI communication is abstracted behind a transport registry; http is the default and ipc is an alternative, selected by AGENT_TRANSPORT.",
+      "status": "pass",
+      "evidence": "core/transport.js registers createHttpTransport/createIpcTransport with DEFAULT='http'; core/transports/http.js and core/transports/ipc.js; launcher.js calls startTransport().",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "electron-ui",
+      "name": "Electron Default UI",
+      "description": "Electron client creates a BrowserWindow with a preload bridge; renderer is a standalone web app under ui/web. UI subprojects register in launcher.js.",
+      "status": "pass",
+      "evidence": "ui/electron/main.js, preload.js, ui/electron/package.json; ui/web/index.html + app.js; launcher.js UIS map.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "agent-loop",
+      "name": "Agent Loop (unbounded turn/step)",
+      "description": "One chat() call is one turn of repeating steps; each step is one model request, and the loop continues while the model returns tool_calls with no hardcoded step cap.",
+      "status": "pass",
+      "evidence": "core/index.js chat() 'for (let r = 0; ; r++)' loop, terminates only on no tool_calls or TurnError; docs/behavior.md documents turn/step semantics.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "bare-chat-vs-session",
+      "name": "bare-chat vs persisted session modes",
+      "description": "bare-chat keeps history in memory only with no tool calls; session mode selects a workspace, persists turns/steps/messages to the DB, and supports tool calls.",
+      "status": "pass",
+      "evidence": "core/index.js chat() branches on persist = sessionId && store; docs/behavior.md 'mode-selector' section; ui.md activity selector.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "streaming-and-nonstreaming",
+      "name": "Streaming & non-streaming model responses",
+      "description": "Core supports SSE streaming (delta tokens, reasoning_content, incremental tool_calls) and non-streaming JSON responses, chosen by settings.stream or per-call override.",
+      "status": "pass",
+      "evidence": "core/index.js _stream() handles both stream and non-stream branches incl. tool_call accumulation and usage reporting; core/network/http/client.js postChatCompletions().",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "provider-config",
+      "name": "Provider / model configuration",
+      "description": "Model providers, base URLs, API keys and model lists come from user/providers.json (not hardcoded); settings.json selects the active provider/model and supplies the default when none is given.",
+      "status": "pass",
+      "evidence": "core/index.js readProvidersFile()/resolveProvider()/resolveDefaultFromProviders()/resolveProvider in chat(); user/providers.json; docs/roadmap.md 'model-provide' done via config.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "system-prompt-assembly",
+      "name": "System prompt assembly (session-first, ordered sections)",
+      "description": "System prompt is assembled once on a session's first turn and frozen thereafter; sections are ordered by a fixed table and tool prompts are injected only for visible tools.",
+      "status": "pass",
+      "evidence": "core/system-prompt.js assembleSystemPrompt()/DEFAULT_IDENTITY; core/index.js chat() systemIsNew branch; docs/system-prompt.md.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "settings-and-function-dispatch",
+      "name": "Settings & unified function dispatch",
+      "description": "A single handleCall() dispatcher routes channel requests (chat, settings, permissions, providers, storage, fs, compact, approvals, planMode, etc.) to core methods, keeping transports thin.",
+      "status": "pass",
+      "evidence": "core/index.js handleCall() switch with cases chat/settings/permissions/providers/storage/fs/compact/approval/answerQuestions/answerPlanReview/planMode/modelCapabilities; exports at file end.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "directory-tool-registry",
+      "name": "Directory-based pluggable tool registry",
+      "description": "Each tools/<name>/ subdir declares its interface via registry.json (name, description, parameters, type, entry, prompt, timeoutMs, defaultVisible); a loader scans and registers them at core startup.",
+      "status": "pass",
+      "evidence": "core/tools/registry.js loadTools(); 20 tool dirs each with registry.json (read/write/edit/glob/grep/bash/ask_user_question/web_search/web_fetch/goals/todo/jobs/plan/builtins); docs/tool.md '工具注册机制'; README.md 'Tools'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-execution-pipeline",
+      "name": "Tool validation, execution & result shaping",
+      "description": "Tool calls are JSON-parsed and schema-validated before approval, executed via a normalized run() contract, and their results shaped into model-facing text plus UI/DB-only meta.",
+      "status": "pass",
+      "evidence": "core/tools/executor.js validateToolArgs()/runTool(); core/tools/schema.js validateSchema(); core/tools/result.js errorResult()/normalizeResult(); core/index.js tool-call loop.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-read",
+      "name": "read — line-numbered file read",
+      "description": "Read a UTF-8 text file and return line-numbered content, with optional offset/limit paging. Records a per-session file observation (present at mtime:size, or absent) that write/edit later depend on.",
+      "status": "pass",
+      "evidence": "tools/read/registry.json (params file_path, offset, limit; prompt 'Use the read tool — not shell commands like cat'); tools/read/run.js; core/tools/fs-observe.js record().",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-write",
+      "name": "write — create or replace file",
+      "description": "Create or fully replace a UTF-8 text file. Enforces fs-observation-policy: an existing file must have been read first and the observed version (mtime:size) must still match, otherwise the write is refused.",
+      "status": "pass",
+      "evidence": "tools/write/registry.json (params file_path, content); tools/write/run.js; core/tools/fs-observe.js assertVersion(); test/tools.test.js 'read/write/edit follow fs observation'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-edit",
+      "name": "edit — literal string replacement",
+      "description": "Edit an existing UTF-8 text file by replacing a literal old_string with new_string, optionally replace_all. Requires a prior present observation; refuses a stale observed version or a missing file.",
+      "status": "pass",
+      "evidence": "tools/edit/registry.json (params file_path, old_string, new_string, replace_all); tools/edit/run.js; core/tools/fs-observe.js; test/tools.test.js 'write rejects a stale observed version'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-glob",
+      "name": "glob — file path discovery",
+      "description": "Find files (not directories) matching a glob pattern, including hidden and ignored files, in modification-time order. Caps at 100 paths and spills the complete list to a reported file; concurrencySafe, 30s timeout.",
+      "status": "pass",
+      "evidence": "tools/glob/registry.json (params pattern, path; timeoutMs 30000; concurrencySafe true); tools/glob/run.js; tools/lib/ripgrep.js; test/tools.test.js 'glob caps at 100 paths and spills the rest'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-grep",
+      "name": "grep — ripgrep content search",
+      "description": "Search file contents with a ripgrep regex, returning line-numbered matches grouped by file. Caps at 250 matches and spills the rest; supports an include glob; concurrencySafe, 30s timeout.",
+      "status": "pass",
+      "evidence": "tools/grep/registry.json (params pattern, path, include; timeoutMs 30000; concurrencySafe true); tools/grep/run.js; test/tools.test.js 'grep caps at 250 matches and spills the rest'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-bash",
+      "name": "bash — shell command execution",
+      "description": "Execute a bash -c command in a fresh shell with optional workdir, returning stdout/stderr and an exit-code marker. 120s default timeout (hard cap 600s, kills the process group), each stream capped to last 64KB with full spill to a file, and an opt-in program/args command gate from user/bash-policy.json that fails closed to ask/deny. No sandbox is implemented.",
+      "status": "pass",
+      "evidence": "tools/bash/registry.json (params description, command, timeoutMs, workdir; timeoutMs 120000); tools/bash/run.js (gate, truncation, timeout, DSH_* env vars); tools/bash/policy/; test/bash-integration.test.js 8 cases; AGENTS.md 'no sandbox'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-web-search",
+      "name": "web_search — Tavily web search",
+      "description": "Search the web via Tavily, merging up to four queries, and render an optional summary answer plus a list of source URLs. 30s timeout, concurrencySafe; results are marked untrusted and should be followed up with web_fetch.",
+      "status": "pass",
+      "evidence": "tools/web_search/registry.json (params queries; timeoutMs 30000; concurrencySafe true); tools/web_search/run.js; tools/lib/web/{config,search,tavily,network,trust}.js; docs/tool.md 'P3 已实现'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-web-fetch",
+      "name": "web_fetch — URL to bounded markdown",
+      "description": "Fetch one HTTP(S) URL under the public-network policy and render the response as bounded markdown/text (HTML converted via turndown), with a 30s timeout. Returns statusCode/truncated in meta.",
+      "status": "pass",
+      "evidence": "tools/web_fetch/registry.json (params url; timeoutMs 30000; concurrencySafe true); tools/web_fetch/run.js; tools/lib/web/{transport,render,policy,trust}.js; package.json turndown + @joplin/turndown-plugin-gfm.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-ask-user-question",
+      "name": "ask_user_question — suspend for user input",
+      "description": "Ask the user one or more concise questions for confirmation, a choice, or missing information. The turn pauses until the UI answers; in autonomous mode the request resolves without waiting.",
+      "status": "pass",
+      "evidence": "tools/ask_user_question/registry.json (type interaction; params questions); tools/ask_user_question/run.js; core/index.js requestUserQuestion()/answerQuestions()/isAutonomous(); test/tools.test.js 'ask_user_question blocks until the UI answers'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-request-user-job",
+      "name": "request_user_job — delegate real-world task to human",
+      "description": "Delegate a task to the human user; the turn pauses until the user submits a free-text report via an interactive card. Returns the report plus a job_id for later recall via job_output / job_list.",
+      "status": "pass",
+      "evidence": "tools/request_user_job/registry.json (type interaction; params description, title); tools/request_user_job/run.js; core/index.js requestUserJob()/answerUserJob(); schema.mjs user_jobs table; ui.md user-job-request.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-job-output",
+      "name": "job_output — read user job result/status",
+      "description": "Fetch the result or current status of a user job by job_id: the user's report when completed, or a status line if still pending or killed. Requires an active session (reads exec.store directly).",
+      "status": "pass",
+      "evidence": "tools/job_output/registry.json (type read; params job_id); tools/job_output/run.js reads store.run('userJob.get'); schema.mjs user_jobs table.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-job-list",
+      "name": "job_list — list session user jobs",
+      "description": "List the user jobs delegated to the human for this session, each with job_id, status and a short (80-char) description snippet. Requires an active session (reads exec.store directly).",
+      "status": "pass",
+      "evidence": "tools/job_list/registry.json (type read; no params); tools/job_list/run.js reads store.run('userJob.list', {session_id}); schema.mjs user_jobs table.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-job-kill",
+      "name": "job_kill — cancel a pending user job",
+      "description": "Cancel a pending user job by job_id. Completed or already-cancelled jobs cannot be killed; the current status is reported instead.",
+      "status": "pass",
+      "evidence": "tools/job_kill/registry.json (type read; params job_id); tools/job_kill/run.js; core/index.js killUserJob(); schema.mjs user_jobs table.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-create-goal",
+      "name": "create_goal — persisted session goal",
+      "description": "Create a persisted goal with an optional max_goal_rounds cap, intended for long-running objectives. The registry describes automatic continuation rounds, but that driver is not implemented yet (tracked as the pending goal-auto-continue feature).",
+      "status": "pass",
+      "evidence": "tools/create_goal/registry.json (type goal; params objective, max_goal_rounds); tools/create_goal/run.js; core/goals.js createGoalService().create() + header note; schema.mjs goals table.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-get-goal",
+      "name": "get_goal — read current session goal",
+      "description": "Read the current session goal, including the id and revision that update_goal requires.",
+      "status": "pass",
+      "evidence": "tools/get_goal/registry.json (type goal; no params); tools/get_goal/run.js; core/goals.js get().",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-update-goal",
+      "name": "update_goal — mutate current goal",
+      "description": "Update the current goal by goal_id + revision (optimistic concurrency) with actions edit/pause/resume/complete/blocked, optionally changing objective, max_goal_rounds or blocked_reason. State transitions and revision CAS are real; the DSH goal-round authority driver is not implemented, so the '3 consecutive rounds' rule is a prompt hint only.",
+      "status": "pass",
+      "evidence": "tools/update_goal/registry.json (type goal; params goal_id, revision, action, objective, max_goal_rounds, blocked_reason); tools/update_goal/run.js; core/goals.js update() + header comment 'automatic continuation-round driver is not implemented yet'; test/tools.test.js goal service cases.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-todo-write",
+      "name": "todo_write — replace task list",
+      "description": "Record and update a task list to plan multi-step work and show progress: one todo per concrete step, kept in_progress while active, marked completed as done. The list is replaced on each call and reset at every turn start.",
+      "status": "pass",
+      "evidence": "tools/todo_write/registry.json (type todo; params todos); tools/todo_write/run.js; core/todo-state.js reset(); core/index.js resets todo at turn start; test/tools.test.js todo_write cases.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-exit-plan-mode",
+      "name": "exit_plan_mode — present plan for approval",
+      "description": "Only available in plan mode. Presents a markdown plan for user review; approval exits plan mode, rejection keeps it active and returns the user's feedback in the tool result. Turn pauses on a plan-review event.",
+      "status": "pass",
+      "evidence": "tools/exit_plan_mode/registry.json (type plan; params plan); tools/exit_plan_mode/run.js; core/plan-mode.js; core/index.js requestPlanReview()/answerPlanReview(); docs/tool.md 'P5 提前实现'; two test/tools.test.js plan-mode cases are stale.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-calculator",
+      "name": "calculator — arithmetic evaluation (hidden)",
+      "description": "Evaluate an arithmetic expression containing only numbers and +-*/(). Hidden from the model by default (defaultVisible: false), available as an opt-in builtin.",
+      "status": "pass",
+      "evidence": "tools/calculator/registry.json (type builtin; defaultVisible false; params expression); tools/calculator/run.js regex-whitelist + Function evaluation.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-get-current-time",
+      "name": "get_current_time — ISO8601 clock (hidden)",
+      "description": "Return the current date and time as an ISO8601 string. Hidden from the model by default (defaultVisible: false), available as an opt-in builtin; takes no parameters.",
+      "status": "pass",
+      "evidence": "tools/get_current_time/registry.json (type builtin; defaultVisible false; no params); tools/get_current_time/run.js Date().toISOString().",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "tool-lib",
+      "name": "tools/lib shared helpers (ripgrep / web)",
+      "description": "Shared implementation library for tools: a ripgrep wrapper for glob/grep, and a web subsystem (config, transport, network policy, trust, Tavily client, search, HTML rendering) backing web_search/web_fetch.",
+      "status": "pass",
+      "evidence": "tools/lib/ripgrep.js; tools/lib/web/{config,errors,network,policy,render,search,tavily,transport,trust}.js.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "permission-gate",
+      "name": "Three-level tool permission gate",
+      "description": "Per-tool allow/ask/deny from user/permissions.json; malformed or missing config fails closed to 'ask'. ask suspends the turn until the user approves via an approval-request event.",
+      "status": "pass",
+      "evidence": "core/permissions.js readPermissions()/permissionFor() with LEVELS set and fallback 'ask'; core/index.js requestApproval()/approve() and tool-call decision branch; user/permissions.json.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "fs-path-policy",
+      "name": "Fine-grained fs path policy for write/edit",
+      "description": "write/edit permissions are narrowed or widened by path-glob rules in user/fs-policy.json; deny wins, first match otherwise, and a broken policy file is ignored.",
+      "status": "pass",
+      "evidence": "core/fs-policy.js readFsPolicy()/resolveFsPermission(); core/index.js resolveFsPermission() call for write/edit; user/fs-policy.json; docs/tool.md.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "event-sourced-storage",
+      "name": "Event-sourced session storage (pgmicro)",
+      "description": "Sessions, turns, steps, messages, calls and compaction events are stored in a single-file pgmicro DB; the model-visible history is a replayed surface projection, with log rows never rewritten.",
+      "status": "pass",
+      "evidence": "core/storage/store.mjs Store class with session.surface/compaction.append/message.add/turn.create/step.create; core/storage/schema.mjs tables incl. session_events, tool_result_prunes, token_anchors, user_jobs; docs/event-sourcing.md; docs/context-compact.md.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "workspace-resolution",
+      "name": "Workspace folder resolution",
+      "description": "Tool cwd is derived from the session's workspace folder; relative folder names (from the web folder picker) are resolved heuristically against cwd/home/parent, falling back to process.cwd().",
+      "status": "pass",
+      "evidence": "core/index.js workspaceFolderCandidates()/resolveWorkspaceFolder()/_resolveCwd(); docs/system-prompt.md {{cwd}} variable description.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "context-compaction",
+      "name": "DSH-style context compaction (/compact)",
+      "description": "Manual /compact condenses older history into one checkpoint message; automatic pressure compaction runs before each model request at 80% of the window, pruning oversized tool results first.",
+      "status": "pass",
+      "evidence": "core/compaction.js (thresholds, checkpoint framing, boundary selection, overflow detection); core/index.js compactSession()/_maybeCompactStep()/_runCompaction()/_pruneToolResults(); docs/context-compact.md; README.md 'Context compaction'; docs/roadmap.md done.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "context-overflow-recovery",
+      "name": "Context-overflow recovery",
+      "description": "When a model request fails due to context overflow, the core attempts a prune/summarize recovery pass and retries once before failing the turn.",
+      "status": "pass",
+      "evidence": "core/index.js chat() overflow retry loop calling _maybeCompactStep({trigger:'context-overflow'}); core/compaction.js isContextOverflowError(); docs/context-compact.md.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "token-meter",
+      "name": "Token metering & usage anchors",
+      "description": "Standardizes provider usage (incl. cached tokens), records per-request usage anchors, and drives the UI context/token indicators.",
+      "status": "pass",
+      "evidence": "core/token-meter.js normalizeUsage()/measure()/anchorFrom(); core/index.js _emitUsage()/_recordTokenAnchor(); schema.mjs token_anchors table; docs/context-compact.md.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "auto-translate",
+      "name": "Chinese/English auto-translation",
+      "description": "Chinese user input is translated to English before reaching the model; English assistant answers are translated to Chinese for display only. Translations are never persisted, with independent input/output failure policies and timeouts.",
+      "status": "pass",
+      "evidence": "core/translation.js resolveTranslateConfig()/shouldTranslateUser()/shouldTranslateAssistant()/translateText(); core/index.js translation start/done/error events in chat(); docs/translate.md; docs/roadmap.md 'auto-translate MVP (done)'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "plan-mode",
+      "name": "Plan mode & exit_plan_mode",
+      "description": "goal-plan activity puts a session into plan mode; a request-scoped policy is injected each step, and exit_plan_mode shows a markdown plan and blocks until the user approves or gives feedback.",
+      "status": "pass",
+      "evidence": "core/plan-mode.js setActive()/isActive()/POLICY; tools/exit_plan_mode registry; core/index.js chat() sets planMode from activity==='goal-plan', requestPlanReview()/answerPlanReview()/setPlanMode(); docs/tool.md 'P5 已提前实现 plan 模式'; docs/agent-mode.md. Two test/tools.test.js plan-mode cases are stale against this activity-driven behavior.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "agent-mode-axes",
+      "name": "Agent mode (presence / autonomy / activity)",
+      "description": "Three orthogonal axes: presence (in/out), autonomy (supervised/autonomous, where autonomous auto-denies all ask calls), and activity (bare-chat/goal-plan/build-code/...).",
+      "status": "pass",
+      "evidence": "docs/agent-mode.md; core/index.js isAutonomous() checks in requestApproval()/requestUserQuestion()/requestUserJob(); ui.md presence-mode-switch/autonomy-mode-switch/activity-indicator; composer permission-selector feedback.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "interaction-tools",
+      "name": "Human-in-the-loop interaction tools",
+      "description": "ask_user_question, request_user_job (+ job_list / job_output / job_kill) suspend the turn and emit UI cards; in autonomous mode they resolve without waiting.",
+      "status": "pass",
+      "evidence": "tools/ask_user_question, tools/request_user_job, tools/job_list, tools/job_output, tools/job_kill registries; core/index.js requestUserQuestion()/answerQuestions()/requestUserJob()/answerUserJob()/killUserJob(); schema.mjs user_jobs table; ui.md ask-user-prompt/user-job-request.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "goals-and-todos",
+      "name": "Goal & todo tools",
+      "description": "create_goal / get_goal / update_goal (goal service) and todo_write project task state into the session.",
+      "status": "pass",
+      "evidence": "core/goals.js createGoalService(); core/todo-state.js reset(); tools/create_goal, get_goal, update_goal, todo_write registries; schema.mjs goals table; docs/tool.md 'P2 已实现'.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "references",
+      "name": "@ reference injection (file / session)",
+      "description": "UI references are resolved into context blocks injected before the question: local file contents (size-capped) or an excerpt of a historical session trajectory.",
+      "status": "pass",
+      "evidence": "core/index.js _resolveReferences(); ui.md ref-btn/ref-chips; docs/data-struct.md session.trajectory storage op.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "effort-selector",
+      "name": "Reasoning effort selector",
+      "description": "Effort levels (off/low/medium/high) map to provider fields (thinking.disabled / reasoning_effort); modelCapabilities resolves supported levels from a local providers.json cache or a live /models fetch.",
+      "status": "pass",
+      "evidence": "core/index.js _stream() effort mapping, modelCapabilities(), fetchProviderModels(); ui.md model-effort-selector/effort-selector; core/network/http/client.js fetchModels().",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "network-tracker",
+      "name": "LLM network capture (nettrack)",
+      "description": "All chat/completions and /models requests are teed to structured + raw JSON capture files under log/network/track/, with sensitive headers redacted and a one-line stdout summary per call.",
+      "status": "pass",
+      "evidence": "core/network/http/client.js postChatCompletions()/fetchModels()/trackCapture(); core/network/http/tracker.js (NETTRACK/NETTRACK_QUIET, data/raw trees, redactHeaders); docs/log.md; docs/http.md.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "web-ui-shell",
+      "name": "Web UI shell & session management",
+      "description": "Renderer UI with thread-sidebar (workspaces/sessions tree), chat viewport, trajectory tab, composer, and modals for settings/permissions/models, described by a layout-tree-first spec.",
+      "status": "pass",
+      "evidence": "ui/web/app.js, ui/web/api.js, ui/web/settings.js, ui/web/permissions.js, ui/web/models.js, ui/web/markdown.js, ui/web/styles.css; docs/ui.md layout tree and name table.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "test-suite",
+      "name": "Automated test suite (node --test)",
+      "description": "63 tests across tools, bash integration and compaction cover registry visibility, fs observation, gate verdicts, permission fail-closed, surface replay, checkpoint framing and token anchors. 61 pass; 2 plan-mode tests are stale (they set plan-mode state directly, while chat() now derives it from activity).",
+      "status": "pass",
+      "evidence": "test/tools.test.js, test/bash-integration.test.js, test/compaction.test.js; package.json 'test': 'node --test test/*.test.js'; npm test => tests 63 / pass 61 / fail 2.",
+      "testedAt": "2026-11-05"
+    },
+    {
+      "id": "session-save",
+      "name": "Session save / resume",
+      "description": "Planned: save and resume sessions across restarts.",
+      "status": "pending",
+      "evidence": "docs/roadmap.md '## session-save' (no code under core/ or tools/ implements it).",
+      "testedAt": null
+    },
+    {
+      "id": "skill-system",
+      "name": "Skill system",
+      "description": "Planned: a skill layer; a skills table exists in schema but no runtime implementation.",
+      "status": "pending",
+      "evidence": "docs/roadmap.md '## skill'; core/storage/schema.mjs defines skills / tool_skills tables but no skill loader exists.",
+      "testedAt": null
+    },
+    {
+      "id": "plugin-system",
+      "name": "Plugin system",
+      "description": "Planned: pluggable plugin architecture beyond the directory-based tool registry.",
+      "status": "pending",
+      "evidence": "docs/roadmap.md '## plugin-system'; no plugin directory or loader in core/.",
+      "testedAt": null
+    },
+    {
+      "id": "subagents",
+      "name": "Subagents",
+      "description": "Planned: sub-agent execution; UI reserves sub-agent-tree/agent-trace-node nodes but no runtime exists.",
+      "status": "pending",
+      "evidence": "docs/roadmap.md '## subagents'; ui.md lists sub-agent-tree / agent-trace-node layout nodes only.",
+      "testedAt": null
+    },
+    {
+      "id": "shell-tool",
+      "name": "Standalone shell tool",
+      "description": "Planned: a dedicated shell feature distinct from the existing bash tool.",
+      "status": "pending",
+      "evidence": "docs/roadmap.md '## shell'; no shell tool directory under tools/.",
+      "testedAt": null
+    },
+    {
+      "id": "goal-auto-continue",
+      "name": "Goal auto-continue turns",
+      "description": "Planned: goals automatically drive the agent loop to continue working, rather than being passive records.",
+      "status": "pending",
+      "evidence": "docs/tool.md 'P2 已实现 ... goal 自动续轮待做'; core/goals.js currently only provides CRUD service.",
+      "testedAt": null
+    }
+  ]
+}

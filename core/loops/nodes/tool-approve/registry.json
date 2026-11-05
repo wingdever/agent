@@ -1,0 +1,7 @@
+{
+  "id": "tool-approve",
+  "next": "tool-run",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

@@ -6,7 +6,9 @@
   "main": "launcher.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "providers": "node providers/index.js",
+    "providers:all": "node providers/index.js"
   },
   "devDependencies": {
     "electron": "44.9.3"

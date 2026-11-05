@@ -102,7 +102,13 @@
       return out;
     });
   }
-  function persistProviders() { return api("upsert", serializeProviders()); }
+  function persistProviders() {
+    return api("upsert", serializeProviders()).then(function (res) {
+      // 通知其它 UI（composer / settings 的模型选择器）重新同步模型列表与 provider
+      window.dispatchEvent(new CustomEvent("providers-changed"));
+      return res;
+    });
+  }
   function providerById(id) {
     return state.providers.find(function (p) { return String(p.id) === String(id); });
   }
@@ -333,6 +339,7 @@
     var fetchBtn = el("button", { className: "fetch-models-btn", type: "button", dataset: { name: "fetch-models-btn" } }, "拉取远端模型");
     var remoteStatus = el("span", { className: "conn-status", dataset: { name: "remote-status" } });
     var remoteModelsEl = el("div", { className: "remote-models", dataset: { name: "remote-models" } });
+    var remoteResponseEl = el("pre", { className: "remote-model-response", dataset: { name: "remote-model-response" } });
 
     var rows = [];
     function addOne(id, fee, btn) {
@@ -340,7 +347,7 @@
         if (btn) { btn.textContent = "已添加"; btn.disabled = true; btn.className = (btn.className || "") + " added"; }
         return;
       }
-      var m = { id: p.id + "#" + id, name: id, fee: fee || "unknown", provider_id: p.id };
+      var m = { id: p.id + "#" + id, name: id, fee: fee || "unknown", provider_id: p.id, enabled: true };
       p.models.push(m); state.models.push(m);
       persistProviders().then(function () {
         renderTree();
@@ -374,12 +381,21 @@
     function loadRemoteModels() {
       var baseurl = urlInput.value.trim();
       var apikey = apiInput.value;
-      remoteModelsEl.innerHTML = ""; remoteStatus.textContent = "拉取中…"; remoteStatus.className = "conn-status";
+      remoteModelsEl.innerHTML = ""; remoteResponseEl.textContent = ""; remoteStatus.textContent = "拉取中…"; remoteStatus.className = "conn-status";
       if (!isValidUrl(baseurl)) { remoteStatus.textContent = "Base URL 不合法"; remoteStatus.className = "conn-status bad"; return; }
-      window.AgentClient.call("fetchModels", { baseurl: baseurl, apikey: apikey }).then(function (list) {
+      window.AgentClient.call("fetchModels", { baseurl: baseurl, apikey: apikey }).then(function (res) {
+        var list = res && res.list ? res.list : (Array.isArray(res) ? res : []);
         remoteStatus.textContent = "获取到 " + list.length + " 个模型"; remoteStatus.className = "conn-status ok";
         renderRemoteList(list);
-      }).catch(function (e) { remoteStatus.textContent = "失败：" + (e.message || e); remoteStatus.className = "conn-status bad"; });
+        // 在 remote-model-response 中展示远端原始响应（HTTP 状态 + 报文），便于排查
+        if (res && res.response) {
+          remoteResponseEl.textContent = "HTTP " + (res.response.status != null ? res.response.status : "?") +
+            "\n\n" + (res.response.body || "(空)");
+        }
+      }).catch(function (e) {
+        remoteStatus.textContent = "失败：" + (e.message || e); remoteStatus.className = "conn-status bad";
+        remoteResponseEl.textContent = "请求失败：\n" + (e.message || String(e));
+      });
     }
     fetchBtn.addEventListener("click", loadRemoteModels);
 
@@ -390,6 +406,7 @@
       field("API Key", el("div", { className: "apikey-row" }, [apiInput, toggle])),
       el("div", { className: "fetch-row" }, [fetchBtn, remoteStatus]),
       remoteModelsEl,
+      remoteResponseEl,
     ]);
 
     var modelCountLabel = el("span", null, "模型 (" + modelsOf(p.id).length + ")");

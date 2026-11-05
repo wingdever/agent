@@ -100,7 +100,7 @@
 | **search-switch** | 联网搜索开关 |
 | **permission-selector** | 权限预设选择器（composer-footer）：`read-only`(只读工具 allow，其余 deny) / `workspace-write`(只读+工作区写 allow，其余 deny) / `full-access`(全 allow) / `fine-grained`(沿用 user/* 配置，点击打开权限 modal) |
 | **model-effort-selector** | 模型+推理等级组合选择器，含两个子选择器 `model-selector` 与 `effort-selector`；`effort-selector` 的可见性由 `reasoningControl` 设置控制 |
-| **model-selector** | 模型选择器（composer-footer，按 provider 标题用 `<optgroup>` 分组；选中持久化到 settings.model；同时 settings-modal 内仍有独立入口） |
+| **model-selector** | 模型选择器（composer-footer，按 provider 标题用 `<optgroup>` 分组；选中持久化到 settings.model；同时 settings-modal 内仍有独立入口）（选中跨 provider 的模型应同步切换 settings.provider 以对齐凭据；模型配置变更后应重新同步下拉列表） |
 | **effort-selector** | 推理等级选择器（仅当 `reasoningControl==="effort-selector"` 时显示）；选项由 `modelCapabilities` RPC 获取——优先读 `user/providers.json` 缓存的 `effort.supported_levels`，缺失时回退网络（`effort.supported_levels` / `model_spec.capabilities.reasoningEffortOptions`），再兜底 `low/medium/high`；列表首位固定为 `off`（关闭推理）。选中持久化到 settings.effort 并透传 core：`off`→`{"thinking":{"type":"disabled"}}`，其余→`{"reasoning_effort":"<level>"}` |
 | **reasoningControl 设置** | settings-modal 中的「推理参数控件」下拉：`effort-selector` / `think-switch` 二值，持久化到 `settings.reasoningControl`（默认 `think-switch`）。决定 composer 渲染哪个推理控件——二者语义冲突（都向模型注入推理参数），只能显示一个 |
 | **ref-btn** | `@` 引用按钮：打开引用菜单（历史会话 / 本地文件），选中的引用以 chip 展示于 `ref-chips` |
@@ -202,7 +202,7 @@
 | **fetch-row** | 功能行：拉取远端模型按钮 + 拉取状态 |
 | **fetch-models-btn** | 拉取远端模型按钮（后端代理 /models，兼连通性测试） |
 | **remote-status** | 拉取状态 / 错误提示 |
-| **remote-models-section** | 远端模型列表区（拉取后展示） |
+| **remote-models-section** | 远端模型列表区（拉取后展示）；含 `remote-model-response`（展示远端原始响应：HTTP 状态 + 报文，成功/失败均写入，便于排查） |
 | **remote-toolbar** | 远端模型列表工具条（全部添加） |
 | **add-all-btn** | 全部添加远端模型 |
 | **remote-model-item** | 单个远端模型行 |
@@ -368,10 +368,11 @@ models-modal
 │  │  │  └─ remote-models-section
 │  │  │     ├─ remote-toolbar
 │  │  │     │  └─ add-all-btn
-│  │  │     └─ remote-model-item*
-│  │  │        ├─ remote-model-id
-│  │  │        ├─ fee-select
-│  │  │        └─ remote-add-btn
+│  │  │     ├─ remote-model-item*
+│  │  │     │ ├─ remote-model-id
+│  │  │     │ ├─ fee-select
+│  │  │     │ └─ remote-add-btn
+│  │  │     └─ remote-model-response
 │  │  ├─ model-list-section
 │  │  │  ├─ section-header
 │  │  │  └─ model-item*
@@ -497,7 +498,7 @@ add-provider-btn -> provider-add-tab（打开新增供应者标签页）
 add-model-btn(provider_id) -> model-add-tab（打开新增模型标签页，携带 provider_id）
 model-edit-btn(model.id) -> model-edit-tab（打开模型编辑标签页）
 save-btn(providers) -> AgentClient.call("providers", {op:"upsert", payload:<整体 providers 数组>}) -> 整体写回 user/providers.json
-fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote-models-section（渲染 remote-model-item*）
+fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote-models-section（渲染 remote-model-item*，并写入 remote-model-response 原始响应）
 remote-add-btn -> AgentClient.call("providers", {op:"upsert", payload:<整体 providers 数组>}) -> model-list-section
 add-all-btn -> 对每条未添加 remote-model-item 触发 providers upsert
 

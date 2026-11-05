@@ -93,21 +93,46 @@
     }
   }
 
-  function modelsOf(providerName) {
-    var p = providers.filter(function (x) { return x.name === providerName; })[0];
-    var ms = p && p.models ? p.models : [];
-    return ms.map(function (m) { return m.name || m; });
+  function allModelsGrouped() {
+    var groups = [];
+    providers.forEach(function (p) {
+      // 仅纳入启用（enabled===true）的模型
+      var ms = (p.models || []).filter(function (m) { return m && m.enabled === true; }).map(function (m) { return m.name || m; });
+      if (ms.length) groups.push({ provider: p.name, models: ms });
+    });
+    return groups;
   }
 
+  // 按 provider 用 optgroup 分组渲染全部模型（跨 provider 可选），并记录每个模型归属的 provider
   function populateModels() {
     modelSelEl.innerHTML = "";
-    var ms = modelsOf(state.provider);
-    ms.forEach(function (m) { modelSelEl.appendChild(el("option", { value: m }, m)); });
-    if (state.model && ms.indexOf(state.model) !== -1) {
-      modelSelEl.value = state.model;
-    } else if (ms.length) {
-      state.model = ms[0];
-      modelSelEl.value = state.model;
+    var groups = allModelsGrouped();
+    groups.forEach(function (g) {
+      var grp = el("optgroup", { label: g.provider });
+      g.models.forEach(function (m) {
+        var o = el("option", { value: m }, m);
+        o.setAttribute("data-provider", g.provider);
+        grp.appendChild(o);
+      });
+      modelSelEl.appendChild(grp);
+    });
+    if (state.model) {
+      var hit = null;
+      groups.forEach(function (g) { if (g.models.indexOf(state.model) !== -1) hit = g.provider; });
+      if (hit) {
+        modelSelEl.value = state.model;
+        // 当前模型归属的 provider 与设置里的 provider 不一致时，按模型对齐
+        if (state.provider !== hit) { state.provider = hit; if (providerSelEl) providerSelEl.value = hit; }
+        return;
+      }
+    }
+    // 无有效模型时，回退到当前 provider 的首个模型
+    if (groups.length) {
+      var first = groups[0];
+      state.provider = first.provider;
+      state.model = first.models[0];
+      if (providerSelEl) providerSelEl.value = first.provider;
+      modelSelEl.value = first.models[0];
     }
   }
 
@@ -141,13 +166,26 @@
     providerSelEl = el("select", { className: "settings-provider-select", dataset: { name: "provider-selector" } });
     providerSelEl.addEventListener("change", function () {
       state.provider = providerSelEl.value;
-      state.model = "";
+      // 跟随 provider 切换到该 provider 的首个模型
+      var g = allModelsGrouped().filter(function (x) { return x.provider === state.provider; })[0];
+      state.model = g && g.models.length ? g.models[0] : "";
       populateModels();
+      if (state.model) modelSelEl.value = state.model;
       save();
     });
 
     modelSelEl = el("select", { className: "settings-model-select", dataset: { name: "model-selector" } });
-    modelSelEl.addEventListener("change", function () { state.model = modelSelEl.value; save(); });
+    modelSelEl.addEventListener("change", function () {
+      state.model = modelSelEl.value;
+      // 选取不同 provider 下的模型后，同步切换 provider（凭据由 provider 决定）
+      var opt = modelSelEl.querySelector('option[value="' + (state.model || "").replace(/"/g, '\\"') + '"]');
+      var prov = opt ? opt.getAttribute("data-provider") : null;
+      if (prov && prov !== state.provider) {
+        state.provider = prov;
+        if (providerSelEl) providerSelEl.value = prov;
+      }
+      save();
+    });
 
     // 推理参数控件：决定 composer 中渲染 think-switch 还是 effort-selector（二者语义冲突，只能二选一）。
     reasoningControlSel = el("select", {
@@ -179,7 +217,7 @@
       el("div", { className: "settings-row" }, [el("span", null, "推理参数控件"), reasoningControlSel]),
       el("div", { className: "settings-note" },
         "思考开关与推理等级都向模型注入推理参数，二者冲突，只能显示一个。" +
-        "选择“推理等级”则在 composer 显示分级下拉（off/low/high…）；选择“思考开关”则显示开/关按钮。"),
+        "选择“推理等级”则在 composer 显示分级下拉（none/low/high…）；选择“思考开关”则显示开/关按钮。"),
       el("div", { className: "settings-actions" }, [
         el("button", { className: "close-settings-btn", dataset: { name: "close-settings-btn" }, onclick: closeSettings }, "关闭"),
       ]),
@@ -188,6 +226,12 @@
     overlay = el("div", { className: "settings-modal", dataset: { name: "settings-modal" } }, [card]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closeSettings(); });
     document.body.appendChild(overlay);
+    // 模型配置（增删 provider / model）变更后，重新同步下拉列表
+    window.addEventListener("providers-changed", function () {
+      if (overlay && overlay.style.display === "flex") {
+        loadProviders().then(function () { populateProviders(); populateModels(); });
+      }
+    });
   }
 
   async function openSettings() {

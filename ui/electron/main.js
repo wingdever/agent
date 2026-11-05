@@ -5,6 +5,7 @@ const { createCore } = require("../../core");
 const { startTransport } = require("../../core/transport");
 
 const TRANSPORT = process.env.AGENT_TRANSPORT || "http";
+const LOOP_ENGINE = process.env.AGENT_LOOP_ENGINE || "node-graph";
 let server = null;
 
 // 原生文件夹选择对话框：供渲染进程经 agentBridge.selectFolder 调用
@@ -57,7 +58,7 @@ function start(core) {
       startTransport(TRANSPORT, _core)
         .then((s) => {
           server = s || null;
-          console.log("[main] transport=" + TRANSPORT + " ready");
+          console.log("[main] transport=" + TRANSPORT + " ready, loopEngine=" + LOOP_ENGINE);
           createWindow();
           app.on("activate", () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow();

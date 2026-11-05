@@ -1,0 +1,7 @@
+{
+  "id": "model-request",
+  "next": "tool-approve",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

@@ -401,6 +401,7 @@ select, textarea, input { font-family: inherit; }
 .remote-model-item:hover { background: #f8fafc; }
 .remote-model-id { flex: 1 1 auto; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #334155; font-family: ui-monospace, monospace; }
 .remote-add-btn { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 2px 10px; font-size: 12px; }
+.remote-model-response { margin: 10px 0 0; padding: 10px; background: #0f172a; color: #e2e8f0; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 .remote-add-btn.added { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; cursor: default; }
 
 /* ============ settings-modal（运行时设置：流式开关 + 模型选择） ============ */

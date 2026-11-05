@@ -1,0 +1,7 @@
+{
+  "id": "tool-run",
+  "next": "plan-review",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}
