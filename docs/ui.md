@@ -24,6 +24,7 @@
   - [3.2 models-modal](#32-models-modal)
   - [3.3 permissions-modal](#33-permissions-modal)
   - [3.4 user-job（运行期交互）](#34-user-job运行期交互)
+  - [3.5 loops-modal](#35-loops-modal)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
 
@@ -61,6 +62,7 @@
 | **restore-session-btn** | 回收站内：恢复已软删会话（清除 deleted_at） |
 | **purge-session-btn** | 回收站内：彻底删除（hard 删，不可恢复） |
 | **permissions-btn** | 权限配置按钮 → permissions-modal |
+| **loops-btn** | 循环编排按钮 → loops-modal |
 | **settings-btn** | 设置按钮 → settings-modal |
 | **chat-viewport** | 中间聊天主视口 |
 | **chat-header** | 聊天头部 |
@@ -169,6 +171,24 @@
 | **permissions-panel** | 权限弹窗右侧常驻操作栏 |
 | **reset-defaults-btn** | 恢复默认按钮（default=ask，清空所有显式档位与规则） |
 | **close-permissions-btn** | 关闭权限弹窗按钮 |
+| **loops-modal** | 循环编排弹窗（节点拓扑 + hooks 覆写编辑） |
+| **loops-sidebar** | 循环弹窗左侧栏（概要） |
+| **loops-summary** | 循环概要区（当前引擎、节点数、loop 边数） |
+| **current-engine-label** | 当前引擎展示（只读；显示 `AGENT_LOOP_ENGINE` 值，标注「重启生效」；不提供引擎切换） |
+| **loops-viewport** | 循环弹窗中间视口 |
+| **loop-topology** | 左侧只读拓扑：静态 `next` 链 + `decide-next→auto-compact` 回环 + 实时 hooks 虚线指向 target 节点 |
+| **loop-nodes-table** | 右侧可编辑节点表 |
+| **loop-node-row*** | 单个节点行（core + builtin 均展示） |
+| **loop-node-id-label** | 节点 id（只读） |
+| **loop-node-type-label** | 节点类型（只读） |
+| **loop-next-label** | `next` 指向（只读；`next` 不可编辑） |
+| **loop-hooks-editor** | hooks 编辑器（唯一可编辑区域） |
+| **hook-slot*** | 单条 hook（on/slot/target 三元组） |
+| **hook-add-btn** | 新增 hook 行 |
+| **hook-target-select** | hook target 下拉（列出所有节点 id：core + builtin） |
+| **hook-remove-btn** | 删除 hook 行 |
+| **loops-panel** | 循环弹窗右侧常驻操作栏 |
+| **close-loops-btn** | 关闭循环弹窗按钮 |
 | **settings-modal** | 设置弹窗（运行时设置：流式开关 + 供应者/模型选择） |
 | **settings-sidebar** | 设置弹窗左侧栏 |
 | **provider-model-tree-list** | 供应者/模型树列表 |
@@ -256,6 +276,7 @@ shell
 │  │          └─ delete-session-btn
 │  ├─ models-btn
 │  ├─ permissions-btn
+│  ├─ loops-btn
 │  └─ settings-btn
 ├─ chat-viewport
 │  ├─ chat-header
@@ -476,6 +497,29 @@ permissions-modal
    ├─ danger-zone
    └─ close-permissions-btn
 
+loops-modal
+├─ loops-sidebar
+│  └─ loops-summary
+│     └─ current-engine-label
+├─ loops-viewport
+│  ├─ loop-topology
+│  ├─ loop-nodes-table
+│  │  └─ loop-node-row*
+│  │     ├─ loop-node-id-label
+│  │     ├─ loop-node-type-label
+│  │     ├─ loop-next-label
+│  │     └─ loop-hooks-editor
+│  │        └─ hook-slot*
+│  │           ├─ hook-target-select
+│  │           ├─ hook-remove-btn
+│  │           └─ hook-add-btn
+│  └─ config-footer
+│     ├─ reset-btn
+│     └─ save-btn
+└─ loops-panel
+   ├─ reset-defaults-btn
+   └─ close-loops-btn
+
 settings-modal
 ├─ stream-switch
 ├─ provider-selector
@@ -491,6 +535,7 @@ add-workspace-btn -> folder-selector -> add-workspace(folder)
 add-session-btn -> name-prompt -> add-session(worksapce,name)
 models-btn -> models-modal
 permissions-btn -> permissions-modal
+loops-btn -> loops-modal
 
 ### 3.2 models-modal
 
@@ -514,6 +559,15 @@ user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文
   提交按钮 -> AgentClient.call("answerUserJob", {id, result}) -> 工具结果为用户回报文本
   取消按钮 -> AgentClient.call("answerUserJob", {id, cancel:true}) -> 工具结果标记为已取消
   user-job-update(event:{id,status}) -> 将对应 user-job 卡片置为已结束/已取消
+
+### 3.5 loops-modal
+
+loops-btn -> loops-modal（打开时 loops.list 拉取 engines / nodes / builtins / hooks 覆写）
+save-btn(hooks) -> AgentClient.call("loops", {op:"upsert", payload:{hooks}}) -> 整体写回 user/loops.json（数组顺序即执行顺序，校验 slot / on / target 且禁止重复三元组）
+reset-btn -> 放弃未保存编辑，重新 loops.list 拉取
+reset-defaults-btn -> AgentClient.call("loops", {op:"upsert", payload:{hooks:<仓库默认两条 translate hook: builtin.translate-input / builtin.translate-output>}}) -> 恢复出厂（需 uiConfirm）
+close-loops-btn -> 关闭
+
 ---
 
 ## 4. 布局关系
@@ -523,7 +577,7 @@ shell
    arrange: horizontal
 
 thread-sidebar
-   children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, models-btn, permissions-btn, settings-btn
+   children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, models-btn, permissions-btn, loops-btn, settings-btn
    arrange: vertical
 
 sidebar-header
@@ -585,6 +639,11 @@ collapse
 
 attachment
    no AttachmentDropzone node; 文件引用由 ref-btn 的「引用本地文件」承接
+
+loops-modal
+   three-part: loops-sidebar | loops-viewport | loops-panel
+   loops-viewport: loop-topology (left, read-only) + loop-nodes-table (right, editable)
+   note: current-engine-label 只读（展示 AGENT_LOOP_ENGINE，重启生效，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→auto-compact 回环 + 实时 hooks 虚线
 
 ---
 

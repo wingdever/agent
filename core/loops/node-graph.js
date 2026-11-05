@@ -12,6 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const { loadNodes } = require("./registry");
 const { readSettings } = require("./shared");
+const { readLoops } = require("./loops-config");
 const { resolveConfig: resolveTranslateConfig } = require("../translation");
 const { TurnError } = require("../turn-error");
 const planMode = require("../plan-mode");
@@ -19,8 +20,6 @@ const { reset: resetTodos } = require("../todo-state");
 
 // 默认入口节点：整轮从这里开始。
 const ENTRY_NODE = "resolve-input";
-
-// translate hook 仅当 settings.translate.enabled 时注册（见 wireTranslateHooks）。
 
 class NodeGraphEngine {
   constructor() {
@@ -31,8 +30,8 @@ class NodeGraphEngine {
     for (const id of this.nodes.keys()) {
       this.hooks[id] = { before: [], after: [], onError: [] };
     }
-    // 按 settings.translate.enabled 注册 translate 注入 hook。
-    this._wireTranslateHooks();
+    // 从 user/loops.json 覆盖层注册 hook（与 settings.translate.enabled 解耦）。
+    this._wireHooksFromOverlay();
   }
 
   // 注册普通 hook（生命周期回调）。
@@ -47,32 +46,25 @@ class NodeGraphEngine {
     return this;
   }
 
-  _wireTranslateHooks() {
-    const st = readSettings();
-    let translateCfg;
-    try {
-      const { resolveConfig } = require("../translation");
-      translateCfg = resolveConfig(st);
-    } catch (_) {
-      translateCfg = null;
+  // Register hooks from the user/loops.json overlay. Each entry {on, slot, target}
+  // attaches a hook that runs the target node (builtin OR core) and always returns
+  // {action:"continue"}. A bad overlay entry must never crash engine construction:
+  // log and skip it. Array order is preserved by registerHook push order.
+  _wireHooksFromOverlay() {
+    const hooks = readLoops();
+    for (const entry of hooks) {
+      try {
+        const { on, slot, target } = entry;
+        this.registerHook(on, slot, async (input, ctx) => {
+          const node = this.nodes.get(target);
+          if (!node) return { action: "continue" };
+          await node.run(input, ctx);
+          return { action: "continue" };
+        });
+      } catch (err) {
+        console.error("[loops] skip bad hook entry " + JSON.stringify(entry) + ": " + ((err && err.message) || err));
+      }
     }
-    if (!translateCfg || !translateCfg.enabled) return; // 关闭时完全不注册 → 主干不含翻译
-
-    // 输入翻译：挂在 resolve-input.before，调用 builtin.translate-input 节点。
-    this.registerHook("resolve-input", "before", async (input, ctx) => {
-      const node = this.nodes.get("builtin.translate-input");
-      if (!node) return { action: "continue" };
-      await node.run(input, ctx); // 通过 ctx.translatedUser 把结果交回 resolve-input
-      return { action: "continue" };
-    });
-
-    // 输出翻译：挂在 model-request.after，仅在最终回答上翻译（builtin 内部判断）。
-    this.registerHook("model-request", "after", async (input, ctx) => {
-      const node = this.nodes.get("builtin.translate-output");
-      if (!node) return { action: "continue" };
-      await node.run(input, ctx);
-      return { action: "continue" };
-    });
   }
 
   // 执行某个节点（含 before/after 钩子）。返回节点 run 的指令结果。

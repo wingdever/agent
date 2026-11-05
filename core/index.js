@@ -14,6 +14,7 @@ const {
 } = require("./translation");
 const compaction = require("./compaction");
 const tokenMeter = require("./token-meter");
+const loopsConfig = require("./loops/loops-config");
 
 // user/providers.json：用户侧供应者配置，含 base_url / api_key / models。
 // 当调用方未显式提供 model 时，作为默认模型来源。
@@ -1018,6 +1019,38 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
       if (params.op === "get") return readProvidersFile();
       if (params.op === "upsert") return writeProvidersFile(params.payload || []);
       throw new Error("unknown providers op: " + params.op);
+    }
+    case "loops": {
+      const { loadNodes } = require("./loops/registry");
+      const { listEngineNames, DEFAULT_ENGINE } = require("./loops");
+      const nodesMap = loadNodes();
+      const nodes = [];
+      const builtins = [];
+      for (const node of nodesMap.values()) {
+        nodes.push({ id: node.id, type: node.type, next: node.next, hooks: node.hooks });
+        if (node.type === "builtin") builtins.push(node.id);
+      }
+      const coreNodeIds = nodes.filter((n) => n.type !== "builtin").map((n) => n.id);
+      const allNodeIds = nodes.map((n) => n.id);
+      const st = readSettings();
+      if (params.op === "get" || params.op === "list") {
+        return {
+          engines: listEngineNames(),
+          currentEngine: process.env.AGENT_LOOP_ENGINE || DEFAULT_ENGINE,
+          defaultEngine: DEFAULT_ENGINE,
+          nodes,
+          builtins,
+          hooks: loopsConfig.readLoops(),
+          translateEnabledInLinear: !!(st.translate && st.translate.enabled),
+        };
+      }
+      if (params.op === "upsert") {
+        const hooks = (params.payload && params.payload.hooks) || [];
+        loopsConfig.validateHooks(hooks, coreNodeIds, allNodeIds);
+        loopsConfig.writeLoops(hooks);
+        return { ok: true, hooks };
+      }
+      throw new Error("unknown loops op: " + params.op);
     }
     case "listFunctions": return core.listFunctions();
     case "storage": {
