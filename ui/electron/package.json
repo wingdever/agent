@@ -4,6 +4,7 @@
   "private": true,
   "description": "Electron 桌面客户端（独立子项目）",
   "main": "main.js",
+  "packageManager": "pnpm@12.15.0",
   "scripts": {
     "start": "electron ."
   },
