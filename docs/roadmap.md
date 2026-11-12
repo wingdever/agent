@@ -10,192 +10,197 @@
 - **流程**：每个里程碑启动前、每个条目落盘前，先与用户讨论达成一致再动手。
 - **优先级标准**：实用 > 架构自洽 > 学习价值。
 - **设计哲学：默认+扩展点** —— 默认是我们自己的轻量模型；外部标准（cordis）、高级需求（scope / 隔离域）、自我变更（self-evolution）都落在扩展点 / 适配层 / 权限项上，不进主体。
-- **模块 = 运行时能力包** —— 编译时解耦（模块不静态 import 彼此），运行时接合（registry 注册）；权限 gate 统一覆盖自变更（self-evolution）与外部变更（插件 / 配置变更）：新增动作域（memory.write / skill.* / module.install / config.set），默认 allow + 事件流通知，用户可收紧 ask/deny。
-- **可观测作为模块设计基本准则** —— 每个模块默认产出可观测信号：span / 轨迹 / 成本 / 延迟指标，是模块的基本设计准则而非独立功能。
-
-## 核心概念定义
-
-全局术语基准。四层自底向上，上层可包含下层；subagent 是 agent 的内含能力而非独立构成层；用户是层外的授予者 / 观察者，不算作 agent。
-
-| 层 | 定义 | 边界 |
-|---|---|---|
-| **agent** | 最基础的单一 agent 单元，可派生 subagent 作为其内含的委派能力 | 包含 subagent 与作为构成单元供上层组合；不含人类用户 |
-| **subagent** | 受 agent 调用、执行小型子任务的委派 agent | 仅 1 个轮次会话周期，完成后即终止、不续轮；生命周期从属于调用它的 agent，不构成团队；与 agent-team 成员的区别 = 被单个 agent 直接调用 vs 按角色分工协作 |
-| **agent-team** | 为完成 1 项任务、由多个 agent 并行协作组成的团队 | 面向单项大任务、任务完成即解散；成员是角色化（职业化）配置的 agent；由编排层组建 / 解散 |
-| **agent-colony** | 可包含 agent（含其 subagent 委派能力）与 agent-team、持续自动运作的 agent 复合生态 | 常驻、无预设终点，一般由用户授予一个需持续推进的**终极使命**；与 agent-team 不互斥（team 一次性、colony 跨任务常驻，team 不自动升级为 colony） |
-
-层级关系：`subagent ⊂ agent ⊂ agent-team ⊂ agent-colony`（subagent 被 agent 包含、是 agent 的内含委派能力；agent 是上层的构成单元；colony 是包含全部层的容器）。
-
-命名说明：**agent-colony**（常驻复合生态）与 **parallel swarm**（并行 / 优化编排范式）是不同概念。
-
-最小待定边界：终极使命的授予 / 表示 / 推进 / 终止机制、colony 常驻运行时与定时任务 / 预算熔断的关系、多用户下 colony 与使命的隔离粒度。
 
 ## main-line overview
 
 ```mermaid
 flowchart LR
-    subgraph M0["M0 重构基线"]
+    subgraph M0["M0 baseline-infra（基础设施）"]
         direction TB
-        A1["修 stale 测试"] --> A2["拆 AgentCore"] --> A3["拆 app.js"]
+        m0a["拆 AgentCore"] --> m0b["拆 app.js"] --> m0c["切 pnpm"]
     end
-    subgraph M1["M1 日常地基"]
+    subgraph M1["M1 minimal-foundation（最小实现）"]
         direction TB
-        B1["session-save"]
-        B2["goal-auto-continue"]
+        m1a["session-save"]
+        m1b["goal-auto-continue"]
     end
-    subgraph M2["M2 能力复用"]
+    subgraph M2["M2 standard-capability（可用标准）"]
         direction TB
-        C1["skill-system"]
-        C2["memory"]
-        C4["tool-filesystem"]
-        C5["tool-database"]
+        m2a["skill-system"]
+        m2b["memory"]
+        m2c["filesystem"]
+        m2d["database"]
     end
-    subgraph M3["M3 能力扩展"]
+    subgraph M3["M3 extension-interface（拓展接口）"]
         direction TB
-        D1["subagents"]
-        D2["shell"]
-        D3["websearch 可靠性"]
-        D4["mcp"]
-        D5["self-evolution"]
-        D6["schedule"]
-        D7["模块系统"]
-        D8["dsh-compat"]
-        D9["channels"]
-        D10["MCP 深化"]
+        m3a["subagents"]
+        m3b["shell"]
+        m3c["websearch 可靠性"]
+        m3d["mcp"]
+        m3e["MCP 深化"]
+        m3f["self-evolution"]
+        m3g["schedule"]
+        m3h["模块系统"]
+        m3i["dsh-compat"]
+        m3j["channels"]
+        m3k["workflow"]
     end
-    subgraph M4["M4 agent-role（为某类任务定制 agent）"]
-        E1["代码/调研专门 agent"]
-    end
-    subgraph M5["M5 自治运行时"]
+    subgraph M4["M4 agent-role（专业角色）"]
         direction TB
-        F1["约束与门控"]
-        F2["长程执行与回滚"]
-        F3["安全与失败模型"]
+        m4a["编码"]
+        m4b["调研"]
+        m4c["agent-dev"]
+        m4d["代码评审"]
+        m4e["科研"]
+        m4f["求职助手"]
+        m4g["理财助手"]
+        m4h["逆向工程"]
     end
-    subgraph M6["M6 agent-team（多 agent 并行协作）"]
+    subgraph M5["M5 autonomous-runtime（自治运行）"]
         direction TB
-        G1["actor 运行时"]
-        G2["编排范式"]
-        G3["协作与通信协议"]
+        m5a["约束与门控"]
+        m5b["长程执行与回滚"]
+        m5c["安全与失败模型"]
     end
-    subgraph M7["M7 agent-colony 持续生态"]
+    subgraph M6["M6 agent-team（协作团队）"]
         direction TB
-        I1["colony 常驻运行时"]
-        I2["终极使命"]
-        I3["全层容器与编组"]
+        m6a["actor 运行时"]
+        m6b["编排范式"]
+        m6c["协作与通信协议"]
     end
-    subgraph M8["M8 multi-user 多用户"]
+    subgraph M7["M7 agent-colony（使命集群）"]
         direction TB
-        J1["用户接入与隔离"]
-        J2["用户信息区"]
-        J3["代理信息区"]
+        m7a["colony 常驻运行时"]
+        m7b["终极使命"]
+        m7c["全层容器与编组"]
     end
-    subgraph M9["M9 eval 评测"]
+    subgraph M8["M8 multi-user（服务大众）"]
         direction TB
-        H2["评测与基准"]
-        H3["eval-driven 开发"]
+        m8a["用户接入与隔离"]
+        m8b["用户信息区"]
+        m8c["代理信息区"]
     end
-    subgraph M10["M10 健壮性构建（最终收尾）"]
+    subgraph M9["M9 eval（效用评测）"]
         direction TB
-        K1["注入防御完整形态"]
-        K2["容错与共识"]
-        K3["durability / MAST"]
-        K4["渐进部署"]
+        m9a["评测与基准"]
+        m9b["eval-driven 开发"]
+    end
+    subgraph M10["M10 robustness（健壮防护）"]
+        direction TB
+        m10a["sandbox（明确不做）"]
+        m10b["注入防御完整形态"]
+        m10c["容错与共识"]
+        m10d["durability / MAST"]
+        m10e["渐进部署"]
     end
 
     M0 --> M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7 --> M8 --> M9 --> M10
-    B1 -.->|依赖| D6
-    C1 -.-> D5
-    C2 -.-> D5
-    D4 -.->|协议基础| D7
-    D7 -.-> D8
-    A2 -.->|接缝化前提| D8
-    D1 -.->|技术前站| E1
-    E1 -.->|交接协议| G3
-    F1 -.->|预算/门控复用| F2
-    G1 -.->|实现范式底座| G2
-    G2 -.->|编排范式基础| I3
-    F1 -.->|预算/熔断复用| I1
-    I2 -.->|使命按 user 隔离| J1
-    J1 -.->|scope 虚拟地址| J3
+    m1a -.->|依赖| m3g
+    m2a -.-> m3f
+    m2b -.-> m3f
+    m3d -.->|协议基础| m3h
+    m3h -.-> m3i
+    m0a -.->|接缝化前提| m3i
+    m3a -.->|技术前站| m4a
+    m4a -.->|交接协议| m6c
+    m5a -.->|预算/门控复用| m5b
+    m6a -.->|实现范式底座| m6b
+    m6b -.->|编排范式基础| m7c
+    m5a -.->|预算/熔断复用| m7a
+    m7b -.->|使命按 user 隔离| m8a
+    m8a -.->|scope 虚拟地址| m8c
 
-    EP["增强包（不进主线，随需排期）：settings / net-track / interaction-ux / session-fork / edit-undo / trajectory-standard"]
+    EP["增强包（不进主线，随需排期）：settings / net-track / interaction-ux / session-fork / edit-undo / trajectory-standard / computer-use·voice·browser；personal-pack：auto-translate"]
 ```
 
 > 实线 = 主线里程碑顺序；虚线 = 跨里程碑依赖（与下文条目描述一致）。
 
 ## main line
 
-### M0 baseline
+### M0 baseline-infra (基础设施)
 
 目的：提供安全的基础基线（技术债重构 + 工具链切换）。
 
 #### 拆 `core/index.js` 的 AgentCore
 
 流式（`_stream`）、压缩（`_runCompaction` / `_maybeCompactStep` / `_pruneToolResults`）、references（`_resolveReferences`）、token 锚点（`_emitUsage` / `_recordTokenAnchor`）各自独立成模块。
+
 #### 拆 `ui/web/app.js`
 
 按域分文件 —— 会话 / 消息 / composer / 轨迹 / 弹层。
+
 #### 切 pnpm
 
 包管理器 npm → pnpm（`pnpm-lock.yaml` 替换 `package-lock.json`、脚本 npm → pnpm、corepack 启用 pnpm）；与 dsh-* 生态（pnpm workspace）对齐。
-
 粗判据：测试全绿；每个文件单一职责；切 pnpm 后 `pnpm i && pnpm test` 全绿。
 
-### M1 daily-foundation
+### M1 minimal-foundation (最小实现)
 
 判据：关掉应用重开，会话和进行中的任务都活着。
 
 #### session-save
 
 重启后恢复会话 + 挂起状态（待审批 / 待回答 / user job）接续。事件溯源已存全量数据，缺的是恢复投影与在途交互的接续。
+
 #### goal-auto-continue
 
 goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连续失败自动暂停防死循环，参照 Cline mistake limits / Goose Ralph Loop 完成判据）。goal CRUD 已就绪，缺驱动侧。进阶形态 = ToT / LATS 完整形态：在单路径续轮之上做树搜索 / 多分支展开 + 评估 + 回溯 + LATS 反思闭环。
 
-### M2 capability-reuse
+### M2 standard-capability (可用标准)
 
 判据：agent 能自主选用技能、能跨会话记住。
 
 #### skill-system
 
 技能加载 / 注入 / 选择（复用 `~/.agents/skills` 的技能格式）。深化能力清单：**发现与渐进披露**（先给技能名/摘要、按需展开全文，避免全量注入）、**调用与路由**、**评测 / 打包 / 可移植**（技能效果评测、打包分发、跨 host 可移植）。
+
 #### memory
 
 跨会话持久记忆。最小形态 = 结构化记忆文件（如 `user/memory/`）+ 注入 system prompt + 记忆写入工具（经审批）；进阶 = compaction 后反思沉淀。进阶形态一 = hybrid memory：vector + graph + KV 混合记忆后端，经 memory store（可切换模块 / 可引入新后端）承载，不焊死具体实现。进阶形态二 = repo memory & 初始化脚本：仓库级持久记忆 / durable state（参照 Letta git-backed MemFS、「记忆不是插件而是 harness 核心职责」）与 agent 初始化脚本（会话启动时载入项目约定 / 仓库上下文）；与 repo map（代码智能 / 上下文工程）不同物，后者是检索能力，此处是记忆与初始状态。
+
 #### basic-tools
 
 - filesystem：文件系统工具扩展（现有 read/write/edit/glob/grep；扩展具体范围待定）。
 - database：agent 操作项目 DB（读优先，写走权限 gate）。
 
-### M3 capability-extension
+### M3 extension-interface (拓展接口)
 
 判据：复杂任务可分身；外部 MCP 工具可接入；越用越强；扩展不改核心代码；DSH 双向兼容；多渠道可达。
 
-#### subagents
+#### subagent-delegate
 
+实现agent单元，可派生 subagent 作为其内含的委派能力；
 受 agent 调用的委派 agent，独立上下文执行子任务、结果汇回主 agent，仅 1 个轮次会话周期、完成即终止。
+subagent 是 agent 的内含委派能力而非独立构成层（subagent ⊂ agent）。
+**边界**：生命周期从属于调用它的 agent，不构成团队；与 agent-team 成员的区别 = 被单个 agent 直接调用 vs 按角色分工协作。
+
 #### extend-tools
 
 - shell：独立 shell 工具（保留原语义；有新需要则新建子功能，不重定义）。
 - websearch 可靠性：多 provider 降级 / 配额管理（现有 Tavily 实现保留）。
 - mcp：MCP 客户端支持 —— 外部 MCP server 工具接入工具注册表。
 - MCP 深化：补齐 MCP 协议族的生产级能力 —— **tasks extension**（无状态核心上的持久工作）、**registry supply chain**（stateless gateways & registry admission、admission / drift / rollback）、**conformance engineering**（versioning / evidence / operations）、**security & authorization**（poisoned metadata / routing / MRTR state、CIMD / Issuer binding / PKCE、Issuer-Bound enrollment & tokens）；另含 apps on the stateless protocol、tool contracts、reliability / cancellation / flow control。
+
 #### self-evolution
 
 宿主的**特殊机制**（非普通模块）—— 学习闭环：计数器 + 轮后后台反思（受限工具集）沉淀记忆/技能 + 复杂任务后自动抽取建技能 + 技能在使用中自我改进；其中「轮后后台反思」即 **sleep-time compute / memory blocks**（compaction 后的后台反思步骤，把近期对话沉淀进记忆、不占交互；Letta 称其为「自我进化的温和形态」）；所有变更走「提议 → 评审 → 应用」分阶段门，经统一权限体系新动作域（memory.write / skill.*，默认 allow + 事件流通知，用户可收紧 ask/deny）。扩展面复用模块系统通用机制：它写入的 memory store / skill store 本身是模块（用户可创建/切换；可引入 curator 或新后端优化此功能）；反思与写入前后由 hooks 拦截；策略参数（nudge 间隔 / 反思 prompt / 门控松紧）走 config。见 refs/hermes.md（hermes background review / skill_manage / curator 源码级机制）、refs/pi.md、refs/letta.md。
+
 #### schedule
 
 定时任务 / 自动化（cron 式）。
+
 #### 模块系统（plugin-system + hooks）
 
 模块 = 运行时能力包（统一 manifest：name + 提供的能力 + config schema + 生命周期 + scope），编译时解耦（模块不静态 import 彼此）、运行时接合（registry 注册）。宿主的根 ctx 是我们自己轻量模块系统的 ctx（不重用 cordis）。宿主：registry + 模块事件总线 + 生命周期（宿主持有）+ hooks（生命周期事件订阅：PreToolUse/PostToolUse/Stop/子 agent 生命周期）+ 权限 gate。scope = 声明该模块相关数据的地址（不做代码级限制，默认共享上下文，支持为模块指定隔离域）。子模块两级制：定义级（manifest + prompt 片段 + config，无代码）/ 代码级（ESM，导出 register 函数，可信代码，宿主环境兜底）；放置双位置：项目级 + 全局级。用户可创建和切换任何模块（含默认包集合）的通用能力包；kernel（最小不可变集）= 模块系统本身（registry / 事件总线 / 生命周期 / hooks 注册面）+ 权限 gate，其余（含 turn loop 与全部默认包、第一批模块）均为可切换的默认包。默认包集合：turn loop / prompt 组装 / 会话存储接口（seam，pg-micro 为默认实现）/ self-evolution 机制；第一批模块：tools（工具实现）/ transports / providers / loops 节点 / compaction / translation；plan/goals/todo/token-meter 暂不模块化（仍属默认包，非 kernel，需要时再拆）。含开放插件规范 vs 自有格式的设计决策。
+
 #### dsh-compat
 
 与 DSH（cordis）生态双向兼容。格式决策：**双向适配** —— 宿主内部保持轻量模型，边界适配层物化 cordis 接口（cordis 接口是进程内 ctx 对象 API，不是协议）。适配形态：**一核两面** —— 单一「上下文桥」模块，核心是映射表（我们的服务名 ↔ ctx 键；我们的事件名 ↔ cordis 事件名 + 派发模式；config schema 映射），出向面 = 薄 cordis 插件（`apply` → 引导宿主 → provide + 事件桥 + disposer），入向面 = **真 cordis Context 子宿主**（npm `@deepseek-ai/cordis`，`new Context()` + loader，即 16 行宿主，**非 mini ctx 仿造**）+ 缝适配器（把 dsh 包要读的槽位填上、桥接到我们根 ctx 的服务）+ profile 加载器（cordis.yml 子集）。出向：注册前缀键 `ctx.microAgent`（一个服务：chat/stream/session API）+ 事件桥（turn/step/tool → cordis 事件，默认 emit，拦截点用 waterfall）+ entry config（model/provider 等），与 DSH 自带 `ctx.agents` 共存（flat 命名空间；更深接缝替换 = v2，另议），可装入 DSH 或任何 cordis host（cordis.yml profile 加一条 entry）。入向：真 cordis 子宿主 + 缝适配器 + 加载器，加载 DSH 能力包（`@deepseek-ai/dsh-*` 0.0.1-rc 段，钉版本使用）与 profile（cordis.yml include/patches）。优先级：**出向先行**（面小、真 cordis host 验证映射表），入向等出向摸清 ctx 语义后再做。依赖策略：**pnpm**（项目级决定：pnpm 是更好的包管理器、且与 dsh-* 生态（pnpm workspace）对齐；cordis + dsh-* 钉版本；本地快照只作只读参照）。npm 上的 dsh-* 包 peerDeps 为真实版本号（`workspace:^` 仅存在于本地源码快照），npm 亦可安装；选 pnpm 是项目级偏好，非 dsh-compat 必需。待定：入向试点包、具体 seam 键集 / 事件映射。见 refs/dsh.md（含「cordis 接口实态」「接入机制图解」节）、本地 `reference/deepseek-harness/`（vendor/cordis 源码 + docs/cordis-primer.md + 12 份 cordis.yml 实例）。
+
 #### channels
 
 多渠道入口 —— 新增渠道客户端（先选一个主流 IM 打通）走现有 http transport，agent 可在手机/IM 上被使唤；渠道 = 接入 transport 注册表的可插拔客户端。见 OpenClaw / Hermes 多渠道网关（refs/openclaw.md、refs/hermes.md）。
+
 #### workflow
 
 多步骤任务的编排与执行框架：将任务分解为可管理的步骤序列，支持计划制定、逐步执行与中途调整。
@@ -203,11 +208,11 @@ goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连
 - plan-mode：workflow 的计划态 —— 在落地执行前先产出并确认计划（步骤 / 依赖 / 目标），用户可在执行前审阅与调整；计划状态由 activity 驱动。
 当前需要修复 2 个 stale 的 plan-mode 测试（plan-mode 状态现由 activity 驱动，测试仍直接设置旧状态），恢复 63/63 全绿。
 
-### M4 agent-role（为某类任务定制 agent）
+### M4 agent-role（专业角色）
 
 判据：可为主流任务类别定制专职 agent role，各 role 独立干活并互相交接（会话间可直接传话，不必等完整协议）；role 定义格式统一、可切换。
 
-#### coding（编码）
+#### coding（通用码农）
 
 角色化配置（专属 system prompt / 工具集 / 模型；定义文件格式待定）；带代码智能能力（repo map / LSP 式上下文工程，具体形态待定）；独立 git worktree 做文件级隔离。
 
@@ -215,7 +220,11 @@ goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连
 
 独立上下文 + web / repo 检索；与 coding 等 role 通过交接协议协作。
 
-#### code review（代码评审）
+#### agent-dev (代理开发)
+
+开发智能代理，包括定制本项目、从零实现和在各种框架中构建。
+
+#### code-review（代码评审）
 
 对 diff / PR 做评审的专职 role，可复用 coding 的代码智能能力；作为 coding 大类下的子任务角色，与 coding 平级编排。
 
@@ -251,27 +260,32 @@ flowchart TB
     RA --> W2["独立上下文 + web/repo 检索"]
 ```
 
-### M5 autonomous-runtime（自治运行时）
+### M5 autonomous-runtime（自治运行）
 
 判据：长程任务在预算/门控内可控运行、越界可熔断、失败可回滚、每次纠正沉淀为系统改进。
 
 #### 约束与门控（action budgets / iteration caps / cost governor / HITL propose-then-commit / scope contract）
 
 动作预算、迭代上限、成本 governor；危险动作走「提议 → 人工提交」；任务边界用 scope contract 声明。复用统一的分阶段门与权限体系。
+
 #### 长程执行与回滚（durable execution / checkpoints / rollback）
 
 长时任务可暂停恢复、按检查点回退。
+
 #### 安全与失败模型（failure models / kill switch / circuit breaker / feedback ratchet）
 
 失败分类与归因、kill switch / 熔断 / canary token、把每次人工纠正沉淀为可复用的系统改进（feedback ratchet）。
 
-### M6 agent-team（多 agent 并行协作）
+### M6 agent-team（协作团队）
 
 判据：可按任务装配任意角色团队、可切换编排范式、有统一通信协议。
+
+**核心概念：agent-team** —— 为完成 1 项任务、由多个 agent 并行协作组成的团队；面向单项大任务、任务完成即解散，成员是角色化（职业化）配置的 agent，由编排层组建 / 解散（agent ⊂ agent-team）。
 
 #### actor 运行时（实现范式底座）
 
 agent 即 actor、消息驱动、独立 mailbox 与生命周期。作为本里程碑全部编排范式的实现底座。
+
 #### 编排范式（supervisor / swarm / hierarchical / role specialization / shared memory / consensus / debate）
 
 多范式可切换；角色分工（planner / critic / executor / verifier）；blackboard / shared memory；投票、self-consistency、debate、协商。
@@ -279,41 +293,55 @@ agent 即 actor、消息驱动、独立 mailbox 与生命周期。作为本里�
 
 A2A 协议与通用通信协议、无状态编排的 handoff & routines、群聊与 speaker selection、跨会话交接、群体失败模型（MAST / groupthink）。
 
-### M7 agent-colony（持续生态 / 终极使命）
+### M7 agent-colony（使命集群）
 
 判据：一个常驻、无预设终点的 agent 复合生态，能自包含 agent（含其 subagent 委派能力）/ agent-team 全部层次，在用户授予的终极使命下持续自动推进。
+
+**核心概念：agent-colony** —— 可包含 agent（含其 subagent 委派能力）与 agent-team、持续自动运作的 agent 复合生态；常驻、无预设终点，一般由用户授予一个需持续推进的**终极使命**；与 agent-team 不互斥（team 一次性、colony 跨任务常驻，team 不自动升级为 colony）（agent-team ⊂ agent-colony）。
+
+命名说明：agent-colony（常驻复合生态）与 parallel swarm（并行 / 优化编排范式）是不同概念。
+
+最小待定边界：终极使命的授予 / 表示 / 推进 / 终止机制、colony 常驻运行时与定时任务 / 预算熔断的关系、多用户下 colony 与使命的隔离粒度。
+
+层级关系（四层自底向上，上层可包含下层）：`subagent ⊂ agent ⊂ agent-team ⊂ agent-colony`。
 
 #### colony 常驻运行时
 
 常驻、无预设终点的运行底座；以动作预算 / 成本 governor / HITL propose-then-commit 作安全边界，以 kill switch / 熔断作使命终止底座；需独立运行时（cron 不足以承载常驻）。不引入 sandbox：工具仍直接操作真实系统，权限 gate 是唯一边界；常驻自治体的权限建议单独收紧为默认 ask / HITL。
+
 #### 终极使命（mission）
 
 用户显式授予、需持续推进的使命；用独立 mission 对象表示（不复用 goal），由 mission loop 统管推进；终止 / 撤销走 kill switch + HITL propose-then-commit。无终点使命与预算 / 成本 governor / 熔断并存——熔断是安全底座，不取消使命。授予 / 表示 / 推进 / 终止的具体机制待定。
+
 #### 全层容器与编组
 
 colony 作为容器嵌套包含 agent（含其 subagent 委派能力）/ agent-team；以编排范式（supervisor / swarm / hierarchical / role specialization）与 actor 运行时作编组底座。
 
 
-### M8 multi-user（多用户）
+### M8 multi-user（服务大众）
 
 判据：在核心用户之外可接入并服务其他用户，且每个 agent 只看到它干该用户相关工作所需的信息。这是**贯穿式架构改动**（会话 / 存储 / 配置 / 权限 / UI / channels 均需按用户隔离），不是一个单点功能；开发项目旧数据可删、不做迁移。
+
+**核心概念：用户** —— 层外的授予者 / 观察者，不算作 agent；在 M8 之前系统只服务核心用户，本里程碑起可接入并服务其他用户。
 
 > **用户目录约定**：`user/`（单数）= **核心用户 / 第一个用户 / 默认用户**，为进程级全局配置（permissions / fs-policy / providers / settings / loops）；`users/`（复数）= **可接入并服务的其他用户**。两者并存。
 
 #### 用户接入与隔离
 
 用户标识、接入、会话 / 存储 / 配置 / 权限 / UI / channels 的按用户隔离；使命与 colony 实例按 user 命名空间隔离。隔离粒度（每用户私有 colony / 共享 colony 使命按命名空间隔离）待定。
+
 #### **用户信息区**（`users/<xxx>/`）
 
 存储每个用户的**原始信息**，是用户数据的真值源。
-#### **代理信息区**（`agent/users/<xxx>`，虚拟地址）
+
+#### **代理信息区**（`agents-users`，虚拟地址阵列）
 
 在每个 agent 相关目录下，由**模块 scope 指向的虚拟地址**（scope = 声明该模块相关数据的地址，不是代码级限制），物理存储交给模块系统；存**从用户信息区提炼出的、该 agent 完成其相关工作所需的该用户相关信息**——是按 agent 切分的加工视图 / 投影，不是原始副本。
 
 两区关系：`users/<xxx>/`（原始，真值源） →「提炼」→ `agent/users/<xxx>`（按 agent 切分的相关信息，经 scope 寻址）。「提炼」动作的机制待定（反思沉淀按 agent 切分投影，或由编排层统一提炼分发）。代理信息区复用 scope 机制，不另造隔离体系。
 
 
-### M9 eval（评测，倒数第二里程碑）
+### M9 eval（效用评测）
 
 判据：改动好不好由评测说话，而非感觉。
 
@@ -321,27 +349,32 @@ colony 作为容器嵌套包含 agent（含其 subagent 委派能力）/ agent-t
 #### 评测与基准（eval harness / benchmarks / eval dashboard）
 
 fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 等基准、LLM eval（RAGAS / DeepEval / G-Eval）、评测看板。
+
 #### eval-driven 开发（feedback loop / evidence-backed plan / success metrics）
 
 把评测接进开发闭环 —— 先定成功指标再动手、以证据支撑执行计划、评测结果回流驱动特性筛选。
 
 
-### M10 robustness（健壮性构建，最终收尾）
+### M10 robustness（健壮防护）
 
 判据：在正常功能与界面都成型之后，系统能顶住恶意输入、部分失效、群体失协调与发布风险；这是「先功能实现、再界面美观、最后恶劣条件健壮」开发优先级的落点，故排在主线最后。
 
 #### sandbox
 
 明确不做 sandbox runner，安全边界仍是权限 gate（AGENTS.md 规则 7）。
+
 #### prompt injection defense 完整形态（PVE / indirect）
 
 展开注入防御的完整机制 —— PVE（prompt virus exposure）防御、间接提示注入（indirect injection，经工具结果 / 网页 / 文件等外部内容注入）的检测点、元数据投毒（poisoned metadata）与路由劫持防护、输入 / 输出分类与人工门。安全边界仍是权限 gate，不引入 sandbox。
+
 #### 容错与共识（consensus / BFT / voting topology / agent economies / MARL）
 
 群体决策的健壮性 —— 一致性协议 / 拜占庭容错、投票与自洽拓扑、协商与博弈、agent 经济 / 声誉激励、MARL（MADDPG / QMIX / MAPPO）。群体认知与涌现侧 —— **ToM（Theory of Mind，心智理论，agent 对他者意图 / 信念的建模）** 与 **emergent coordination（涌现协调，无中心调度下自发形成的协作秩序）**，作为「群体行为为什么会这样」的研究侧，与「不失控」的容错侧并列。
+
 #### durability 与群体失败模型（production scaling / queues / checkpoints / MAST）
 
 长时与规模化运行的健壮性 —— 队列 / 检查点 / 持久执行、群体失败模型（MAST / groupthink / monoculture）、生产级扩缩。
+
 #### 渐进部署（A/B 测试 / canary / shadow deployment）
 
 发布侧健壮性 —— LLM 特性的 A/B 实验、灰度 / 金丝雀 / 影子部署、特性开关与回滚（发布风险治理属健壮性而非评测）。

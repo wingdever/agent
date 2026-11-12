@@ -73,6 +73,16 @@ basic `settings.json`, `providers.json`;
 permit `permissions.json`, `bash-policy.json`, `fs-policy.json`
 
 
+## Module design
+
+Two commitments define the module layer's design:
+
+- **Module = runtime capability package.** Modules are decoupled at compile time and joined at runtime through a registry. 
+- **Observability is a baseline module-design rule, not a standalone feature.** 
+Every module emits observable signals by default — spans / trajectory / cost / latency metrics. 
+This is a fundamental design guideline for modules rather than an optional add-on.
+
+
 ## License
 
 GNU General Public License v3.0 — see `LICENSE`.
