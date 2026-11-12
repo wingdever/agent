@@ -5,6 +5,10 @@
 > 本文记录本项目的语义、数据结构、触发策略、实现链路，以及与 DSH 的异同。
 > 事件溯源的背景概念见 [event-sourcing.md](event-sourcing.md)。
 
+## 概览
+
+DSH 式上下文压缩。`/compact` 按需把较早的历史压缩成一条结构化 checkpoint 消息；自动压力压缩在上下文达到窗口 80% 时、每次模型请求前触发（先 prune 过大的工具结果）。原始消息始终留在存储中；模型可见的历史是从中投影出来的 surface。
+
 ## 0. 概念：log / surface / transcript / summary / checkpoint
 
 | 概念 | 含义 | 本项目落点 |
@@ -195,6 +199,26 @@ surface 是逐条消息的节点序列（user / assistant / tool），外加 hea
 边界可以落在 turn 内部；被压缩的前缀在请求投影里替换为 checkpoint，原始消息仍在存储与
 transcript 中。上一份 checkpoint 也是 surface 节点，因此剩余 surface 只有一个节点时，
 再次压缩会重写该 checkpoint（DSH 允许的行为）。
+
+## 5.1 手动指定区间（compaction-user-range）
+
+上下文压缩的区间确定增强：在现有自动区间之上，新增**用户手动指定压缩起点与终点**。
+
+### 5.1.1 背景
+
+当前压缩区间只有自动确定方式——auto 路径按 token 预算留尾（`selectAutoBoundary`，`AUTO_RETAIN_RATIO`），manual / overflow 路径 `retainTokens=0` 留最后平衡单元（`selectTailBoundary`）；后者虽名为 manual，仍是自动算边界，并非用户指定。语义上两者都属自动。
+
+### 5.1.2 目标
+
+用户在 UI 上选取 surface 区间 `[startSeq, endSeq]`（或 message id），后端按该区间执行 `surfaceOp: replace`，跳过自动边界选择。
+
+- **后端**：`compactSession` / `runCompaction` 增加可选 `range` 参数（startSeq/endSeq 或 startMessageId/endMessageId），跳过 `selectTailBoundary` / `selectAutoBoundary` 的自动边界；区间校验（区间有效、不超出 surface、idle 会话约束仍适用）。
+- **前端**：在轨迹面板或独立弹窗选起点 / 终点消息，把 `range` 传给 `AgentClient.call("compact", { session_id, range, model })`。
+- **事件**：新增 trigger `"manual-range"` 区别于现有 `"manual"`（`retainTokens=0`），UI `handleCompactionEvent` 文案同步。
+
+### 5.1.3 判据
+
+用户可显式选起点 + 终点并触发压缩；压缩结果按所选区间 replace；与自动压缩共用同一 `runCompaction` 事务与持久锁。
 
 ## 6. tool-result pruner
 

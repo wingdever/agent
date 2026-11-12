@@ -10,8 +10,8 @@ graph TD
         IDX["index.js<br/>AgentCore 类 + 转发壳<br/>createCore / chat / handleCall"]
     end
 
-    subgraph M0拆分["M0 拆出的 4 个模块"]
-        STREAM["model-call.js<br/>stream / emitUsage"]
+    subgraph M0拆分["M0 拆出的模块（model-call 模块）"]
+        STREAM["model-request.js + response-process.js + stream-render.js<br/>issueRequest / stream / emitUsage / renderDelta"]
         USERIN["user-input/<br/>prepareUserInput<br/>(user-references)"]
         TANCHOR["token-anchor.js<br/>recordTokenAnchor"]
         CRUN["compaction-runner.js<br/>surfaceNodes / requestMessages / summarizeMessages<br/>pruneToolResults / runCompaction / compactSession<br/>maybeCompactStep / resolveContextWindow"]
@@ -78,6 +78,6 @@ sequenceDiagram
 ## 3. 拆分要点
 
 - **纯转发，接口不变**：`createCore` 返回的 `core` 对象结构、`chat`、`handleCall`、`requestApproval`、`requestUserQuestion` 未动；`compaction-runner` 通过 `core._selectTools()` / `core._toolDefs()` / `core._resolveTarget()` 回调类内方法，避免循环依赖。
-- **流式与用量**：`model-call.js` 的 `emitUsage` 是纯函数（由 `core.usageState` 聚合），`stream` 调用 `core._post` / `core.reasoningParamFor` / `core.effort` / `core.model` / `core.baseUrl`。
+- **流式与用量**：`model-call` 模块拆为三子模块——`model-request.js`（payload 构造 + effort 翻译 + `postChatCompletions`）、`response-process.js`（`stream` / `emitUsage`，读响应 + 累积 + 归一化）、`stream-render.js`（增量 → UI 事件的渲染层）。`stream` 依赖 `core.reasoningParamFor` / `core.effort` / `core.model` / `core.baseUrl` / `core.apiKey`。（详见 `docs/dev/model-call.md`）
 - **压缩自治**：`compaction-runner` 自带 `resolveContextWindow`（不 import `index.js`），仅向上发 `compaction` 事件，由 UI 层（`compaction-ui.js`）呈现。
 - **token 锚点**：`token-anchor.js` 仅依赖 `token-meter.anchorFrom`，与对话循环解耦。

@@ -3,8 +3,8 @@ const fs = require("fs");
 const crypto = require("crypto");
 const compaction = require("./compaction");
 const tokenMeter = require("./token-meter");
-const { stream } = require("./model-call");
-const { emitUsage } = require("./model-call");
+const { stream } = require("./response-process");
+const { emitUsage } = require("./response-process");
 
 // 上下文窗口解析（压缩域用）：优先 providers.json 每模型可选的 context_window，
 // 其次 settings.contextWindow，最后回退 128000。与 index.js 的 resolveContextWindow 同源实现。

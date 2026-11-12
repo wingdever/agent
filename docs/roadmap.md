@@ -123,7 +123,7 @@ flowchart LR
 
 #### AgentCore in `core/index.js`
 
-流式（`_stream` → `core/model-call.js`）、压缩（`_runCompaction` / `_maybeCompactStep` / `_pruneToolResults` → `core/compaction-runner.js`）、引用解析（`core/user-input` 的 `prepareUserInput`）、token 锚点（`_emitUsage` / `_recordTokenAnchor` → `core/model-call.js` / `core/token-anchor.js`）各自独立成模块。
+流式与用量（`_stream` / `_emitUsage` → `core/model-call` 模块：`model-request.js` 发起请求 / `response-process.js` 响应读取 / `stream-render.js` 流式输出渲染）、压缩（`_runCompaction` / `_maybeCompactStep` / `_pruneToolResults` → `core/compaction-runner.js`）、引用解析（`core/user-input` 的 `prepareUserInput`）、token 锚点（`_recordTokenAnchor` → `core/token-anchor.js`）各自独立成模块。
 
 #### `ui/web/app.js`
 
@@ -162,39 +162,6 @@ goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连
 
 - filesystem：文件系统工具扩展（现有 read/write/edit/glob/grep；扩展具体范围待定）。
 - database：agent 操作项目 DB（读优先，写走权限 gate）。
-
-#### compaction-user-range
-
-上下文压缩的区间确定增强：在现有自动区间之上，新增**用户手动指定压缩起点与终点**。
-
-背景：当前压缩区间只有自动确定方式——auto 路径按 token 预算留尾（`selectAutoBoundary`，`AUTO_RETAIN_RATIO`），manual/overflow 路径 `retainTokens=0` 留最后平衡单元（`selectTailBoundary`）；后者虽名为 manual，仍是自动算边界，并非用户指定。语义上两者都属自动。
-
-目标：用户在 UI 上选取 surface 区间 `[startSeq, endSeq]`（或 message id），后端按该区间执行 `surfaceOp: replace`，跳过自动边界选择。
-
-- 后端：`compactSession` / `runCompaction` 增加可选 `range` 参数（startSeq/endSeq 或 startMessageId/endMessageId），跳过 `selectTailBoundary` / `selectAutoBoundary` 的自动边界；区间校验（区间有效、不超出 surface、idle 会话约束仍适用）。
-- 前端：在轨迹面板或独立弹窗选起点 / 终点消息，把 `range` 传给 `AgentClient.call("compact", { session_id, range, model })`。
-- 事件：新增 trigger `"manual-range"` 区别于现有 `"manual"`（`retainTokens=0`），UI `handleCompactionEvent` 文案同步。
-- 文档：`docs/context-compact.md` 补「手动指定区间」一节，与自动区间并列。
-
-判据：用户可显式选起点 + 终点并触发压缩；压缩结果按所选区间 replace；与自动压缩共用同一 `runCompaction` 事务与持久锁。
-
-#### stream-refactor
-
-模型请求与流式输出的模块化重构：让「流式 = 非流式 + 对中间流式输出的动态渲染」在代码结构上也显式成立。
-
-背景：当前 `core/model-call.js` 的 `stream()` 把「发请求 + 整段解析 / 逐片解析 + 事件发射 + 归一化返回」揉在一个函数两个分支。流式分支（`SSE` 解析）与非流式分支（整段读 JSON）各自重复了归一化（构造 `{role, content, reasoning_content, tool_calls, finish_reason, usage}`）与 `token` / `reasoning` 事件发射；实时渲染与累积交织而非分层。
-
-设计判定：流式本质 = 非流式 + 增量渲染——两者最终都收敛到同一归一化对象，下游 `chat-tab.onChatEvent` 对 `token` 是纯追加语义（`AgentMarkdown.append(ensureAnswer(), evt.delta)`），故分片追加与一次性整段追加对 handler 无差别，流式中间帧与最终帧走同一个 delta-append 函数。非流式只是把整段 content 当成单个 delta 发一次。
-
-目标（重构形状）：
-- 抽出共享 `finalize` / `normalize`：把累积结果归一化为统一返回对象，并交给最终响应处理函数（`token` / `reasoning` 的 delta-append 由 handler 统一消费，与是否流式无关）。
-- 抽出 `issueRequest`：负责构造 payload（含推理等级翻译）并调用 `core._post` 取响应（流式或非流式只是「怎么取」不同）；可顺带把 `core._post`（`index.js:389`，现挂在 `AgentCore` 类上）独立成 `core/network/http/client` 或 `core/model-client.js`。
-- 抽出流式专属的 `liveRenderer`：仅流式在收增量时发 `token` / `reasoning` 增量；非流式不引入该层。
-- 归并两分支重复，使流式 = 非流式 + 增量渲染在代码上显式。
-
-注意：`tool_calls` 按 `index` 跨 chunk 拼 `arguments` 字符串（非纯文本渲染）是独立于文本增量的小分支，重构时单列。
-
-判据：流式 / 非流式共用同一 `finalize`；流式仅多一层增量渲染；两分支重复消除；回归——对话、摘要（`summarizeMessages` 走 `stream:false`）、压缩调用方行为不变。
 
 ### M3 extension-interface (拓展接口)
 
@@ -430,8 +397,8 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 
 - model-provide：baseurl + apikey 走 config（providers.json）。
 - agent-loop：bare-chat / stream-output / turn-step / goal-plan / prompt-assemble。
-- context-compress：DSH 式上下文压缩 —— 手动 `/compact` + 自动压力触发 + context-overflow 恢复 + tool-result pruner。见 `docs/context-compact.md`。
-- auto-translate MVP：中文输入译英发模型、英文回答译中显示、中英对照、设置开关；翻译不落库。见 `docs/translate.md`。
+- context-compress：DSH 式上下文压缩 —— 手动 `/compact` + 自动压力触发 + context-overflow 恢复 + tool-result pruner。
+- auto-translate MVP：中文输入译英发模型、英文回答译中显示、中英对照、设置开关；翻译不落库。
 
 ## strategic-direction
 

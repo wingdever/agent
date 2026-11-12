@@ -19,7 +19,7 @@ const { runBareChat } = require("./bare-chat");
 
 // M0 重构：将 AgentCore 的流式 / 压缩 / 引用 / token 锚点能力拆为独立模块，
 // 类内仅保留转发壳，对外接口（createCore 返回的 core 对象、chat 等）不变。
-const streamMod = require("./model-call");
+const streamMod = require("./response-process");
 const tokenAnchor = require("./token-anchor");
 const compactionRunner = require("./compaction-runner");
 
@@ -385,16 +385,6 @@ class AgentCore {
     return [...this.tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters }));
   }
 
-  _post(payload, sessionId, baseUrl, apiKey) {
-    const { postChatCompletions } = require("./network/http/client");
-    return postChatCompletions({
-      baseUrl: baseUrl || this.baseUrl,
-      apiKey: apiKey || this.apiKey,
-      payload,
-      sessionId,
-    });
-  }
-
   // 按 baseUrl 匹配 user/providers.json 中的 provider，读出其 reasoning_param 配置。
   // reasoning_param 决定 effort 如何翻译为 provider 字段：
   //   "thinking"         -> none 发 {"thinking":{"type":"disabled"}}；其余发 reasoning_effort
@@ -438,12 +428,12 @@ class AgentCore {
     return process.cwd();
   }
 
-  // usage 上报：委托 core/model-call.js（纯函数，单一职责拆分）。
+  // usage 上报：委托 core/response-process.js（纯函数，单一职责拆分）。
   _emitUsage(onEvent, raw) {
     return streamMod.emitUsage(onEvent, raw);
   }
 
-  // 模型流式/非流式调用：委托 core/model-call.js（单一职责拆分）。
+  // 模型流式/非流式调用：委托 core/response-process.js（单一职责拆分）。
   async _stream(opts) {
     return streamMod.stream(this, opts);
   }
