@@ -27,6 +27,7 @@ const { errorResult } = require("../tools/result");
 const { reset: resetTodos } = require("../todo-state");
 const planMode = require("../plan-mode");
 const { TurnError } = require("../turn-error");
+const { prepareUserInput } = require("../user-input");
 
 // readSettings 是 index.js 的模块级函数；这里复刻一份最小实现，避免循环依赖。
 const SETTINGS_FILE = path.join(__dirname, "..", "..", "user", "settings.json");
@@ -154,14 +155,9 @@ async function runLoop(core, ctx) {
     throw new TurnError("invalid-input", "the last message must be a user message");
   }
   const pendingUser = { role: "user", content: translatedUser != null ? translatedUser : lastInput.content };
-  const pendingRefs = [];
-  // @引用：把引用文件/会话内容作为上下文注入（位于真实问题之前，独立于翻译步骤）
-  if (Array.isArray(references) && references.length && persist && store) {
-    try {
-      const refBlock = await core._resolveReferences(references, sessionId);
-      if (refBlock) pendingRefs.push({ role: "user", content: refBlock });
-    } catch (e) { console.error("[core] resolve references failed:", e.message); }
-  }
+  // @引用：把引用文件/会话内容作为上下文注入（位于真实问题之前，独立于翻译步骤）。
+  // 由 core/user-input 统一准备，两条 loop 路径共用同一份输入准备逻辑。
+  const pendingRefs = await prepareUserInput(core, { references, sessionId, persist });
   let conv;
   if (persist) {
     conv = await core._requestMessages(sessionId, system, [...pendingRefs, pendingUser]);

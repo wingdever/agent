@@ -42,6 +42,7 @@ Thumbs.db
 *.swo
 .vscode/
 .idea/
+.atomcode/
 
 # ===== 第三方参考副本（自带 .git，非本项目源码；需要可删除此行） =====
 reference/
@@ -51,7 +52,7 @@ reference/
 
 # ===== 用户信息 =====
 user/
-user/*
+users/
 
 # ===== 网络通信抓包（仅忽略抓取数据；tracker 源码保留在 core/network/http/） =====
 log/
@@ -62,6 +63,7 @@ harness-trace/
 tmp/
 test/
 docs/tmp/
+docs/text/
 
 # ===== 临时文件 =====
 docs/handoff.md
