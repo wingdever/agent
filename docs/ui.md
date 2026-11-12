@@ -112,7 +112,7 @@
 | **ref-chip** | 单个引用 chip（`ref-file` / `ref-session` 修饰），含移除按钮 |
 | **presence-mode-switch** | 在场状态开关（**chat-header**：in / out，运行时自动态，可手动切换） |
 | **autonomy-mode-switch** | 自主度开关（**chat-header**：supervised / autonomous，用户显式提权/降权） |
-| **activity-indicator** | 当前活动指示器（chat-header：点击打开切换菜单；显示 `活动: <当前活动>` 与完成态 `✓`；建会话时选定初始活动，运行后可自然流转或强制切换（未完成强制切需二次确认））。取值（7）：goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose，默认 `research`。注：`bare-chat` 不是 activity 取值，而是会话模式（session mode：bare = 未选会话 / persisted = 选中会话），由 `currentSessionId` 派生，见 `docs/agent-mode.md` 会话模式层 |
+| **activity-indicator** | 当前活动指示器（chat-header：点击打开切换菜单；显示 `活动: <当前活动>` 与完成态 `✓`；建会话时选定初始活动，运行后可自然流转或强制切换（未完成强制切需二次确认））。取值（9）：plan-mode / intent-recog / goal-mode / build-code / discuss-doc / research / review-proj / human-learn / diagnose，默认 `research`。其中 plan-mode 驱动内置计划态（POLICY + exit_plan_mode），其余为占位枚举由模型自判。注：`bare-chat` 不是 activity 取值，而是会话模式（session mode：bare = 未选会话 / persisted = 选中会话），由 `currentSessionId` 派生，见 `docs/agent-mode.md` 会话模式层 |
 | **session-mode-indicator** | 会话模式指示器（chat-header，只读；显示 `模式: bare-chat` / `模式: turn-step`，附 `data-mode` 着色与 title 说明；由 `currentSessionId` 派生 `getSessionMode()`，不提供切换，进入方式仍为「不选/选会话」） |
 | **send-or-stop-btn** | 发送/停止按钮 |
 | **chat-footer** | 聊天底部状态栏（DSH 风格三段；活动/权限/自主度由各自控件承载，不重复） |

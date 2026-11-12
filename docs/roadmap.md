@@ -396,7 +396,7 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 ## 已实现能力
 
 - model-provide：baseurl + apikey 走 config（providers.json）。
-- agent-loop：bare-chat / stream-output / turn-step / goal-plan / prompt-assemble。
+- agent-loop：bare-chat / stream-output / turn-step / plan-mode / prompt-assemble。
 - context-compress：DSH 式上下文压缩 —— 手动 `/compact` + 自动压力触发 + context-overflow 恢复 + tool-result pruner。
 - auto-translate MVP：中文输入译英发模型、英文回答译中显示、中英对照、设置开关；翻译不落库。
 

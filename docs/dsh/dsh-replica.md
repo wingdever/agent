@@ -73,7 +73,7 @@
 #### 流转细则
 
 - **Q14 "活动完成"定义与判定**：由 **model 自判并上报完成事件**（如 plan 经 `exit_plan_mode` 批准=完成，build-code 经收尾=完成）；UI 收到完成信号后将该活动标记为"已完成态、可自然切换"。契合 `agent-mode.md` 的"activity 由 model 自判、无硬守门"。
-- **Q15 流转受限**：**任意跳**，但 UI 给**推荐下游**提示（如 goal-plan 完成后高亮建议 build-code），不强制顺序。保留三轴正交灵活性 + 借 plan→implement 直觉引导。
+- **Q15 流转受限**：**任意跳**，但 UI 给**推荐下游**提示（如 plan-mode 完成后高亮建议 build-code），不强制顺序。保留三轴正交灵活性 + 借 plan→implement 直觉引导。
 - **Q16 强制切换二次确认**：**内联 modal**（非浏览器原生 confirm），文案说明"当前活动 <X> 尚未完成，切换将中断其进行中的工作；plan-mode 等策略即时失效"，提供"确认切换 / 取消"。契合已有审批弹窗风格。
 - **Q17 与 autonomy 交互**：**autonomous 下不弹二次确认，直接切换**（autonomous 语义=代理自行决策、人不干预；二次确认本质也是"向人确认"，与 ask 自动 deny 一致）。二次确认仅 supervised 下出现。
 - **Q18 活动指示器语义**：新建会话选初始活动；会话内为**当前活动指示器 + 可点击切换**，显示当前活动 + 完成态；点击展开含强制切二次确认的菜单。"预设"= 初始活动默认值，无锁定。
@@ -88,7 +88,7 @@
 4. ✅ **轨迹面板**：`trajectory-tab` 已渲染——core 新增 `session.trajectory` RPC + `getTrajectory` 聚合 turns/steps/messages/calls；前端 `renderTrajectoryTree` 时间线，复用 `createToolCard`/`setToolResult`/`showToolDetail`，思考可展开、点击 tool-call 联动 context-panel。详见 `plan-trajectory.md`。
 5. ✅ **会话 CRUD**：搜索（侧栏搜索按钮 → 按名称过滤）、重命名（已有，保留）、删除（改为**软删除**：`deleted_at` 标记，保留 turns 供恢复）、**回溯恢复**（回收站视图列出已删会话，可恢复 / 彻底删除）。store 新增 `session.restore` op；`listSessions` 默认排除软删；`deleteWorkspace` 走硬删级联。
 6. ✅ **文档同步**：`docs/ui.md`、`docs/agent-mode.md` 的模式描述已对齐新流转模型。
-7. ✅ **完成事件上报**：`goal-plan` 经 `exit_plan_mode` 批准时 UI 置 `currentActivityCompleted=true`（同步指示器 `✓`），其余活动完成判定后续可扩展。
+7. ✅ **完成事件上报**：`plan-mode` 经 `exit_plan_mode` 批准时 UI 置 `currentActivityCompleted=true`（同步指示器 `✓`），其余活动完成判定后续可扩展。
 8. ✅ **#3 @ 引用**：composer 的 `@` 按钮（或输入 `@`）打开引用菜单，可选**历史会话**或**本地文件**；选中后以 chip 展示、可移除。发送时 `references` 随 `chat` 调用传入 core；core 新增 `_resolveReferences` 将文件内容 / 会话摘录拼为上下文块，注入到真实问题之前的 user 消息（独立于翻译步骤，不影响中文→英文翻译）。bare-chat 与正常会话模式均支持。
 9. ✅ **#4 状态栏补齐**：`core/_stream` 在流式 / 非流式两条路径解析模型 `usage`（`prompt_tokens`/`completion_tokens`/`total_tokens`/`cached_tokens`，兼容字段缺失与 `prompt_tokens_details` 嵌套），统一上报 `usage` 事件；前端 `onChatEvent` 消费 `usage` + `turn-end`（steps/tools/durationMs），按 DSH 风格聚合到 `chat-footer` 三段（各带中性图标，无 emoji）——`session-statistics`（`⟳ N turns M steps · K tok/s`，turns/steps 间空格、会话累计 + 最近一轮 TPS）、`token-usage`（`▤ X.XM tok · Cache hit NN%`）、`context-used`（**SVG donut**：track + 动态 fill 弧 `stroke-dasharray` 按占用百分比实时更新 + `NN%` 文本，占假设窗口 128k 的估算占比）。活动 / 权限档 / 自主度已由各自控件（activity-indicator / permissions-btn / autonomy-switch）承载，不在状态栏重复。无数据显示 `-`（Q4 决策）。`selectSession` 重置计数、`turn-end` 后刷新累计。
 10. ✅ **#5 右栏产物预览**：写文件类工具（`write`/`edit`）的 tool-call 卡片右上角加「预览」按钮（不触发现有 `showToolDetail`）；点击经新增 `fs.read` RPC（只读、200k 上限）读取文件，按扩展名在右栏 `context-panel` 的 `#artifactPreview` 区渲染——`.md`/`.markdown` 走 `marked`+`DOMPurify`，`.html` 走 `DOMPurify.sanitize` 后注入，图片（png/jpg/...）`<img>`，其余 `<pre>` 文本；超长截断提示，「在编辑器打开」按钮用 `file://` 打开。与现有工具检视器（`contextDetail`）合一，不破坏点击 tool-call 看参数/结果的功能。

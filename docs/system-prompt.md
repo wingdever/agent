@@ -65,4 +65,4 @@ plan 模式激活时，`core/index.js` 在**每一步请求**的 system 消息�
 `core/plan-mode.js` 的 `PLAN_POLICY`（不写库、不改变已存 system prompt）；
 `exit_plan_mode` 批准后退出的下一步自动不再追加。页面上的「计划」按钮控制
 session 级状态，状态目前只在内存里（页面刷新保留，app 重启重置）。
-该机制仅属于 persisted / goal-plan 分支；bare 无 session、无 plan-mode。
+该机制仅属于 persisted / plan-mode 分支；bare 无 session、无 plan-mode。

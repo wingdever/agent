@@ -6,10 +6,10 @@
 Mode = {
   presence:   in | out
   autonomy:   supervised | autonomous
-  activity:   goal-plan | build-code | discuss-doc | research | review-proj | human-learn | diagnose  (7 values)
+  activity:   plan-mode | intent-recog | goal-mode | build-code | discuss-doc | research | review-proj | human-learn | diagnose  (9 values)
 }
 ```
-- 三轴**正交**，不是平铺枚举。presence 是元状态，跨所有 activity 共享同一套机制。activity 轴现有 **7 个取值**（不含 bare-chat）。
+- 三轴**正交**，不是平铺枚举。presence 是元状态，跨所有 activity 共享同一套机制。activity 轴现有 **9 个取值**（不含 bare-chat）。
 - `risk` 轴**暂不使用**（避免过度设计，日后若 autonomous 出乱子再考虑加回）。
 - `bare-chat` 不再是 activity，而是独立的**会话模式层（session mode：bare / persisted）**。`core.chat()` 先按**显式信号** `ctx.mode === "bare"` 分发：显式声明 bare 走 `core/bare-chat.js`（不是 loop engine），否则走 persisted 再由 `AGENT_LOOP_ENGINE` 选择 linear / node-graph。**不用 `!sessionId` 推断**（存在无 sessionId 但需工具循环的合法调用方，persist 只控制落库）；UI 的 `runBareChat` 显式传 `mode:"bare"`。bare-chat 不进入 `core/loops/` 注册表，也不是 `AGENT_LOOP_ENGINE` 的取值。
 
@@ -28,12 +28,16 @@ Mode = {
 - `autonomy = autonomous` 时，所有 `ask` 调用**自动 deny**（代理不再向人提问，自行决策或跳过）。
 
 ### activity（代理活动性质，model 自判，无硬守门）
-- 七类：`goal-plan / build-code / discuss-doc / research / review-proj / human-learn / diagnose`。
+- 九类：`plan-mode / intent-recog / goal-mode / build-code / discuss-doc / research / review-proj / human-learn / diagnose`。
 - 默认 activity 为 `research`（UI 建会话初始值与 DB schema DEFAULT 均已改为 research）。
 - 代理**可跨 activity**，含跨到 `build-code`（落盘变更）；信任 model 自行判断。
-- 只读倾向类：research / goal-plan / discuss-doc / review-proj / human-learn / diagnose；落盘类：build-code。边界由 model 把握。
+- 落盘类：build-code、goal-mode；其余（plan-mode / intent-recog / discuss-doc / research / review-proj / human-learn / diagnose）为只读倾向类。边界由 model 把握。
+- `plan-mode`（计划模式）：activity 轴上唯一驱动内置 plan-mode 机制的取值。选它即进入计划态（注入 POLICY、工具目录不变、经 `exit_plan_mode` 提交计划并等待审批），详见 `docs/dev/plan-mode.md`。
+- `goal-mode`（目标模式）：落盘类 activity，模型在该阶段的目的是围绕明确目标推进落地变更。它不进入内置 plan-mode（不受 POLICY 约束、无 `exit_plan_mode` 流程），其"落盘"语义由模型据 activity 上下文自行把握。
+- `intent-recog`（意图识别）：只读倾向类 activity。模型在该阶段的目的是识别用户意图，不落地变更。不进入 plan mode，靠模型自判。
+- **实现状态**：activity 轴目前**仅 `plan-mode` 有完整内置实现**（POLICY 注入、审批流程、模式切换通知均已落地）。其余 activity（intent-recog / goal-mode / build-code / discuss-doc / research / review-proj / human-learn / diagnose）均为**占位枚举**：它们不改变 harness 行为，仅作为 `core.activity` 透传值存在，是否落地、是否只读完全由模型据对话上下文自行把握；harness 未为它们提供专属的系统提示段落、守门或流程。这与"activity 由 model 自判、无硬守门"的设计一致。
 - **流转模型（UI 层）**：`activity` 是**建会话时选定的初始活动**，运行后可切换，非锁定。
-  - 一个活动**完成后**可自然进入其它活动（如 `goal-plan` 经 `exit_plan_mode` 批准后自然进入 `build-code`）。
+  - 一个活动**完成后**可自然进入其它活动（如 `plan-mode` 经 `exit_plan_mode` 批准后自然进入 `build-code`）。
   - 活动**未完成**时也可**强制切换**，但需**二次确认**防误操作：supervised 下弹内联确认窗（提示将中断进行中的工作、plan-mode 策略即时失效），autonomous 下直接切换（人不干预，与 ask 自动 deny 一致）。
   - 完成态由 model 上报（如 plan 批准），UI 在活动指示器上以 `✓` 标注。详见 `docs/dsh/dsh-replica.md`。
 

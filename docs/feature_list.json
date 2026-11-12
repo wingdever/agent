@@ -325,17 +325,17 @@
     {
       "id": "plan-mode",
       "name": "Plan mode & exit_plan_mode",
-      "description": "goal-plan activity puts a session into plan mode; a request-scoped policy is injected each step, and exit_plan_mode shows a markdown plan and blocks until the user approves or gives feedback.",
+      "description": "plan-mode activity puts a session into plan mode; a request-scoped policy is injected each step, and exit_plan_mode shows a markdown plan and blocks until the user approves or gives feedback.",
       "status": "pass",
-      "evidence": "core/plan-mode.js setActive()/isActive()/POLICY; tools/exit_plan_mode registry; core/index.js chat() sets planMode from activity==='goal-plan', requestPlanReview()/answerPlanReview()/setPlanMode(); docs/tool.md 'P5 已提前实现 plan 模式'; docs/agent-mode.md. Two test/tools.test.js plan-mode cases are stale against this activity-driven behavior.",
+      "evidence": "core/plan-mode.js setActive()/isActive()/POLICY; tools/exit_plan_mode registry; core/index.js chat() sets planMode from activity==='plan-mode', requestPlanReview()/answerPlanReview()/setPlanMode(); docs/tool.md 'P5 已提前实现 plan 模式'; docs/agent-mode.md. Two test/tools.test.js plan-mode cases are stale against this activity-driven behavior.",
       "testedAt": "2026-11-05"
     },
     {
       "id": "agent-mode-axes",
       "name": "Agent mode (presence / autonomy / activity)",
-      "description": "Three orthogonal axes: presence (in/out), autonomy (supervised/autonomous, where autonomous auto-denies all ask calls), and activity (7 values: goal-plan/build-code/discuss-doc/research/review-proj/human-learn/diagnose, default research). bare-chat is no longer an activity value but a separate session mode (bare/persisted) dispatched by an explicit ctx.mode===\"bare\" signal in core.chat() (not inferred from !sessionId).",
+      "description": "Three orthogonal axes: presence (in/out), autonomy (supervised/autonomous, where autonomous auto-denies all ask calls), and activity (9 values: plan-mode/intent-recog/goal-mode/build-code/discuss-doc/research/review-proj/human-learn/diagnose, default research). plan-mode is the only activity that drives the built-in plan-mode mechanism (POLICY injection + exit_plan_mode); the other activities are placeholder enums the model interprets from context. bare-chat is no longer an activity value but a separate session mode (bare/persisted) dispatched by an explicit ctx.mode===\"bare\" signal in core.chat() (not inferred from !sessionId).",
       "status": "pass",
-      "evidence": "docs/agent-mode.md (7-value activity enum + session-mode layer); core/index.js isAutonomous() checks in requestApproval()/requestUserQuestion()/requestUserJob() and chat() session-mode dispatch; ui.md presence-mode-switch/autonomy-mode-switch/activity-indicator (7 values); composer permission-selector feedback.",
+      "evidence": "docs/agent-mode.md (9-value activity enum + session-mode layer + per-activity implementation status); core/index.js isAutonomous() checks in requestApproval()/requestUserQuestion()/requestUserJob() and chat() session-mode dispatch; ui.md presence-mode-switch/autonomy-mode-switch/activity-indicator (9 values); composer permission-selector feedback.",
       "testedAt": "2026-11-05"
     },
     {

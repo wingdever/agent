@@ -37,7 +37,7 @@
   App.currentActivity = "research";        // 当前会话活动（来自会话存储，可切换）
   App.selectedInitialActivity = "research"; // 新建会话初始活动
   App.bareHistory = [];                    // bare 模式的纯内存对话历史
-  App.currentPlanMode = false;             // 由 activity=goal-plan 驱动
+  App.currentPlanMode = false;             // 由 activity=plan-mode 驱动
 
   // ---------- bare-chat 扁平渲染临时状态 ----------
   App.currentAssistantBubble = null;
@@ -70,7 +70,7 @@
   App.CONTEXT_WINDOW = 128000;
 
   // ---------- 活动指示器 / presence 自动机 ----------
-  App.ACTIVITIES = ["goal-plan", "build-code", "discuss-doc", "research", "review-proj", "human-learn", "diagnose"];
+  App.ACTIVITIES = ["plan-mode", "intent-recog", "goal-mode", "build-code", "discuss-doc", "research", "review-proj", "human-learn", "diagnose"];
   App.currentActivityCompleted = false;
   App.activityIndicatorEl = null;
   App.headerCompact = false;

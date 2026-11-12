@@ -298,7 +298,14 @@ class AgentCore {
     this.pendingPlanReviews.delete(key);
     const approved = payload.approved === true;
     const feedback = typeof payload.feedback === "string" ? payload.feedback : "";
-    if (approved) this.setPlanMode(pending.sessionId, false);
+    if (approved) {
+      // Defer the real flip to the next in-turn pre-step (loop top) so the rest
+      // of the current tool batch stays under plan guidance. Tell the UI to
+      // leave now for responsiveness; isActive keeps reporting true until the
+      // pending flip, so in-batch tools still carry POLICY.
+      planMode.requestExit(pending.sessionId);
+      this._onEvent({ type: "plan-mode", active: false });
+    }
     pending.resolve({ approved, feedback });
     return true;
   }

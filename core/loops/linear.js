@@ -68,10 +68,10 @@ async function runLoop(core, ctx) {
   // 推理参数：none(或旧值 off)=关闭推理，其余非空值=分级推理(reasoning_effort，按 provider 字段映射)，空=不注入。
   // 注意：分级推理的取值是 provider 相关的（如 radeon 的 minimal/xhigh、deepseek 的 max），不再硬编码白名单。
   core.effort = (effort && effort !== "undefined") ? effort : null;
-  core.activity = activity === "goal-plan" ? "goal-plan" : (activity || "bare-chat");
-  // activity=goal-plan 驱动 per-session plan-mode：选 goal-plan 即进入计划态（POLICY 生效），
+  core.activity = activity === "plan-mode" ? "plan-mode" : (activity || "bare-chat");
+  // activity=plan-mode 驱动 per-session plan-mode：选 plan-mode 即进入计划态（POLICY 生效），
   // 切到其他 activity 即退出（见 docs/agent-mode.md）。exit_plan_mode 批准后由 UI 切到 build-code。
-  if (sessionId) planMode.setActive(sessionId, core.activity === "goal-plan");
+  if (sessionId) planMode.setActive(sessionId, core.activity === "plan-mode");
   const store = core.store;
   const persist = !!(sessionId && store);
   // A persisted turn owns the session: /compact and manual compaction must
@@ -185,9 +185,22 @@ async function runLoop(core, ctx) {
   // 终止条件：模型不再返回 tool_calls 才算本轮完成。与 DSH 的 agent loop 一致，
   // 这里不设步数上限 —— 是否继续由模型决定，而不是被一个硬编码的 5 掐断。
   for (let r = 0; ; r++) {
+    // Apply a pending plan-mode exit from a prior approved exit_plan_mode at the
+    // top of this step (DSH's next in-turn pre-step): the rest of that tool
+    // batch stayed under plan guidance; this step's requestSystem is the first
+    // without the policy. Broadcast so the UI indicator settles in lockstep.
+    if (r > 0 && planMode.applyPendingExit(sessionId)) {
+      onEvent({ type: "plan-mode", active: false });
+    }
+    // Record the plan-active value this request header will observe, then flush
+    // any deferred switch notices decided at setActive (DSH's activeAtLastHeader
+    // de-dup). The notices are appended to conv and persisted so the model is
+    // told exactly when its context changed and never redundantly.
+    planMode.recordHeader(sessionId, planMode.isActive(sessionId));
+    const switchNotices = planMode.takeNotices(sessionId);
     // Plan-mode guidance is request-scoped: the stored system prompt stays
     // stable, while every step in plan mode carries the policy. exit_plan_mode
-    // flips the state off before the next step, so the policy disappears then.
+    // defers the flip to the next step, so the policy disappears then.
     let requestSystem = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
 
     // 自动压缩（DSH agent/pre-step）：每个 step 请求前按窗口压力检查。
@@ -236,6 +249,22 @@ async function runLoop(core, ctx) {
         onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
       }
       userPersisted = true;
+    }
+
+    // Flush deferred plan-mode switch notices: append to conv (after the user
+    // prefix, matching DSH's "after the reusable request prefix") and persist as
+    // role:user messages so they survive replay. Empty unless setActive crossed
+    // the boundary the previous header observed, so no redundant narration.
+    for (const notice of switchNotices) {
+      conv.push({ role: "user", content: notice });
+      if (persist && step) {
+        const seq = systemIsNew ? 2 : 1;
+        try {
+          await store.run("message.add", { step_id: step.id, seq: seq, role: "user", content: notice });
+        } catch (e) {
+          onEvent({ type: "error", error: "persist plan-mode notice failed: " + (e.message || e) });
+        }
+      }
     }
 
     // 请求模型（request-time：上一步工具已全部执行完才到这里）

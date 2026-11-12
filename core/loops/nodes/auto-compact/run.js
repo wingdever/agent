@@ -9,7 +9,17 @@ const planMode = require("../../../plan-mode");
 
 module.exports = async function run(input, ctx) {
   const { core, onEvent } = ctx;
-  // plan-mode 的 policy 是 request-scoped：每次 step 都带，exit_plan_mode 批准后下一轮消失。
+  // Apply a pending plan-mode exit from a prior approved exit_plan_mode at this
+  // step's pre-step (DSH's next in-turn pre-step): the rest of that tool batch
+  // stayed under plan guidance; this step's requestSystem is the first without
+  // the policy. Broadcast so the UI indicator settles in lockstep.
+  if (planMode.applyPendingExit(ctx.sessionId)) {
+    onEvent({ type: "plan-mode", active: false });
+  }
+  // Record the plan-active value this header observes (DSH's activeAtLastHeader
+  // de-dup for switch notices), then derive the request-scoped policy section.
+  planMode.recordHeader(ctx.sessionId, planMode.isActive(ctx.sessionId));
+  // plan-mode 的 policy 是 request-scoped：每次 step 都带，exit_plan_mode 批准后下一轮(pre-step)消失。
   ctx.requestSystem = ctx.system + (planMode.isActive(ctx.sessionId) ? "\n\n" + planMode.POLICY : "");
 
   if (ctx.persist) {

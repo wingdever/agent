@@ -46,6 +46,22 @@ module.exports = async function run(input, ctx) {
     ctx.userPersisted = true;
   }
 
+  // Flush deferred plan-mode switch notices: append to conv (after the user
+  // prefix) and persist as role:user so they survive replay. takeNotices clears
+  // the queue, so the rebuilt conv in a later step picks them up from the
+  // surface instead of duplicating them.
+  for (const notice of planMode.takeNotices(ctx.sessionId)) {
+    ctx.conv.push({ role: "user", content: notice });
+    if (ctx.persist && step) {
+      const seq = ctx.systemIsNew ? 2 : 1;
+      try {
+        await core.store.run("message.add", { step_id: step.id, seq, role: "user", content: notice });
+      } catch (e) {
+        onEvent({ type: "error", error: "persist plan-mode notice failed: " + (e.message || e) });
+      }
+    }
+  }
+
   // 请求模型（request-time：上一步工具已全部执行完才到这里）。
   ctx.conv[0].content = ctx.requestSystem;
   let a;

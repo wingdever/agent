@@ -157,9 +157,9 @@ class NodeGraphEngine {
     // 推理参数：none(或旧值 off)=关推理，其余非空值=分级推理(reasoning_effort，按 provider 字段映射)，空=不注入。
     // 分级推理取值 provider 相关（radeon 的 minimal/xhigh、deepseek 的 max 等），不再硬编码白名单。
     core.effort = (effort && effort !== "undefined") ? effort : null;
-    core.activity = activity === "goal-plan" ? "goal-plan" : (activity || "bare-chat");
-    // activity=goal-plan 驱动 per-session plan-mode：选 goal-plan 即进入计划态，切到其它 activity 即退出。
-    if (sessionId) planMode.setActive(sessionId, core.activity === "goal-plan");
+    core.activity = activity === "plan-mode" ? "plan-mode" : (activity || "bare-chat");
+    // activity=plan-mode 驱动 per-session plan-mode：选 plan-mode 即进入计划态，切到其它 activity 即退出。
+    if (sessionId) planMode.setActive(sessionId, core.activity === "plan-mode");
 
     const store = core.store;
     const persist = !!(sessionId && store);

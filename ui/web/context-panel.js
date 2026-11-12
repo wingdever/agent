@@ -14,7 +14,7 @@
   var App = (window.App = window.App || {});
 
   // ---------- 活动 ----------
-  App.ACTIVITIES = ["goal-plan", "build-code", "discuss-doc", "research", "review-proj", "human-learn", "diagnose"];
+  App.ACTIVITIES = ["plan-mode", "intent-recog", "goal-mode", "build-code", "discuss-doc", "research", "review-proj", "human-learn", "diagnose"];
   App.currentActivityCompleted = false;
   App.activityIndicatorEl = null;
 
@@ -33,7 +33,7 @@
   // 据当前 activity 同步 core 的 per-session plan-mode（即时，不依赖发消息）。
   App.syncPlanModeFromActivity = async function syncPlanModeFromActivity() {
     if (!App.currentSessionId) return;
-    var active = App.getActivityMode() === "goal-plan";
+    var active = App.getActivityMode() === "plan-mode";
     App.currentPlanMode = active;
     try {
       await window.AgentClient.call("planMode", { op: "set", session_id: App.currentSessionId, active: active });
