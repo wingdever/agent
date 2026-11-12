@@ -27,6 +27,7 @@
   - [3.5 loops-modal](#35-loops-modal)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
+- [6. 前端文件构成与调用关系（M0 拆分）](#6-前端文件构成与调用关系m0-拆分)
 
 ---
 
@@ -649,6 +650,77 @@ loops-modal
    three-part: loops-sidebar | loops-viewport | loops-panel
    loops-viewport: loop-topology (left, read-only) + loop-nodes-table (right, editable)
    note: current-engine-label 只读（展示 AGENT_LOOP_ENGINE，重启生效，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→auto-compact 回环 + 实时 hooks 虚线
+
+---
+
+## 6. 前端文件构成与调用关系（M0 拆分）
+
+`ui/web` 在 M0 把单文件 `app.js`（2597 行 `DOMContentLoaded` 闭包）拆为多个独立 `<script>`，由 `app.js` 装配器在 `DOMContentLoaded` 内串起。所有跨文件引用统一走全局 `window.App` 伪闭包：`state.js` 集中持有共享状态与工具，各域文件向 `App` 挂载函数，装配器在 DOM 就绪后填 `App` 的 DOM 根引用并调用各 `init*`。
+
+`index.html` 脚本加载顺序（决定 `App.*` 在运行前的可用性，运行期调用不受顺序约束）：
+
+```mermaid
+graph LR
+    V["vendor: marked / purify"] --> MD["markdown.js (AgentMarkdown)"]
+    V --> API["api.js (AgentClient)"]
+    API --> ST["state.js (App 根: 状态 + 工具)"]
+    ST --> M["modals.js"]
+    ST --> SB["sidebar.js"]
+    ST --> CP["context-panel.js"]
+    ST --> TR["trajectory.js"]
+    ST --> TU["translation-ui.js"]
+    ST --> CT["chat-tab.js"]
+    ST --> CU["compaction-ui.js"]
+    ST --> CO["composer.js"]
+    M --> APP["app.js (装配器: 填 DOM 根 + init + selectSession 胶水)"]
+    SB --> APP
+    CP --> APP
+    TR --> APP
+    TU --> APP
+    CT --> APP
+    CU --> APP
+    CO --> APP
+    APP --> MD2["models/settings/permissions/loops.js (独立 modal)"]
+```
+
+各域文件职责与相互调用（`App.*`）：
+
+```mermaid
+graph TD
+    APP["app.js 装配器<br/>DOMContentLoaded 内:<br/>填 App DOM 根 / 调 init* / selectSession"]
+    ST["state.js<br/>App: 共享状态 + showModal/renderStatusBar/makeEl..."]
+
+    M["modals.js<br/>initTabSwitch / showToolDetail / previewArtifact"]
+    SB["sidebar.js<br/>loadWorkspaces / selectSession 被调 / getSessionMode / isBare"]
+    CP["context-panel.js<br/>presence/autonomy/activity / setPresenceMode / openActivityMenu"]
+    TR["trajectory.js<br/>loadTrajectory / renderTrajectoryTree"]
+    TU["translation-ui.js<br/>中英对照块 + handleTranslation*"]
+    CT["chat-tab.js<br/>onChatEvent / renderSessionMessages / createToolCard / appendMessage"]
+    CU["compaction-ui.js<br/>handleCompactionEvent / runCompact / renderCompactionCard"]
+    CO["composer.js<br/>onSend / runBareChat / 模型·推理选择器 / @引用 / initHeaderCompact"]
+
+    APP -->|调 init*| M
+    APP -->|调 init*| SB
+    APP -->|调 init*| CP
+    APP -->|调 init*| TR
+    APP -->|调 init*| TU
+    APP -->|调 init*| CT
+    APP -->|调 init*| CU
+    APP -->|调 init*| CO
+    APP -.填 DOM 根.-> ST
+
+    SB -->|selectSession 渲染消息| CT
+    SB -->|新建/恢复会话| CO
+    CO -->|onSend 驱动| CT
+    CO -->|runBareChat / runCompact| CU
+    CT -->|收到 compaction 事件| CU
+    CT -->|渲染轨迹工具卡| TR
+    CT -->|中英对照翻译| TU
+    CP -->|活动切换同步 plan-mode| ST
+    TU -->|渲染对照块| CT
+```
+
+运行期主链路：`composer.onSend` → `AgentClient.call("chat", …, onChatEvent)` → `chat-tab.onChatEvent` 按事件类型分发（token / tool_call / approval-request / plan-review / translation / compaction / usage / turn-end），其中 `compaction` 转 `compaction-ui.handleCompactionEvent`、`translation` 按 `isBare()` 分流到 `translation-ui`、`tool-call-card` 点击触发 `modals.showToolDetail`。
 
 ---
 
