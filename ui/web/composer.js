@@ -201,7 +201,7 @@
         var chip = document.createElement("span");
         chip.className = "ref-chip ref-" + ref.type;
         chip.setAttribute("data-name", "ref-chip");
-        chip.textContent = (ref.type === "file" ? "📄 " : ref.type === "skill" ? "🧩 " : "💬 ") + ref.label;
+        chip.textContent = (ref.type === "file" ? "📄 " : ref.type === "skill" ? "📖 " : "💬 ") + ref.label;
         var x = document.createElement("button");
         x.className = "ref-chip-remove";
         x.setAttribute("data-name", "ref-chip-remove");
@@ -247,7 +247,7 @@
 
       var skillItem = document.createElement("button");
       skillItem.className = "ref-menu-item";
-      skillItem.textContent = "🧩 引用技能…";
+      skillItem.textContent = "📖 引用技能…";
       skillItem.addEventListener("click", function () {
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         openSkillRefSelector();
