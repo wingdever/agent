@@ -39,6 +39,9 @@ registry.json 字段：
 - 再后：jobs、present、skill、subagent、workflow 等；
   见 `docs/tool-plan.md` 的矩阵与里程碑
 
+### 工具执行
+tools/pre-execute
+
 ### read（读文本文件）
 - 注册：`tools/read/registry.json`；实现：`tools/read/run.js`
 - 参数：`file_path`（必填）、`offset`（1 起，默认 1）、`limit`（默认/最大 2000 行）
@@ -261,3 +264,48 @@ return Message(
 
 packages/shell/tool-bash/src/index.ts -> ctx.tools.register(defineTool({...})
  
+### 内置工具 ctx.tools @deepseek-ai/dsh-tool-*
+能力域	工具包	一句话
+终端	tool-bash / tool-bash-persistent / tool-pwsh / tool-pwsh-persistent / tool-terminal	跑命令、长驻会话
+文件	tool-fs / tool-fs-search / tool-str-replace-editor	读写、搜索、精确编辑
+网络	tool-web	web_search / web_fetch
+代码	tool-lsp	跳转定义、找引用、hover
+委托	tool-subagent / tool-subagent-control	把活派给子 Agent
+调度	schedule	定时提醒
+目标	tool-goal	会话级目标
+作业	tool-jobs	后台作业输出/列表/终止
+待办	tool-todo	todo_write
+技能	tool-skill	加载技能
+会话检索	tool-session-query	历史搜索/轨迹
+提问	tool-ask-user	问用户
+自省	tool-cordis	查询 Host/Client 契约，定义并管理版本化动态插件
+编排	tool-workflow / tool-ralph	JS 编排、Ralph 迭代
+模型可带	由各 seam 决定	呈现与调度
+
+terminal:
+ctx.bsh
+ctx.bash-persistent
+filesystem:
+ctx.fs read / read_image / write / edit
+ctx.fs_search glob / grep
+ctx.str_replace_editor
+ctx.attachment
+delegate:
+ctx.subagents subagent
+ctx.subagent_control send_message / interrupt_agent / list_agents
+goal:
+ctx.goal get_goal / create_goal / update_goal
+ctx.jobs
+ctx.todo todo_write
+interact:
+ctx.session-query session_search/session_trace/session_event_read
+ctx.userQuestions ask_user_question
+ctx.schedule schedule_create
+web:
+ctx.web web-search web-fetch
+code:
+ctx.lsp goToDefinition / findReferences / goToImplementation / hover
+chestrate:
+ctx.cordis cordis_inspect
+ctx.workflowEngine workflow
+ctx.ralph
