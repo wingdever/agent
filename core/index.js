@@ -390,7 +390,17 @@ class AgentCore {
 
 
   listFunctions() {
-    return [...this.tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters }));
+    // 供 UI 工具查看弹窗（tools-modal）使用：在模型契约字段 name/description/parameters
+    // 之外，额外暴露 type（分组用，对应 registry 的 type 字段：fs/web/goal/...）与
+    // prompt（工具贡献的 prompt 片段），以及 defaultVisible（默认是否对模型可见）。
+    return [...this.tools.values()].map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+      type: t.type,
+      prompt: t.prompt || "",
+      defaultVisible: t.defaultVisible,
+    }));
   }
 
   // 按 baseUrl 匹配 user/providers.json 中的 provider，读出其 reasoning_param 配置。

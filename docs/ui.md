@@ -193,6 +193,7 @@
 | **loops-panel** | 循环弹窗右侧常驻操作栏 |
 | **close-loops-btn** | 关闭循环弹窗按钮 |
 | **settings-modal** | 设置弹窗（运行时设置：流式开关 + 供应者/模型选择） |
+| **tools-modal** | 工具查看弹窗（只读浏览当前可用工具：按 type 分组，展示 name / description / parameters / prompt；对应 `AgentClient.call("listFunctions")` 返回的工具清单） |
 | **settings-sidebar** | 设置弹窗左侧栏 |
 | **provider-model-tree-list** | 供应者/模型树列表 |
 | **tree-search-input** | 树过滤输入框（按名称过滤） |
@@ -460,12 +461,37 @@ skills-modal
 │     ├─ skill-meta
 │     │  ├─ provider-display
 │     │  ├─ name-input
-│     │  ├─ description-input
-│     │  └─ fee-selector
+│     │  └─ description-input
 │     └─ skill-content
 │
 └─ skills-panel
    └─ close-skills-btn
+
+tools-modal
+├─ tools-sidebar
+│  └─ tool-type-tree-list
+│      ├─ tree-search-input
+│      └─ tool-type*                
+│          ├─ tool-type-header
+│          │  ├─ tool-type-collapse-toggle
+│          │  └─ tool-type-label
+│          └─ tool*
+│              └─ tool-name-label
+│
+├─ tools-viewport
+│  │
+│  └─ tool-tab      
+│     ├─ tab-header
+│     │  └─ tab-title
+│     ├─ tool-meta
+│     │  ├─ type-display
+│     │  ├─ name-input
+│     │  ├─ description-input
+│     │  └─ parameters-view
+│     └─ tool-content
+│
+└─ tools-panel
+   └─ close-tools-btn
 
 permissions-modal
 ├─ permissions-sidebar
@@ -573,6 +599,8 @@ skill-ref-selector
 add-workspace-btn -> folder-selector -> add-workspace(folder)
 add-session-btn -> name-prompt -> add-session(worksapce,name)
 models-btn -> models-modal
+skills-btn -> skills-modal
+tools-btn -> tools-modal
 permissions-btn -> permissions-modal
 loops-btn -> loops-modal
 

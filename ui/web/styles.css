@@ -645,7 +645,46 @@ select, textarea, input { font-family: inherit; }
 .skills-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
 .close-skills-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
 
-/* Sidebar button: skills sits between models and permissions */
+/* ============ tools-modal ============ */
+.tools-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
+.tools-window { display: flex; width: 92vw; max-width: 1000px; height: 80vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+
+/* Sidebar: type → tool tree */
+.tools-sidebar { width: 280px; flex: 0 0 280px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
+.tools-sidebar .tab-header { padding: 12px 14px 8px; border-bottom: 1px solid #eef2f7; }
+.tools-sidebar .tree-search-input { margin: 10px 12px; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; }
+.tool-type-tree-list { flex: 1; overflow: auto; padding: 0 8px 12px; }
+.tool-type { margin-bottom: 6px; }
+.tool-type-header { display: flex; align-items: center; gap: 6px; padding: 6px 6px; }
+.tool-type-collapse-toggle { border: none; background: transparent; color: #6b7280; font-size: 12px; width: 18px; padding: 0; cursor: pointer; }
+.tool-type-label { font-weight: 600; font-size: 12px; color: #334155; font-family: ui-monospace, monospace; }
+.tool-type-list { display: flex; flex-direction: column; gap: 1px; padding-left: 22px; }
+.tool-name-label { padding: 5px 8px; border-radius: 6px; font-size: 13px; color: #475569; cursor: pointer; }
+.tool-name-label:hover { background: #eff6ff; color: #1d4ed8; }
+.tool-name-label.selected { background: #2563eb; color: #fff; }
+
+/* Viewport: read-only meta + rendered prompt */
+.tools-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.tool-tab { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.tool-tab .tab-header { padding: 12px 16px; border-bottom: 1px solid #eef2f7; }
+.tool-tab .tab-title { font-weight: 600; font-size: 15px; color: #1e293b; }
+.tool-meta { padding: 12px 16px; border-bottom: 1px solid #eef2f7; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
+.parameters-view { flex: 1; margin: 0; border: 1px solid #e5e7eb; background: #f8fafc; border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; font-family: ui-monospace, monospace; color: #334155; overflow: auto; max-height: 260px; white-space: pre; }
+.tool-content { flex: 1; overflow: auto; padding: 14px 18px; min-height: 0; }
+.tool-content-body { line-height: 1.65; }
+
+/* Panel */
+.tools-panel { width: 150px; flex: 0 0 150px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
+.tools-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
+.close-tools-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
+.skill-badge-visible { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.skill-badge-hidden { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
+/* Sidebar button: tools sits between models and skills */
+.thread-sidebar .tools-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
+.thread-sidebar .tools-btn:hover { background: #f0fdf4; color: #15803d; }
+
+/* Sidebar button: skills sits between tools and permissions */
 .thread-sidebar .skills-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .skills-btn:hover { background: #faf5ff; color: #7c3aed; }
 
