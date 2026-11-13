@@ -278,6 +278,8 @@ shell
 │  │          ├─ rename-session-btn
 │  │          └─ delete-session-btn
 │  ├─ models-btn
+│  ├─ tools-btn
+│  ├─ skills-btn
 │  ├─ permissions-btn
 │  ├─ loops-btn
 │  └─ settings-btn
@@ -439,6 +441,32 @@ models-modal
    ├─ danger-zone
    └─ close-models-btn
 
+skills-modal
+├─ skills-sidebar
+│  └─ provider-skill-tree-list
+│      ├─ tree-search-input
+│      └─ provider*                
+│          ├─ provider-header
+│          │  ├─ provider-collapse-toggle
+│          │  └─ provider-name-label
+│          └─ skill*
+│              └─ skill-name-label
+│
+├─ skills-viewport
+│  │
+│  └─ skill-tab      
+│     ├─ tab-header
+│     │  └─ tab-title
+│     ├─ skill-meta
+│     │  ├─ provider-display
+│     │  ├─ name-input
+│     │  ├─ description-input
+│     │  └─ fee-selector
+│     └─ skill-content
+│
+└─ skills-panel
+   └─ close-skills-btn
+
 permissions-modal
 ├─ permissions-sidebar
 │  ├─ config-file-tabs
@@ -529,6 +557,12 @@ settings-modal
 ├─ stream-switch
 ├─ provider-selector
 └─ model-selector
+
+skill-ref-selector
+├─ skill-search-input
+└─ skill-list
+   └─ skill-element*
+
 
 ---
 

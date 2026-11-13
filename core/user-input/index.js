@@ -6,20 +6,24 @@
 
 const { resolveReferences } = require("./user-references");
 
-// 准备本轮用户输入的引用上下文，返回待注入的 user 消息数组
-// （每条为 { role: "user", content: refBlock }）。无引用或解析失败时返回 []。
-// 仅持久化会话（persist 且 core.store 存在）才注入。
-async function prepareUserInput(core, { references, sessionId, persist }) {
-  const pendingRefs = [];
+// 准备本轮用户输入的注入上下文，返回 { refs }：
+// - refs：@引用（文件 / 会话 / 技能，见 user-references.js）解析出的 user 消息数组
+//   （每条 { role: "user", content }）。
+// 两套 loop 路径共用本入口；无引用或解析失败时返回空数组。
+// 仅持久化会话（persist 且 core.store 存在）才注入引用。
+// 注：dsh 的 /name 文本手势属于 dsh 用户习惯，不属于本系统与模型的通信契约，
+// 本项目不实现（见 docs/dev/skill.md 5.3）。
+async function prepareUserInput(core, { text, cwd, references, sessionId, persist }) {
+  const refs = [];
   if (Array.isArray(references) && references.length && persist && core.store) {
     try {
-      const refBlock = await resolveReferences(core, references, sessionId);
-      if (refBlock) pendingRefs.push({ role: "user", content: refBlock });
+      const refBlock = await resolveReferences(core, references, sessionId, cwd);
+      if (refBlock) refs.push({ role: "user", content: refBlock });
     } catch (e) {
       console.error("[core] resolve references failed:", e.message);
     }
   }
-  return pendingRefs;
+  return { refs };
 }
 
 module.exports = { prepareUserInput };

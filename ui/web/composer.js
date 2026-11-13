@@ -169,6 +169,29 @@
     var refBtn = document.getElementById("refBtn");
     var refChips = document.querySelector(".ref-chips");
 
+    function el(tag, attrs, children) {
+      var e = document.createElement(tag);
+      attrs = attrs || {};
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        var v = attrs[k];
+        if (v == null) continue;
+        if (k === "className") e.className = v;
+        else if (k === "dataset") { for (var d in v) e.setAttribute("data-" + d, v[d]); }
+        else if (k === "onclick") e.addEventListener("click", v);
+        else if (k === "value") e.value = v;
+        else e.setAttribute(k, v);
+      }
+      if (children != null) {
+        if (!Array.isArray(children)) children = [children];
+        children.forEach(function (c) {
+          if (c == null) return;
+          e.appendChild(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
+        });
+      }
+      return e;
+    }
+
     App.renderRefChips = function renderRefChips() {
       if (!refChips) return;
       refChips.innerHTML = "";
@@ -178,7 +201,7 @@
         var chip = document.createElement("span");
         chip.className = "ref-chip ref-" + ref.type;
         chip.setAttribute("data-name", "ref-chip");
-        chip.textContent = (ref.type === "file" ? "📄 " : "💬 ") + ref.label;
+        chip.textContent = (ref.type === "file" ? "📄 " : ref.type === "skill" ? "🧩 " : "💬 ") + ref.label;
         var x = document.createElement("button");
         x.className = "ref-chip-remove";
         x.setAttribute("data-name", "ref-chip-remove");
@@ -222,6 +245,15 @@
       });
       box.appendChild(fileItem);
 
+      var skillItem = document.createElement("button");
+      skillItem.className = "ref-menu-item";
+      skillItem.textContent = "🧩 引用技能…";
+      skillItem.addEventListener("click", function () {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        openSkillRefSelector();
+      });
+      box.appendChild(skillItem);
+
       overlay.appendChild(box);
       overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.parentNode.removeChild(overlay); });
       document.body.appendChild(overlay);
@@ -246,6 +278,78 @@
       if (!p) return;
       App.pendingRefs.push({ type: "file", path: p, label: p.split("/").pop() || p });
       App.renderRefChips();
+    }
+
+    // @菜单的技能引用块：skills.list 已按 isUserInvocable 过滤，故选择器只出现
+    // 用户可调用技能；选中后推 {type:"skill", name} 引用 chip，随 chat 的
+    // references 参数发出（后端 resolveReferences 渲染为 <skill_content> 块）。
+    // 选择器 UI 对应 docs/ui.md 的 skill-ref-selector（skill-search-input + skill-list）。
+    async function openSkillRefSelector() {
+      var list;
+      try {
+        list = await window.AgentClient.call("skills", { op: "list" });
+      } catch (e) {
+        console.error("load skills failed:", e);
+        list = [];
+      }
+      if (!list || !list.length) { await App.uiAlert("没有可引用的技能"); return; }
+
+      var overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.setAttribute("data-name", "skill-ref-selector-overlay");
+      var box = document.createElement("div");
+      box.className = "modal-box skill-ref-selector";
+      box.setAttribute("data-name", "skill-ref-selector");
+      var title = document.createElement("div");
+      title.className = "modal-title";
+      title.textContent = "引用技能";
+      box.appendChild(title);
+
+      var search = document.createElement("input");
+      search.className = "skill-search-input";
+      search.setAttribute("data-name", "skill-search-input");
+      search.type = "text";
+      search.placeholder = "过滤技能名 / 描述…";
+      box.appendChild(search);
+
+      var listEl = document.createElement("div");
+      listEl.className = "skill-list";
+      listEl.setAttribute("data-name", "skill-list");
+      box.appendChild(listEl);
+
+      function render(filter) {
+        filter = (filter || "").trim().toLowerCase();
+        listEl.innerHTML = "";
+        var shown = list.filter(function (s) {
+          if (!filter) return true;
+          return (s.name + " " + (s.description || "")).toLowerCase().indexOf(filter) !== -1;
+        });
+        if (!shown.length) {
+          listEl.appendChild(el("div", { className: "empty-hint" }, filter ? "无匹配技能" : "没有可引用的技能"));
+          return;
+        }
+        shown.forEach(function (s) {
+          var name = el("div", { className: "skill-element-name" }, s.name);
+          var desc = el("div", { className: "skill-element-desc" }, s.description || "");
+          var item = el("div", {
+            className: "skill-element",
+            dataset: { name: "skill-element", skill: s.name },
+            onclick: function () {
+              if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+              App.pendingRefs.push({ type: "skill", name: s.name, label: "@" + s.name });
+              App.renderRefChips();
+            },
+          }, [name, desc]);
+          listEl.appendChild(item);
+        });
+      }
+      render("");
+
+      search.addEventListener("input", function () { render(search.value); });
+      overlay.appendChild(box);
+      overlay.addEventListener("click", function (e) { if (e.target === overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay); });
+      document.body.appendChild(overlay);
+      search.focus();
     }
 
     if (refBtn) refBtn.addEventListener("click", openRefMenu);

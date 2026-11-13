@@ -15,6 +15,7 @@ module.exports = async function run(input, ctx) {
     conv = await core._requestMessages(ctx.sessionId, ctx.system, [...ctx.pendingRefs, ctx.pendingUser]);
   } else {
     conv = [{ role: "system", content: ctx.system }, ...ctx.messages];
+    if (ctx.catalogMsg) conv.splice(1, 0, ctx.catalogMsg);
     if (ctx.translatedUser != null && conv.length > 1) {
       conv[conv.length - 1] = Object.assign({}, conv[conv.length - 1], { content: ctx.translatedUser });
     }

@@ -29,17 +29,19 @@ module.exports = async function run(input, ctx) {
     try {
       if (ctx.systemIsNew) {
         await core.store.run("message.add", { step_id: step.id, seq: 0, role: "system", content: ctx.system });
+        if (ctx.catalogMsg) {
+          await core.store.run("message.add", { step_id: step.id, seq: 1, role: "user", content: ctx.catalogMsg.content });
+        }
       }
-      const lastUser = [...ctx.conv].reverse().find((m) => m.role === "user");
-      if (lastUser) {
-        const content = typeof lastUser.content === "string" ? lastUser.content : JSON.stringify(lastUser.content);
-        await core.store.run("message.add", {
-          step_id: step.id,
-          seq: ctx.systemIsNew ? 1 : 0,
-          role: "user",
-          content,
-        });
-      }
+      // 真实用户请求（pendingUser）。conv 末尾可能是 /name 手势消息，必须以真实
+      // 用户输入落库，不能取 conv 里最后一条 user。
+      const userContent = typeof ctx.pendingUser.content === "string" ? ctx.pendingUser.content : JSON.stringify(ctx.pendingUser.content);
+      await core.store.run("message.add", {
+        step_id: step.id,
+        seq: ctx.systemIsNew ? (ctx.catalogMsg ? 2 : 1) : 0,
+        role: "user",
+        content: userContent,
+      });
     } catch (e) {
       onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
     }
@@ -53,7 +55,7 @@ module.exports = async function run(input, ctx) {
   for (const notice of planMode.takeNotices(ctx.sessionId)) {
     ctx.conv.push({ role: "user", content: notice });
     if (ctx.persist && step) {
-      const seq = ctx.systemIsNew ? 2 : 1;
+      const seq = ctx.systemIsNew ? (ctx.catalogMsg ? 3 : 2) : 1;
       try {
         await core.store.run("message.add", { step_id: step.id, seq, role: "user", content: notice });
       } catch (e) {

@@ -16,6 +16,7 @@ const compaction = require("./compaction");
 const tokenMeter = require("./token-meter");
 const loopsConfig = require("./loops/loops-config");
 const { runBareChat } = require("./bare-chat");
+const { SkillRegistry, FileSystemSkillProvider, setSkillsRegistry, isUserInvocable, isModelInvocable, isSkillName } = require("./skills");
 
 // M0 重构：将 AgentCore 的流式 / 压缩 / 引用 / token 锚点能力拆为独立模块，
 // 类内仅保留转发壳，对外接口（createCore 返回的 core 对象、chat 等）不变。
@@ -636,6 +637,40 @@ async function handleCall(core, { fn, params = {}, onEvent = () => {} } = {}) {
       throw new Error("unknown loops op: " + params.op);
     }
     case "listFunctions": return core.listFunctions();
+    case "skills": {
+      // 取代 dsh 的 Remote seam：UI 经 IPC 直接查询本地注册表（见 docs/dev/skill.md 5.7）。
+      // 用 isUserInvocable 过滤（仅返回用户可调用入口），映射为 SkillEntry 形状。
+      if (params.op === "list") {
+        const cwd = params.cwd || process.cwd();
+        const skills = core.skills ? (await core.skills.list({ cwd })).filter((s) => isUserInvocable(s)) : [];
+        return skills.map((s) => ({
+          name: s.name,
+          description: s.description,
+          whenToUse: s.whenToUse != null ? s.whenToUse : null,
+          provider: s.provider != null ? s.provider : "unknown",
+          source: s.source != null ? s.source : (s.provider != null ? s.provider : "unknown"),
+          modelInvocable: isModelInvocable(s),
+        }));
+      }
+      if (params.op === "get") {
+        const cwd = params.cwd || process.cwd();
+        const name = params.name;
+        if (!isSkillName(name)) throw new Error(`invalid skill name "${name}"`);
+        const skill = core.skills ? await core.skills.get(name, { cwd }) : null;
+        if (!skill || !isUserInvocable(skill)) throw new Error(`skill "${name}" is not available`);
+        return {
+          name: skill.name,
+          description: skill.description,
+          whenToUse: skill.whenToUse != null ? skill.whenToUse : null,
+          provider: skill.provider != null ? skill.provider : "unknown",
+          source: skill.source != null ? skill.source : (skill.provider != null ? skill.provider : "unknown"),
+          modelInvocable: isModelInvocable(skill),
+          content: skill.content != null ? skill.content : "",
+          resourceBase: skill.resourceBase || null,
+        };
+      }
+      throw new Error("unknown skills op: " + params.op);
+    }
     case "storage": {
       if (!core.store) throw new Error("storage not initialized");
       return await core.store.run(params.op, params.payload || {});
@@ -689,6 +724,32 @@ async function createCore(config = {}) {
   const { createStore } = await import("./storage/store.mjs");
   core.store = await createStore();
   core.goals = createGoalService(core.store);
+
+  // Skill subsystem: single registry, filesystem provider. The bundled root is the
+  // project-root <root>/skills directory (rank 600); see docs/dev/skill.md 3.1/5.1.
+  // Config items (customSkillDirs / bundledSkillDir / collectCacheMaxEntries / watch)
+  // are read from user/settings.json when present, falling back to the documented
+  // defaults (docs/dev/skill.md 5.6).
+  const skillCfg = readSettings().skills || {};
+  const skillsRegistry = new SkillRegistry({
+    logger: console,
+    collectCacheMaxEntries: Number.isInteger(skillCfg.collectCacheMaxEntries) ? skillCfg.collectCacheMaxEntries : 128,
+  });
+  skillsRegistry.registerProvider((control) =>
+    new FileSystemSkillProvider(
+      {
+        includeDefaultRoots: true,
+        bundledSkillDir: skillCfg.bundledSkillDir
+          ? path.resolve(skillCfg.bundledSkillDir)
+          : path.resolve(__dirname, "..", "skills"),
+        customSkillDirs: Array.isArray(skillCfg.customSkillDirs) ? skillCfg.customSkillDirs : [],
+        watch: skillCfg.watch !== undefined ? !!skillCfg.watch : true,
+      },
+      { control, warn: (m) => console.warn(m) }
+    )
+  );
+  setSkillsRegistry(skillsRegistry);
+  core.skills = skillsRegistry;
 
   return core;
 }

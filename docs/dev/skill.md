@@ -27,10 +27,10 @@ skill 能力族拆成「注册表 / 提供方 / 消费方」三段，注册表�
 | `ctx.skills`（`SkillRegistry`） | `core/skills/registry.js`：`list(cwd)` / `snapshot(cwd)` / `get(name, cwd)` / `registerProvider()` / `register()` |
 | `dsh-skill-filesystem` | `core/skills/filesystem.js`：根扫描、frontmatter 解析、失效通知 |
 | `dsh-tool-skill` | `tools/skill/registry.json` + `tools/skill/run.js` |
-| `renderSkillContent` / `escapeText` | `core/skills/content.js`：共享渲染，`tools/skill` 与 `/name` 注入共同依赖 |
+| `renderSkillContent` / `escapeText` | `core/skills/content.js`：共享渲染，`tools/skill` 与 `type:"skill"` 引用共同依赖 |
 | 目录消息渲染 | `core/system-prompt.js`：会话起始生成的多消息块 |
 | `agent/pre-step` waterfall | 会话起始装配点：`core/loops/nodes/assemble-system/run.js` 与 `core/loops/linear.js:139-142` |
-| 用户 `/name` 手势注入 | `core/user-input/user-references.js`：进入消息历史 |
+| 用户主动注入技能（引用块） | `core/user-input/user-references.js` 的 `resolveReferences` 的 `type:"skill"` 分支：进入引用上下文消息 |
 | `ctx.sessionSkillCatalog` | UI 侧 `skills.list` IPC |
 | `skills` / `tool_skills` 表 | `core/storage/schema.mjs:48`（存储层已有骨架） |
 
@@ -452,7 +452,7 @@ interface SkillListValue { readonly skills: readonly SkillEntry[] }
 
 `core/system-prompt.js` 的装配结果是**消息块**（`{ role, content }[]`）：首条是 system 文本，随后是 skill 目录的 user-role 消息。`render()` 产出 system 文本（`core/system-prompt.js:72-74`），消息块由 `assembleSystemPrompt()` 在 `systemIsNew` 分支产出（`core/loops/nodes/assemble-system/run.js:13-26`、`core/loops/linear.js:139-142`）。两套 loop 引擎（`core/loops/index.js:22` 默认 `node-graph`）走同一入口，目录注入不接进每 step 的 pre-step。
 
-生成时机是**会话起始一次**：`systemIsNew` 为真时与 system prompt 一起装配、一起落库，之后所有轮次从存储读回，不再重新生成，与本项目 system prompt 的既有生命周期一致（`docs/dev/system-prompt.md`）。目录消息排在 `conv[0]` 之后 —— `conv[0].content` 会在 `core/loops/linear.js:273` 与 `core/loops/nodes/model-request/run.js:66` 被 `requestSystem` 覆写。`session.prompt` 承载整个消息块（对应 `core/storage/store.mjs:460-465` 的 `getSessionPrompt`）；plan-mode 的 POLICY 只拼到块的 system 消息上（`core/loops/linear.js:204`、`core/loops/nodes/model-request/run.js:103-104`），其余消息原样保留。
+生成时机是**会话起始一次**：`systemIsNew` 为真时与 system prompt 一起装配、一起落库，之后所有轮次从存储读回，不再重新生成，与本项目 system prompt 的既有生命周期一致（`docs/dev/system-prompt.md`）。目录消息排在 `conv[0]` 之后 —— `conv[0].content` 会在 `core/loops/linear.js:273` 与 `core/loops/nodes/model-request/run.js:66` 被 `requestSystem` 覆写。落库时目录消息作为**独立的 user 消息**与 system 消息一并写入 step 0（`core/loops/linear.js:259-264`、`core/loops/nodes/model-request/run.js:53-62`）；`session.prompt`（`core/storage/store.mjs:460-465` 的 `getSessionPrompt`）只回读 system 文本用于 `requestSystem`，目录消息则由 `surfaceNodes` 作为普通历史消息回放，二者协作构成完整消息块。plan-mode 的 POLICY 只拼到 system 消息上（`core/loops/linear.js:204`、`core/loops/nodes/model-request/run.js:103-104`），其余消息原样保留。
 
 消息体用会话目录模板的逐字文案；条目按 `` - `name`: description `` 渲染，description 先折叠空白、按 `catalogDescriptionMaxLength` 截断、再做 `&` / `<` / `>` 转义，名称按 `isSkillName()` 校验。这些渲染规则直接落在 `core/system-prompt.js`，不设独立的 catalog 模块。消息落库后走现有 `surfaceNodes` / `requestMessages` 回放（`core/compaction-runner.js:63-66`），作为普通历史消息参与压缩，不做特殊过滤或重建。
 
@@ -462,13 +462,13 @@ interface SkillListValue { readonly skills: readonly SkillEntry[] }
 
 `tools/skill/registry.json` 声明工具身份，字段与本项目现有工具（如 `tools/bash/registry.json`）一致：`name: "skill"`、`type: "read"`、`entry: "run.js"`、`defaultVisible: true`；`description` 用 dsh 的逐字文案（`dsh-tool-skill/lib/index.js:789-791`）；`parameters` 为 JSON Schema 对象 `{ "type": "object", "properties": { "name": { "type": "string", "description": "The exact skill name from the available skills list." } }, "required": ["name"] }`（`core/index.js:459-464` 的 `_toolDefs` 原样透传给模型，等价于 dsh 编译 schemastery 后的 JSON Schema，模型侧契约一致）；省略 `prompt` 字段，调用指引由目录消息自带（见 5.5）。`tools/skill/run.js` 实现 `run(args, exec)`，执行流程与 dsh 一致：校验 `isSkillName` → 在注册表中找摘要 → 校验 `modelInvocable` → 按 `exec.cwd` 重读完整定义 → 二次校验 → 调用 `core/skills/content.js` 的共享渲染产出 `<skill_content>` 块文本。`exec.cwd` 来自本轮 workspace，对应 dsh 的 `ctx.workingDirectory.ensure()`。错误按本项目约定抛异常，由 `core/tools/executor.js` 统一渲染为 `Error: <message>`；工具结果作为 `role: "tool"` + `tool_call_id` 消息回灌（`core/loops/linear.js:431`、`core/loops/nodes/tool-approve/run.js:64`）。工具由 `core/tools/registry.js` 在进程启动时扫描 `tools/*/registry.json` 装载一次（`core/index.js:688`），下发形状由 `core/index.js:459-464` 的 `_toolDefs` 固定；`user/permissions.json` 需要为 skill 配 `allow`，否则按缺省 `ask` 每次弹审批（`core/permissions.js:40`）。
 
-用户 `/name` 手势归入 `core/user-input/user-references.js`，与 `@` 引用共用 `prepareUserInput()` 输入准备入口（两套引擎的调用点：`core/loops/linear.js:160`、`core/loops/nodes/resolve-input/run.js:40`）。按 dsh 实现，该入口为手势产出的是**待落库的消息**而非 `pending` 临时块：在 step 内 `conv.push` 并用 `message.add` 落库（`core/loops/linear.js:259,263`、`core/loops/nodes/model-request/run.js:53-58` 是同类落库分支），随后续轮次回放，压缩时按普通历史消息处理。
+本项目**不实现** dsh 的 `/name` 文本手势。该手势是 dsh 的**用户习惯**（用户在消息里手打 `/name`），不属于本系统与模型的通信契约——契约为 4.1 的目录消息 + 4.5 的 `skill` 工具，二者产出的 `<skill_content>` 同模板、模型侧无差别。其原先在缓存/落库侧的「手势消息」分支（`core/loops/linear.js`、`core/loops/nodes/model-request/run.js` 的 gesture 落库点）已移除，输入准备链路只保留 `@` 引用一条。
 
-手势约束：只扫描真实 user 输入（外部文本不能伪造）、`isUserInvocable` 门控、按首次出现去重、注入位置排在所有其它注入之后。技能正文由 `core/skills/content.js` 渲染，与 `skill` 工具结果共用同一模板，两处不各自拼装。
+用户主动注入技能改由 UI 的 `type:"skill"` 引用块承担（见 5.8）：同样渲染 `<skill_content>`、经 `isUserInvocable` 门控，但触发来源是引用参数而非文本解析，且归入 `resolveReferences` 的引用处理（持久会话注入）。
 
 ### 5.4 存储
 
-`core/storage/schema.mjs` 已有 `skills`（`name` / `description` / `prompt` / `path`）与 `tool_skills` 关联表，以及 `core/storage/store.mjs:596-613` 的 CRUD 与 `:709-719` 的 `skill.*` / `toolSkill.*` 操作名（经 `core/index.js:639-641` 的 `storage` 通道转发）。规格以文件系统为唯一真源：这些表只作 UI 展示与索引，不作为运行时的 skill 定义来源；`prompt` 字段对应 `SkillDefinition.content`。`tool_skills` 的 skill ↔ tool 多对多关联在本规格里不参与加载或调用门控，只保留为索引数据。目录消息与 `/name` 注入都由 `message.add` 落库为普通消息行，不引入 `source` 列与 `session_events` 特殊通道；后续若确实改 schema，按项目约定直接删 db 文件重建，不写迁移。
+`core/storage/schema.mjs` 已有 `skills`（`name` / `description` / `prompt` / `path`）与 `tool_skills` 关联表，以及 `core/storage/store.mjs:596-613` 的 CRUD 与 `:709-719` 的 `skill.*` / `toolSkill.*` 操作名（经 `core/index.js:639-641` 的 `storage` 通道转发）。规格以文件系统为唯一真源：这些表只作 UI 展示与索引，不作为运行时的 skill 定义来源；`prompt` 字段对应 `SkillDefinition.content`。`tool_skills` 的 skill ↔ tool 多对多关联在本规格里不参与加载或调用门控，只保留为索引数据。目录消息由 `message.add` 落库为普通消息行，不引入 `source` 列与 `session_events` 特殊通道；后续若确实改 schema，按项目约定直接删 db 文件重建，不写迁移。
 
 ### 5.5 系统提示与压缩
 
@@ -478,13 +478,15 @@ skill 目录由 `core/system-prompt.js` 生成，作为消息块里的 user-role
 
 ### 5.6 配置项
 
+上述配置项全部位于 `user/settings.json` 的 `skills` 对象内（如 `{ "skills": { "catalogDescriptionMaxLength": 500, "customSkillDirs": [] } }`）。未配置时取下表默认值。
+
 | 配置 | 默认值 | 作用 |
 |---|---|---|
 | `catalogDescriptionMaxLength` | 500（整数最小 3） | 目录里 description 规范化后的最大长度 |
 | `customSkillDirs` | `[]` | rank 300 的自定义根目录 |
-| `bundledSkillDir` | 项目根 `<root>/skills`（相对进程 cwd 解析，当前为空） | rank 600 的内置系统 skill 根目录 |
+| `bundledSkillDir` | 项目根 `<root>/skills`（相对进程 cwd 解析，当前为空，已被 `.gitignore` 忽略） | rank 600 的内置系统 skill 根目录 |
 | `collectCacheMaxEntries` | 128 | 完成的 cwd/provider 目录缓存上限 |
-| `watch` / `watchUsePolling` / `watchFollowSymlinks` | `true` / `false` / `true` | 根目录变更监视 |
+| `watch` | `true` | 根目录变更监视（仅影响提供方发现缓存失效，不触发当前会话目录刷新） |
 | `providerName` | `"filesystem"` | 提供方在注册表中的唯一名 |
 
 校验规则照 `dsh-tool-skill/lib/index.js:1091-1093`：`catalogDescriptionMaxLength` 非整数或小于 3 时抛错。`watch*` 系列只影响提供方自己的发现缓存失效，不触发当前会话目录刷新。
@@ -498,3 +500,15 @@ skill 目录由 `core/system-prompt.js` 生成，作为消息块里的 user-role
 - **工具结果不向模型暴露 schema（与 dsh 一致）。** dsh 的 `output.schema` 仅用于框架内部：校验 `execute` 返回结构（`dsh-tools/lib/index.js:3639`）与 PTC 子代理/工作流的类型生成（`dsh-tools/lib/index.js:1831,2541`），并不进入主 chat 路径发给模型的工具定义（该路径只下发 `name`/`description`/`parameters`）；仅 delegation 子代理投影时才随工具定义带出（`dsh-tools/lib/index.js:3125`）。模型收到的始终是 `output.render(execute(...))` 渲染出的 `<skill_content>` 文本（`dsh-tools/lib/index.js:3644`）。本项目 `run()` 直接返回共享渲染模块产出的文本，模型视角与 dsh 完全相同——只见到渲染后的正文，从不见 schema。
 - **frontmatter 只认本文档列出的字段集，未识别顶层键按 dsh 默认直接丢弃（不折叠进 `metadata`）。** 仅显式 `metadata:` 对象被原样保留进 `SkillDefinition.metadata`（对应 `dsh-skill-filesystem/lib/index.js:882-885` 的 `optionalMetadata` 只读 `data.metadata`）；其余未列出的顶层键（如 `version`、`requires`）直接丢弃，不参与调用策略、也不进 `metadata`。`core/skills/filesystem.js` 不实现未知键折叠。
 - **内置系统 skill 根目录为项目根 `<root>/skills/`。** 对应 dsh `bundled` rank 600 的 `bundledSkillDir`（`BUNDLED_SKILL_RANK = 600`，由 `core/skills/filesystem.js` 以最高 rank 扫描）。该目录当前为空、内容待定；skill 结构（目录包 `<name>/SKILL.md` 与扁平 `<name>.md`、`name`/`description` frontmatter）参照 dsh `SKILL.md` 格式。注册表不自行合成任何内置 skill，只扫描该目录加载。
+- **不实现 dsh 的 `/name` 文本手势。** 该手势是 dsh 的用户习惯，非本系统与模型的通信契约（契约为目录消息 + `skill` 工具）；其缓存/落库分支已从 loop 引擎移除，输入准备链路只保留 `@` 引用。用户主动注入技能改由 UI 的 `type:"skill"` 引用块承担（见 5.8）。
+
+### 5.8 UI 暴露面（本项目扩展）
+
+dsh 的 UI 只有只读目录（`ctx.sessionSkillCatalog`）与 `skill` 工具，没有「把技能当引用」的概念；本项目额外在 UI 暴露两处，均为 dsh 没有的扩展：
+
+- **左侧只读技能弹窗**：侧栏「🧩 技能」按钮（`thread-sidebar` 中位于 `models-btn` 与 `permissions-btn` 之间）打开只读 `skills-modal`，布局树见 `docs/ui.md` skills-modal。左栏 `provider-skill-tree-list` 按 `source`（dsh 的 6 个发现根：project-dsh / project-agents / custom / user-dsh / user-agents / bundled；runtime 技能回退到 `provider`）分组列出 `skills.list` 返回的技能（`tree-search-input` 过滤名/描述），点击 `skill-name-label` 在右栏视口查看；右栏 `skill-tab` 经 `skills.get` IPC 拉取完整定义，展示 `skill-meta`（来源 / 名称 / 描述 / modelInvocable 徽标，均为只读）与 `skill-content`（经 `AgentMarkdown` 渲染的完整技能正文）；右栏 `skills-panel` 仅 `close-skills-btn`。技能无费用概念，故 `skill-meta` 不含 `models-modal` 那样的 `fee-selector`（ui.md 的 skills-modal 树照搬了 models-modal 结构，该节点对技能无效，不实现）。弹窗只读浏览，无编辑/保存，与后端 `skills.list` / `skills.get`（只读）一致。分组用 `source` 而非 `provider`：本项目只注册了 1 个 filesystem provider（见 5.7），`provider` 对文件技能恒为 `filesystem`，只有 `source` 能区分 dsh 的 6 个根。
+- **composer `@` 菜单的技能引用块**：`@` 菜单新增「🧩 引用技能…」，点击后打开 `skill-ref-selector`（见 `docs/ui.md`）而非编号选择：从 `skills.list`（已按 `isUserInvocable` 过滤，故选择器只出现用户可调用技能）拉取，渲染 `skill-search-input`（按名/描述过滤）＋ `skill-list`（每个 `skill-element*` 显示名称与描述，点击即引用）。选中后向 `App.pendingRefs` 推入 `{ type: "skill", name, label: "@"+name }`，随 chat 的 `references` 参数发出。引用 chip 以 `🧩` 图标与文件/会话引用区分。
+
+**`type:"skill"` 引用解析**：`core/user-input/user-references.js` 的 `resolveReferences` 新增 `type:"skill"` 分支（与 `file`/`session` 同源，走 `references` 参数而非文本手势）。对每个 `name`，经 `core.skills.list({ cwd })` 查找、`isUserInvocable` 门控、`core.skills.get(name, { cwd })` 取正文，用共享 `renderSkillContent` 渲染成 `<skill_content>` 块，收集到 `skillParts` 并拼在「引用上下文」合并消息末尾（指令最靠近回答）。该分支仅在持久会话注入（与 `file`/`session` 引用同一 `persist && core.store` 闸门）；bare 模式不注入。门控与渲染模板与 `/name` 手势一致，但触发来源是引用参数而非手打文本，因此**不引入 dsh 的 gesture 概念**。
+
+面板与 `@` 菜单的 `skills.list` 调用暂不传 `cwd`，作用域默认为进程 cwd；若需严格反映当前会话可见技能，可改用选中会话的 workspace cwd（多一次 store 查询），列为后续增强。

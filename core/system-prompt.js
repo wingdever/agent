@@ -4,6 +4,58 @@
 // the harness and by each tool, plus named variables resolved at render time.
 // The assembled prompt is built once per chat() call (one conversation round)
 // and reused by every step of that round.
+
+const { isSkillName } = require("./skills");
+
+// Skill catalog message (dsh's session skill-catalog). The block is rendered by
+// assembleSystemPrompt as a user-role message appended right after the system
+// message, once at session start. The body uses dsh's verbatim catalog template
+// (see docs/dev/skill.md 4.1): each entry is `- \`name\`: description`,
+// description whitespace collapsed, truncated to catalogDescriptionMaxLength, then
+// &/</> escaped; names are validated with isSkillName. The template also carries
+// the user-invocation guidance ("A user may also invoke a skill directly; its
+// <skill_content> block then appears… do not call the `skill` tool again"), which
+// teaches the model to follow an already-injected <skill_content> block instead of
+// re-calling the tool. Only model-invocable skills are listed.
+function foldWhitespace(value) {
+  return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+}
+
+function escapeCatalogText(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function renderSkillCatalog(skills, { catalogDescriptionMaxLength = 500 } = {}) {
+  if (!Number.isInteger(catalogDescriptionMaxLength) || catalogDescriptionMaxLength < 3) {
+    throw new Error("catalogDescriptionMaxLength must be an integer >= 3");
+  }
+  if (!Array.isArray(skills) || !skills.length) return null;
+  const lines = [];
+  for (const skill of skills) {
+    if (!skill || typeof skill.name !== "string" || !isSkillName(skill.name)) continue;
+    let desc = foldWhitespace(skill.description);
+    if (desc.length > catalogDescriptionMaxLength) {
+      desc = desc.slice(0, catalogDescriptionMaxLength).trimEnd() + "…";
+    }
+    lines.push(`- \`${skill.name}\`: ${escapeCatalogText(desc)}`);
+  }
+  if (!lines.length) return null;
+  return [
+    "<system-reminder>",
+    "A skill is a reusable set of task-specific instructions. The following skills are available in this session:",
+    "",
+    "<available_skills>",
+    ...lines,
+    "</available_skills>",
+    "",
+    "If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.",
+    "A user may also invoke a skill directly; its `<skill_content>` block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.",
+    "</system-reminder>",
+  ].join("\n");
+}
 //
 // Section order follows dsh's sparse allocation: identity first, persona next,
 // tool guidance in name order, then runtime context at the tail. Registering an
@@ -117,8 +169,10 @@ function buildRuntimeContext({ cwd, model, now = new Date() } = {}) {
 
 // Assemble the model-facing system prompt for one chat round.
 // `tools` are the tools visible to this round; each may carry a `prompt`
-// string contributed by its registry.json.
-function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], cwd, model, now = new Date() } = {}) {
+// string contributed by its registry.json. `skills` (optional) is the list of
+// skill summaries (from the registry) to render as the session skill-catalog
+// user message; `catalogDescriptionMaxLength` bounds each description.
+function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength } = {}) {
   const prompt = new SystemPrompt();
   prompt.variable("cwd", cwd || process.cwd());
   prompt.variable("model", model || "unknown");
@@ -169,7 +223,13 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
     text: buildRuntimeContext({ cwd, model, now }),
   });
 
-  return { prompt, system: prompt.render(), sections: prompt.sections() };
+  const system = prompt.render();
+  const block = [{ role: "system", content: system }];
+  if (skills) {
+    const catalogText = renderSkillCatalog(skills, { catalogDescriptionMaxLength });
+    if (catalogText) block.push({ role: "user", content: catalogText });
+  }
+  return { prompt, system, sections: prompt.sections(), block };
 }
 
 module.exports = {
@@ -178,6 +238,7 @@ module.exports = {
   SECTION_ORDERS,
   SystemPrompt,
   assembleSystemPrompt,
+  renderSkillCatalog,
   buildRuntimeContext,
   localIso,
 };

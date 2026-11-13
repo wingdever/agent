@@ -13,6 +13,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { DEFAULT_IDENTITY, assembleSystemPrompt } = require("../system-prompt");
+const { isModelInvocable } = require("../skills");
 const { readPermissions, permissionFor } = require("../permissions");
 const { readFsPolicy, resolveFsPermission } = require("../fs-policy");
 const {
@@ -138,14 +139,25 @@ async function runLoop(core, ctx) {
   const cwd = await core._resolveCwd(persist ? sessionId : null);
   let system = persist ? await store.run("session.prompt", { session_id: sessionId }) : null;
   const systemIsNew = !system;
+  let catalogMsg = null;
   if (systemIsNew) {
-    system = assembleSystemPrompt({
+    // 会话起始一次性装配 system 文本 + skill 目录消息（user-role）。目录只包含
+    // 可模型调用的 skill（模型靠它决定是否调用 skill 工具）；之后所有轮次从存储读回，
+    // 不再重新生成。
+    const skills = core.skills
+      ? (await core.skills.list({ cwd })).filter((s) => isModelInvocable(s))
+      : [];
+    const assembled = assembleSystemPrompt({
       identity: typeof st.identity === "string" ? st.identity : DEFAULT_IDENTITY,
       persona: typeof st.persona === "string" ? st.persona : "",
       tools,
       cwd,
       model: effModel,
-    }).system;
+      skills,
+      catalogDescriptionMaxLength: st.skills ? st.skills.catalogDescriptionMaxLength : undefined,
+    });
+    system = assembled.system;
+    if (assembled.block.length > 1) catalogMsg = assembled.block[1];
     onEvent({ type: "system-prompt", content: system });
   }
   // 本轮用户输入：persist 会话下历史由 core 从存储投影（压缩边界 + checkpoint），
@@ -155,14 +167,22 @@ async function runLoop(core, ctx) {
     throw new TurnError("invalid-input", "the last message must be a user message");
   }
   const pendingUser = { role: "user", content: translatedUser != null ? translatedUser : lastInput.content };
-  // @引用：把引用文件/会话内容作为上下文注入（位于真实问题之前，独立于翻译步骤）。
+  // @引用：把引用文件/会话/技能内容作为上下文注入（位于真实问题之前，独立于翻译步骤）。
   // 由 core/user-input 统一准备，两条 loop 路径共用同一份输入准备逻辑。
-  const pendingRefs = await prepareUserInput(core, { references, sessionId, persist });
+  const { refs: pendingRefs } = await prepareUserInput(core, {
+    text: lastInput.content,
+    cwd,
+    references,
+    sessionId,
+    persist
+  });
   let conv;
   if (persist) {
     conv = await core._requestMessages(sessionId, system, [...pendingRefs, pendingUser]);
   } else {
     conv = [{ role: "system", content: system }, ...messages];
+    // 非持久会话也注入 skill 目录消息（system 之后、用户消息之前），保证模型可见。
+    if (catalogMsg) conv.splice(1, 0, catalogMsg);
     // Replace only the last user turn with its English translation. Earlier
     // turns are already English in the persisted history.
     if (translatedUser != null && conv.length > 1) {
@@ -233,18 +253,21 @@ async function runLoop(core, ctx) {
     // 新一轮 step 开始（r=0 由前端 onSend 预建 UI；r>0 由本事件驱动 UI 建立新 step）
     if (r > 0) onEvent({ type: "step-start", seq: r });
 
-    // step 0：只有 session 首轮落 system；触发本轮的用户请求始终落入本步骤
-    // （写库失败只告警：对话仍可继续，历史缺一条不应掐断整轮）
+    // step 0：只有 session 首轮落 system + 目录消息；触发本轮的用户请求始终落入本步骤
+    // （写库失败只告警：对话仍可继续，历史缺一条不应掐断整轮）。目录消息排 system 之后、
+    // 真实用户之前（docs/dev/skill.md 5.2）。
     if (persist && r === 0) {
       try {
         if (systemIsNew) {
           await store.run("message.add", { step_id: step.id, seq: 0, role: "system", content: system });
+          if (catalogMsg) {
+            await store.run("message.add", { step_id: step.id, seq: 1, role: "user", content: catalogMsg.content });
+          }
         }
-        const lastUser = [...conv].reverse().find((m) => m.role === "user");
-        if (lastUser) {
-          const content = typeof lastUser.content === "string" ? lastUser.content : JSON.stringify(lastUser.content);
-          await store.run("message.add", { step_id: step.id, seq: systemIsNew ? 1 : 0, role: "user", content });
-        }
+        // 真实用户请求（pendingUser）。即使后面追加了 /name 手势，也要以真实
+        // 用户输入落库，不能因为 conv 里最后一条 user 是手势而把它吞掉。
+        const userContent = typeof pendingUser.content === "string" ? pendingUser.content : JSON.stringify(pendingUser.content);
+        await store.run("message.add", { step_id: step.id, seq: systemIsNew ? (catalogMsg ? 2 : 1) : 0, role: "user", content: userContent });
       } catch (e) {
         onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
       }
@@ -258,7 +281,7 @@ async function runLoop(core, ctx) {
     for (const notice of switchNotices) {
       conv.push({ role: "user", content: notice });
       if (persist && step) {
-        const seq = systemIsNew ? 2 : 1;
+        const seq = systemIsNew ? (catalogMsg ? 3 : 2) : 1;
         try {
           await store.run("message.add", { step_id: step.id, seq: seq, role: "user", content: notice });
         } catch (e) {

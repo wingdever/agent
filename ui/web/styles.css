@@ -173,6 +173,16 @@ select, textarea, input { font-family: inherit; }
 .ref-menu-item { display: block; width: 100%; text-align: left; border: none; background: #fff; padding: 10px 12px; font-size: 13px; cursor: pointer; border-radius: 6px; }
 .ref-menu-item:hover { background: #eff6ff; }
 
+/* skill-ref-selector（docs/ui.md）：@ 菜单「引用技能…」的选择器 */
+.skill-ref-selector { width: 360px; max-height: 70vh; display: flex; flex-direction: column; }
+.skill-search-input { width: 100%; box-sizing: border-box; margin-bottom: 10px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; }
+.skill-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; max-height: 52vh; }
+.skill-element { padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; cursor: pointer; }
+.skill-element:hover { background: #faf5ff; border-color: #e9d5ff; }
+.skill-element-name { font-weight: 600; font-size: 13px; color: #1f2937; }
+.skill-element-desc { margin-top: 2px; font-size: 12px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+
 /* 轨迹面板（trajectory-tab） */
 .traj-turn { border-left: 3px solid #2563eb; margin: 12px 0; padding-left: 12px; }
 .traj-turn-head { font-weight: 600; color: #1e3a8a; font-size: 13px; margin-bottom: 6px; }
@@ -264,6 +274,9 @@ select, textarea, input { font-family: inherit; }
 .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .modal-buttons button { border-radius: 8px; padding: 6px 14px; font-size: 13px; border: 1px solid #d1d5db; background: #fff; color: #374151; }
 .modal-buttons .modal-ok { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+/* 技能引用 chip（docs/dev/skill.md 5.8） */
+.ref-chip.ref-skill { background: #faf5ff; border-color: #e9d5ff; }
 
 /* ============ models-modal ============ */
 .models-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
@@ -592,6 +605,49 @@ select, textarea, input { font-family: inherit; }
 .danger-zone { margin-top: 4px; }
 .danger-zone .reset-defaults-btn { width: 100%; color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
 .close-loops-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
+
+/* ============ skills-modal ============ */
+.skills-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
+.skills-window { display: flex; width: 92vw; max-width: 1000px; height: 80vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+
+/* Sidebar: provider → skill tree */
+.skills-sidebar { width: 280px; flex: 0 0 280px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
+.skills-sidebar .tab-header { padding: 12px 14px 8px; border-bottom: 1px solid #eef2f7; }
+.skills-sidebar .tree-search-input { margin: 10px 12px; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; }
+.provider-skill-tree-list { flex: 1; overflow: auto; padding: 0 8px 12px; }
+.provider { margin-bottom: 6px; }
+.provider-header { display: flex; align-items: center; gap: 6px; padding: 6px 6px; cursor: default; }
+.provider-collapse-toggle { border: none; background: transparent; color: #6b7280; font-size: 12px; width: 18px; padding: 0; cursor: pointer; }
+.provider-name-label { font-weight: 600; font-size: 12px; color: #334155; font-family: ui-monospace, monospace; }
+.provider-skills { display: flex; flex-direction: column; gap: 1px; padding-left: 22px; }
+.skill-name-label { padding: 5px 8px; border-radius: 6px; font-size: 13px; color: #475569; cursor: pointer; }
+.skill-name-label:hover { background: #eff6ff; color: #1d4ed8; }
+.skill-name-label.selected { background: #2563eb; color: #fff; }
+
+/* Viewport: read-only meta + rendered content */
+.skills-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.skill-tab { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.skill-tab .tab-header { padding: 12px 16px; border-bottom: 1px solid #eef2f7; }
+.skill-tab .tab-title { font-weight: 600; font-size: 15px; color: #1e293b; }
+.skill-meta { padding: 12px 16px; border-bottom: 1px solid #eef2f7; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
+.meta-row { display: flex; align-items: flex-start; gap: 10px; }
+.meta-key { flex: 0 0 56px; font-size: 12px; color: #6b7280; padding-top: 4px; }
+.meta-val { font-size: 13px; color: #334155; }
+.name-input, .description-input { flex: 1; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; padding: 5px 8px; font-size: 13px; color: #334155; resize: vertical; }
+.name-input:read-only, .description-input:read-only { color: #475569; }
+.skill-badge { display: inline-block; font-size: 11px; border-radius: 6px; padding: 2px 8px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.skill-badge-useronly { background: #fef3c7; color: #b45309; border-color: #fde68a; }
+.skill-content { flex: 1; overflow: auto; padding: 14px 18px; min-height: 0; }
+.skill-content-body { line-height: 1.65; }
+
+/* Panel */
+.skills-panel { width: 150px; flex: 0 0 150px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
+.skills-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
+.close-skills-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
+
+/* Sidebar button: skills sits between models and permissions */
+.thread-sidebar .skills-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
+.thread-sidebar .skills-btn:hover { background: #faf5ff; color: #7c3aed; }
 
 /* Sidebar bottom: loops button (sits between permissions and settings) */
 .thread-sidebar .loops-btn { margin-top: 4px; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }

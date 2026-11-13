@@ -35,9 +35,16 @@ module.exports = async function run(input, ctx) {
 
   // pendingUser：翻译由 hook 注入到 ctx.translatedUser；否则原文。
   ctx.pendingUser = { role: "user", content: ctx.translatedUser != null ? ctx.translatedUser : lastInput.content };
-  // @引用：把引用文件/会话内容作为上下文注入（独立于翻译步骤）。
-  // 由 core/user-input 统一准备，两条 loop 路径共用同一份输入准备逻辑。
-  ctx.pendingRefs = await prepareUserInput(core, { references: ctx.references, sessionId: ctx.sessionId, persist: ctx.persist });
+  // @引用：由 core/user-input 统一准备，两条 loop 路径共用同一份输入准备逻辑。
+  // dsh 的 /name 文本手势不实现（见 docs/dev/skill.md 5.3）。
+  const { refs } = await prepareUserInput(core, {
+    text: lastInput.content,
+    cwd: ctx.cwd,
+    references: ctx.references,
+    sessionId: ctx.sessionId,
+    persist: ctx.persist
+  });
+  ctx.pendingRefs = refs;
 
   // 持久化会话：建 turn（一个 turn 包含多个 step）。
   ctx.userPersisted = false;
