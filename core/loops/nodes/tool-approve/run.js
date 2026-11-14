@@ -123,6 +123,8 @@ module.exports = async function run(input, ctx) {
       subagentFork: (a) => core.subagents.spawnFork({
         ...a, parentSessionId: ctx.sessionId, parentOnEvent: ctx.onEvent, parentChatCtx, modelCallId: callId,
       }),
+      sendMessage: (a) => core.subagents.sendMessage(a),
+      interruptAgent: (a) => core.subagents.interruptAgent(a),
     } : {};
     const result = await runTool(tool, args, {
       cwd,

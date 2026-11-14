@@ -517,6 +517,8 @@ async function runLoop(core, ctx) {
         subagentFork: (a) => core.subagents.spawnFork({
           ...a, parentSessionId: sessionId, parentOnEvent: onEvent, parentChatCtx, modelCallId: callId,
         }),
+        sendMessage: (a) => core.subagents.sendMessage(a),
+        interruptAgent: (a) => core.subagents.interruptAgent(a),
       } : {};
       const result = await runTool(tool, args, {
         cwd,

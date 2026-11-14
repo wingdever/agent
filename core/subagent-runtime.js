@@ -1,5 +1,7 @@
 "use strict";
 
+const crypto = require("crypto");
+
 // One-shot subagent runtime (docs/dev/subagent.md # 第一步实现).
 //
 // This harness has no resident agent loop / inbox / sendWaking like DSH. The
@@ -27,10 +29,11 @@ const DIAGNOSTIC_TRUNCATION_SUFFIX = "\n[diagnostic truncated]";
 const ROOT_AGENT_NAME = "lead";
 const AGENT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
-function settlementSummary(childId, stopReason) {
-  const subject = `Background subagent ${childId}`;
+function settlementSummary(childName, stopReason) {
+  const subject = `Background subagent ${childName}`;
   switch (stopReason) {
-    case "completed": return `${subject} finished. It cannot receive follow-up messages.`;
+    // 本地子会话可继续（docs/dev/subagent.md §14）：completed 用可续文案。
+    case "completed": return `${subject} finished and will do no further work unless you send it more.`;
     case "aborted": return `${subject} was stopped before it finished.`;
     case "max-tokens": return `${subject} ran out of room before it finished.`;
     case "refusal": return `${subject} declined the task.`;
@@ -83,6 +86,9 @@ class SubagentRuntime {
     this.tasks = new Map();       // childId -> background completion promise
     this.announced = new Set();   // settlement delivered at most once per child
     this.controllers = new Map(); // childId -> AbortController (§6.1 独立取消通道)
+    this.steering = new Map();    // sessionId -> pending steer messages (§17)
+    this.childContexts = new Map(); // childId -> { parentChatCtx, parentOnEvent } 跨轮次保留，唤醒时复用
+    this._waking = new Set();     // sessionId being woken: closes the check-then-launch race
     this._deps = {
       runChild: deps.runChild || ((childCore, ctx) => childCore.chat(ctx)),
       resumeParent: deps.resumeParent || ((resumeCore, ctx) => resumeCore.chat(ctx)),
@@ -191,6 +197,158 @@ class SubagentRuntime {
     return parts.length ? parts.join("/") : ROOT_AGENT_NAME;
   }
 
+  // 控制面（docs/dev/subagent.md §14-§17）。
+
+  // 会话所在 subagent 树的根：沿 subagents 边向上走到没有父行的会话。
+  async rootOf(sessionId) {
+    let current = sessionId;
+    const seen = new Set();
+    for (let guard = 0; guard < 100; guard += 1) {
+      const key = String(current);
+      if (seen.has(key)) throw new Error("session subagent cycle detected at session " + current);
+      seen.add(key);
+      const row = await this.store.run("subagent.get", { sub_sess_id: current });
+      if (!row) return current;
+      current = row.par_sess_id;
+    }
+    throw new Error("session subagent chain too deep at session " + sessionId);
+  }
+
+  // 把模型给出的 agent 名字解析为 Session id（§12，对齐 DSH resolveAgentPath）：
+  // `lead` 与完整路径从根开始逐级按名称下钻；单段名字同样当作从根下钻的路径。
+  // 某段不是合法 agent 名时，整体按字面 Session id 处理；路径点名不到成员且含
+  // 斜杠时抛 AGENT_NAME_NOT_FOUND，否则回落为字面 Session id（解析失败由调用方
+  // 的 session.get 判空）。
+  async resolveAgent(callerSessionId, agent) {
+    const text = String(agent);
+    if (text === ROOT_AGENT_NAME) return this.rootOf(callerSessionId);
+    const segments = text.split("/");
+    if (!segments.every((s) => AGENT_NAME_PATTERN.test(s))) return text; // 字面 Session id
+    let current = await this.rootOf(callerSessionId);
+    for (const segment of segments) {
+      const row = await this.store.run("subagent.byName", { par_sess_id: current, agent_name: segment });
+      if (!row) {
+        if (text.includes("/")) throw new Error(`agent name not found: ${text}`);
+        return text; // 单段名字未命中：回落为字面 Session id
+      }
+      current = row.sub_sess_id;
+    }
+    return current;
+  }
+
+  // 会话是否在跑一轮：根会话看主 core 的活动集，子会话看运行时的任务/唤醒集合（§16）。
+  isRunning(sessionId) {
+    const key = String(sessionId);
+    return this.tasks.has(key) || this._waking.has(key) || this.core.activeSessions.has(key);
+  }
+
+  // send_message（§15.1）：idle 目标起一轮，运行中目标入 steer 队列（§17）。
+  // 返回投递回执，不等待目标回答。
+  async sendMessage({ senderSessionId, agent, message }) {
+    const targetId = await this.resolveAgent(senderSessionId, agent);
+    if (String(targetId) === String(senderSessionId)) {
+      throw new Error("send_message requires another agent in the subagent tree");
+    }
+    const target = await this.store.run("session.get", { id: Number(targetId) });
+    if (!target) throw new Error(`agent not found: ${agent}`);
+    const [senderRoot, targetRoot] = await Promise.all([
+      this.rootOf(senderSessionId),
+      this.rootOf(Number(targetId)),
+    ]);
+    if (String(senderRoot) !== String(targetRoot)) {
+      throw new Error(`agent "${agent}" is not in your subagent tree`);
+    }
+    const senderName = await this.pathOf(senderSessionId);
+    const content = `Agent ${senderName} sent a message: ${message}`;
+    const messageId = crypto.randomUUID();
+    if (this.isRunning(targetId)) {
+      const key = String(targetId);
+      if (!this.steering.has(key)) this.steering.set(key, []);
+      this.steering.get(key).push({ senderName, content, messageId });
+      return { messageId };
+    }
+    const link = await this.store.run("subagent.get", { sub_sess_id: Number(targetId) });
+    if (link) {
+      await this._wakeChild(Number(targetId), link.par_sess_id, content);
+    } else {
+      this._wakeRoot(Number(targetId), content);
+    }
+    return { messageId };
+  }
+
+  // interrupt_agent（§15.2）：祖先可停止任意后代的当前轮次；已结束目标是成功空操作。
+  async interruptAgent({ callerSessionId, agent }) {
+    const targetId = await this.resolveAgent(callerSessionId, agent);
+    if (String(targetId) === String(callerSessionId)) {
+      throw new Error("an agent cannot interrupt itself");
+    }
+    let current = Number(targetId);
+    const seen = new Set();
+    let descendant = false;
+    for (let guard = 0; guard < 100; guard += 1) {
+      const row = await this.store.run("subagent.get", { sub_sess_id: current });
+      if (!row) break;
+      if (String(row.par_sess_id) === String(callerSessionId)) { descendant = true; break; }
+      current = row.par_sess_id;
+      const key = String(current);
+      if (seen.has(key)) break;
+      seen.add(key);
+    }
+    if (!descendant) {
+      throw new Error(`interrupt_agent requires an agent created under you: ${agent}`);
+    }
+    const controller = this.controllers.get(String(targetId));
+    if (controller) controller.abort();
+    return { accepted: true };
+  }
+
+  // 唤醒 idle 的子会话：用消息作为本轮输入起一轮，轮末照常给父发结算（§14）。
+  async _wakeChild(childId, parentSessionId, content) {
+    const key = String(childId);
+    this._waking.add(key);
+    try {
+      const stored = this.childContexts.get(key) || {};
+      const created = { childId, name: await this.pathOf(childId) };
+      return this._launch({
+        prompt: content,
+        parentSessionId,
+        parentChatCtx: stored.parentChatCtx || {},
+        parentOnEvent: stored.parentOnEvent,
+        inputSource: "agent-message",
+      }, created);
+    } finally {
+      this._waking.delete(key);
+    }
+  }
+
+  // 唤醒树根（子级 send_message 给 lead 时）：起一轮，无结算对象。
+  _wakeRoot(rootId, content) {
+    const key = String(rootId);
+    this._waking.add(key);
+    const resumeCore = this._isolatedCore();
+    const task = this._deps.resumeParent(resumeCore, {
+      messages: [{ role: "user", content }],
+      sessionId: rootId,
+      onEvent: () => {},
+      references: [],
+      inputSource: "agent-message",
+    }).catch((e) => this._deps.logger.warn("[subagent] root wake failed:", (e && e.message) || e))
+      .finally(() => {
+        this.tasks.delete(key);
+        this._waking.delete(key);
+      });
+    this.tasks.set(key, task);
+    return task;
+  }
+
+  // 下一次模型请求前取走并清空某会话的 steer 队列（两个 loop 在压缩后调用，§17）。
+  takeSteering(sessionId) {
+    const key = String(sessionId);
+    const items = this.steering.get(key) || [];
+    this.steering.delete(key);
+    return items;
+  }
+
   // 两种委派共用的子会话创建：同 workspace、kind=subagent、分配名称并写委派关联。
   async _createChild(spec, parent) {
     const agentName = await this._allocateAgentName(spec.parentSessionId, spec.name);
@@ -208,18 +366,24 @@ class SubagentRuntime {
   // 后台跑子循环；调用方已经写完会话与关联行。
   _launch(spec, created) {
     const { childId } = created;
+    const key = String(childId);
+    // 保留父轮次快照，使该子会话被唤醒续跑时仍能看到同样的工具与事件回调（§14）。
+    this.childContexts.set(key, {
+      parentChatCtx: spec.parentChatCtx || {},
+      parentOnEvent: spec.parentOnEvent,
+    });
     const task = this._runChild(spec, childId)
       .catch((e) => this._deps.logger.warn("[subagent] background run failed:", (e && e.message) || e))
       .finally(() => {
-        this.tasks.delete(childId);
-        this.controllers.delete(childId);
+        this.tasks.delete(key);
+        this.controllers.delete(key);
       });
-    this.tasks.set(childId, task);
+    this.tasks.set(key, task);
     return created;
   }
 
   async _runChild(spec, childId) {
-    const { prompt, cwd, parentChatCtx = {}, modelCallId } = spec;
+    const { prompt, cwd, parentChatCtx = {}, modelCallId, inputSource } = spec;
     let stopReason = "completed";
     let closingText = "";
     let diagnostic;
@@ -228,7 +392,7 @@ class SubagentRuntime {
     // 取消不自动中止已派发的子 Agent（§6.1）。父 signal 只作发布前取消透传，
     // spawn 一旦返回即与父解耦；子 Agent 的生命周期由自己的 controller 管理。
     const controller = new AbortController();
-    this.controllers.set(childId, controller);
+    this.controllers.set(String(childId), controller);
     const childSignal = controller.signal;
 
     const childCore = this._isolatedCore();
@@ -243,9 +407,9 @@ class SubagentRuntime {
       activity: parentChatCtx.activity,
       autonomy: "autonomous",             // no approval prompts; ask -> deny
       references: [],
-      // 子会话首条 user 消息（task prompt）落库时带 source=subagent-prompt，
-      // 供 subagent_prompts 关联表回填（§5）。
-      inputSource: "subagent-prompt",
+      // 子会话首条 user 消息落库时带来源：委派任务为 subagent-prompt，
+      // 控制面唤醒为 agent-message（§15.4）。
+      inputSource: inputSource || "subagent-prompt",
       contextMessages: [{ role: "user", content: SUBAGENT_DELEGATION_CONTEXT }],
       signal: childSignal,
       cwd,
@@ -266,7 +430,8 @@ class SubagentRuntime {
     const outputId = await this._lastMessageId(childId, "assistant", null);
     await this._linkPrompt(spec, childId);
 
-    const settleText = buildSettlementText(childId, stopReason, closingText, diagnostic);
+    const childName = await this.pathOf(childId);
+    const settleText = buildSettlementText(childName, stopReason, closingText, diagnostic);
     await this._deliver(spec, childId, settleText, outputId);
   }
 
