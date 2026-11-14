@@ -179,9 +179,9 @@ system - system_prompt
 assistant - model_reply
 tool - tool_result
 
-enum source: [user_input, subagent-prompt, subagent-settle]
+enum source: [user_input, subagent-prompt, subagent-settle, agent-message]
 
-`source` 与 `role` 正交，表示消息由什么机制产生：`user_input` 是真人输入；`subagent-prompt` 是子会话首条消息（由父侧委派 tool_call 生成）；`subagent-settle` 是父会话里子代理结算产生的 user 消息。
+`source` 与 `role` 正交，表示消息由什么机制产生：`user_input` 是真人输入；`subagent-prompt` 是子会话首条消息（由父侧委派 tool_call 生成）；`subagent-settle` 是父会话里子代理结算产生的 user 消息；`agent-message` 是树内另一个 agent 通过 `send_message` 投递的 user 消息。
 
 
 ## calls (工具调用)
@@ -319,11 +319,15 @@ CREATE TABLE user_jobs (
 ```
 
 ## agent_subagents (子代理关联表)
+一次委派一行。`agent_name` 是模型侧名称，在同父的子级之间唯一；根会话的名称固定为 `lead`，不落库。Session id 仍是持久身份，名称只用于 `send_message` / `interrupt_agent` / `list_agents` 的寻址。名称规则与路径解析见 `docs/dev/subagent.md` 第三步。
+
 ```sql
 create table subagents (
   sub_sess_id  integer NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
   par_sess_id  integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  discarded_at TIMESTAMP
+  agent_name   text    NOT NULL,              -- 模型侧名称，同父唯一
+  discarded_at TIMESTAMP,
+  UNIQUE (par_sess_id, agent_name)
 );
 ```
 
