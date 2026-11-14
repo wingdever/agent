@@ -468,7 +468,7 @@ interface SkillListValue { readonly skills: readonly SkillEntry[] }
 
 ### 5.4 存储
 
-`core/storage/schema.mjs` 已有 `skills`（`name` / `description` / `prompt` / `path`）与 `tool_skills` 关联表，以及 `core/storage/store.mjs:596-613` 的 CRUD 与 `:709-719` 的 `skill.*` / `toolSkill.*` 操作名（经 `core/index.js:639-641` 的 `storage` 通道转发）。规格以文件系统为唯一真源：这些表只作 UI 展示与索引，不作为运行时的 skill 定义来源；`prompt` 字段对应 `SkillDefinition.content`。`tool_skills` 的 skill ↔ tool 多对多关联在本规格里不参与加载或调用门控，只保留为索引数据。目录消息由 `message.add` 落库为普通消息行，不引入 `source` 列与 `session_events` 特殊通道；后续若确实改 schema，按项目约定直接删 db 文件重建，不写迁移。
+`core/storage/schema.mjs` 已有 `skills`（`name` / `description` / `prompt` / `path`）与 `tool_skills` 关联表，以及 `core/storage/store.mjs:596-613` 的 CRUD 与 `:709-719` 的 `skill.*` / `toolSkill.*` 操作名（经 `core/index.js:639-641` 的 `storage` 通道转发）。规格以文件系统为唯一真源：这些表只作 UI 展示与索引，不作为运行时的 skill 定义来源；`prompt` 字段对应 `SkillDefinition.content`。`tool_skills` 的 skill ↔ tool 多对多关联在本规格里不参与加载或调用门控，只保留为索引数据。目录消息由 `message.add` 落库为普通消息行，不引入 `source` 列与压缩记录一类的特殊通道；后续若确实改 schema，按项目约定直接删 db 文件重建，不写迁移。
 
 ### 5.5 系统提示与压缩
 

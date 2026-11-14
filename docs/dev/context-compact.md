@@ -3,7 +3,7 @@
 > 复刻 DeepSeek Harness (DSH) 的上下文压缩方式。DSH 侧的事实来源：
 > `reference/deepseek-harness/packages/compaction/*`、`docs/subsystems/compaction.md`。
 > 本文记录本项目的语义、数据结构、触发策略、实现链路，以及与 DSH 的异同。
-> 事件溯源的背景概念见 [event-sourcing.md](event-sourcing.md)。
+> 事件溯源的背景概念见 [event-sourcing.md](../event-sourcing.md)。
 
 ## 概览
 
@@ -16,17 +16,17 @@ DSH 式上下文压缩。`/compact` 按需把较早的历史压缩成一条结�
 | **log** | 只追加的原始记录，压缩永不改写 | `messages` / `calls` / `contents` 表 |
 | **surface** | 模型可见的投影：回放 log + 压缩 replace 后得到的消息序列 | `getSurface()`（[store.mjs](../core/storage/store.mjs)） |
 | **transcript** | 人类阅读的投影：读 append-origin 消息，压缩区仍显示原文 | UI 的 chat 视图 |
-| **summary** | 模型写出的 8 段 Markdown 正文 | `compaction/summary` 事件的 `data.summary` |
-| **checkpoint** | 承载 summary 的那条 **user 消息**：preamble + 标签 + summary + 来源标记；它是 surface 节点 | `user/message` 事件 + surface replay |
-| **boundary（切点）** | 本次压缩最后一条被替换的 surface 节点 seq | `compaction/summary` 的 `shadowedRange.end` / `shadowedSeqs` |
+| **summary** | 模型写出的 8 段 Markdown 正文 | `compactions.summary_content_id` 指向的 `contents` 正文 |
+| **checkpoint** | 承载 summary 的那条 **user 消息**：preamble + 标签 + summary + 来源标记；它是 surface 节点 | surface replay 从 `compactions` 读区间，`frameCheckpoint(summary)` 现拼后插入 |
+| **boundary（切点）** | 本次压缩最后一条被替换的 surface 节点 seq | `compactions.end_seq` |
 
 ### 0.1 三个容易混的「checkpoint」
 
 1. **summary**：模型写的正文（本回答常说的「摘要」）。
 2. **checkpoint message**：`frameCheckpoint(summary)` 之后落回 surface 的 user 消息；
    下一个模型看到的是它，不是裸 summary。
-3. **checkpoint record / boundary**：`compaction/summary` 事件里的 `shadowedRange` /
-   `shadowedSeqs` / 边界位置，以及 UI 卡片所指的「压缩到哪」。
+3. **checkpoint record / boundary**：`compactions` 行里的 `start_seq` / `end_seq` / 边界位置，
+   以及 UI 卡片所指的「压缩到哪」。
 
 关系：**record 记录「切了哪段、摘要是什么」；summary 是 record 里的正文；
 checkpoint message 是加了框、投到 surface 的那封信。**
@@ -60,7 +60,7 @@ Treat the captured context as established background ...
 
 1. preamble 告诉下一个模型「这是既定背景，不要确认/复述」，避免它把摘要当成新的用户指令；
 2. `<compacted-summary>` 标签让再次压缩时能识别「上一份 checkpoint」，按指令合并而不是照抄；
-3. `source: {kind:'plugin', plugin:'compact', compactionId}` 让消费者无需解析正文就能认出压缩产物；
+3. `compactions` 行让消费者无需解析正文就能认出压缩产物；
 4. 计量口径：checkpoint 才是真正占请求 token 的东西，框架开销必须计入。
 
 ## 1. 一句话语义
@@ -69,8 +69,8 @@ Treat the captured context as established background ...
 最近的历史原样保留；原始消息永不改写，只改变读取时的投影。
 
 - **log** = `messages` / `calls` / `contents`，append-only；
-- **surface** = 事件回放：append-origin 消息按 `seq` 叠加每次压缩的 `replace`，
-  得到 `checkpoint + 保留尾部`；
+- **surface** = 按 `seq` 回放：append-origin 消息叠加 `compactions` 中每次成功压缩的
+  `start_seq..end_seq` 替换，得到 `checkpoint + 保留尾部`；
 - **transcript** = UI chat 视图：仍展示全部原始 turns，checkpoint 以卡片标在边界消息之后。
 
 ## 2. 触发方式
@@ -118,25 +118,24 @@ UI 的占用环使用同一个 `contextWindow` RPC，不再硬编码。
 下一次请求:      [sys] [checkpoint] [A3] [新的 U4]
 ```
 
-## 3. 压缩事务（DSH 事件格式）
+## 3. 压缩事务
 
-每次压缩写四类 `session_events`：
+每次压缩写一行 `compactions`，事务状态由 `status` 表达：
 
-1. `compaction/start`（`{compactionId, trigger, turn}`，带进程 `boot`）——**持久锁**；
-2. `compaction/summary`（`summary / shadowedRange / shadowedSeqs / shadowedTokenCount /
-   tokensAfter / provider / model / maxTokens / turns / boundaryMessageId / boundaryTurnSeq`）；
-3. `user/message`：framed checkpoint + `source:{kind:'plugin', plugin:'compact', compactionId}`
-   + `surfaceOp:{op:'replace', start, end}` + `sourceEventSeqs`；
-4. `compaction/end`（成功无 error；失败带 `error`）。
+1. 开始时插入一行 `status = 'running'`，带进程 `boot` —— **持久锁**；
+2. 摘要生成并通过尺寸校验后，写入 `summary_content_id`（裸摘要存于 `contents`）、
+   `start_seq` / `end_seq` / `provider` / `model`，把 `status` 置为 `succeeded`
+   并填 `finished_at`；
+3. 失败时把 `status` 置为 `failed`，`error` 保留原因；surface 不变。
 
-`seq` 与 `messages.surface_seq` 共用一个 per-session 序列，所以 `shadowedSeqs` / `surfaceOp`
-是真实事件序号。锁 = 同一 `boot` 内最新的 `compaction` 标记是未闭合的 `start`；进程重启后
-旧 boot 的 start 自动失效（等价 DSH 的 `session/end-seed` 边界），无需启动时清理。
+`seq` 与 `messages.surface_seq` 共用一个 per-session 序列，同时作为摘要节点在 surface 里的序号。
+锁 = 同一 `boot` 内 `status = 'running'` 的行；进程重启后旧 boot 的 running 自动失效
+（等价 DSH 的 `session/end-seed` 边界），无需启动时清理。
 
 手动压缩进行中，core 用一个 per-session 闸门让新 turn 排队等待（DSH `runMaintenance` 的排队语义）；
 反向（turn 在跑时手动 `/compact`）直接拒绝并提示需要 idle。
 
-失败一律 **fail closed**：写 `start` + `end{error}`，没有 summary/replace，surface 不变；
+失败一律 **fail closed**：`status = 'failed'`，不写摘要与区间，surface 不变；
 手动命令把错误返回给 UI，自动压缩只告警并继续本轮请求。
 
 ## 4. 摘要格式
@@ -169,19 +168,19 @@ UI 的占用环使用同一个 `contextWindow` RPC，不再硬编码。
 - 是**累积摘要**：旧 checkpoint 会被喂回模型，所以更早的历史以摘要形式被继承；
 - 以前保留过、但被新切点越过的消息，会被折叠进新摘要；
 - **当前保留尾部永远不进摘要**，直到下一次切点越过它；
-- surface 最多只有一份 checkpoint：新 replace 会替换掉头部的旧 checkpoint。
+- surface 最多只有一份 checkpoint：新的压缩区间会替换掉头部的旧 checkpoint。
 
 ## 4.2 实现链路（读代码顺序）
 
-1. `getSurface()`：append-origin 消息 + 按 seq 应用 replace，得到节点；
+1. `getSurface()`：append-origin 消息 + 按 `seq` 应用 `compactions` 的区间替换，得到节点；
 2. `surfaceCuts()`：计算每个切点是否平衡；
 3. `selectTailBoundary()` / `selectAutoBoundary()`：选最后一条被压缩的节点；
-4. `_surfaceNodes()`：给节点补 token 价格；
-5. `_runCompaction()`：
-   `compaction/start` → `_summarizeMessages()` → 尺寸校验 →
-   `compaction/summary` → `user/message(replace)` → `compaction/end`；
-6. `_requestMessages()`：回放后的 surface + pending，拼成下一次请求；
-7. `compactSession()`（手动）与 `_maybeCompactStep()`（自动/overflow）是两条入口，
+4. `surfaceNodes()`：给节点补 token 价格；
+5. `runCompaction()`：
+   插入 `compactions(status='running')` → `summarizeMessages()` → 尺寸校验 →
+   写入摘要与区间、置 `succeeded`（失败置 `failed`）；
+6. `requestMessages()`：回放后的 surface + pending，拼成下一次请求；
+7. `compactSession()`（手动）与 `maybeCompactStep()`（自动/overflow）是两条入口，
    共用第 5 步。
 
 ## 5. 区间选择（消息级 surface + tool-pair 平衡）
@@ -210,11 +209,11 @@ transcript 中。上一份 checkpoint 也是 surface 节点，因此剩余 surfa
 
 ### 5.1.2 目标
 
-用户在 UI 上选取 surface 区间 `[startSeq, endSeq]`（或 message id），后端按该区间执行 `surfaceOp: replace`，跳过自动边界选择。
+用户在 UI 上选取 surface 区间 `[startSeq, endSeq]`（或 message id），后端按该区间写一行 `compactions`，跳过自动边界选择。
 
 - **后端**：`compactSession` / `runCompaction` 增加可选 `range` 参数（startSeq/endSeq 或 startMessageId/endMessageId），跳过 `selectTailBoundary` / `selectAutoBoundary` 的自动边界；区间校验（区间有效、不超出 surface、idle 会话约束仍适用）。
 - **前端**：在轨迹面板或独立弹窗选起点 / 终点消息，把 `range` 传给 `AgentClient.call("compact", { session_id, range, model })`。
-- **事件**：新增 trigger `"manual-range"` 区别于现有 `"manual"`（`retainTokens=0`），UI `handleCompactionEvent` 文案同步。
+- **trigger**：新增 `"manual-range"` 区别于现有 `"manual"`（`retainTokens=0`），UI `handleCompactionEvent` 文案同步。
 
 ### 5.1.3 判据
 
@@ -250,9 +249,8 @@ route-specific image pricing 在本项目等价于 DSH 的无图片回退（消�
 - 摘要 prompt / 8 段结构 / `<compacted-summary>` 标签 / preamble / 再次压缩合并规则；
 - 摘要调用重放 system + tools + 区间消息，`max_tokens 8192`，一次性非流式；
 - fail closed（空文本 / tool_calls / 不比原文小 / 请求失败都不改 surface）；
-- `compaction/start → summary → user/message(replace) → end` 事件格式、`shadowedSeqs`、
-  `shadowedRange`、`sourceEventSeqs`、`source:{plugin:'compact'}`；
-- 锁 = 同 boot 内未闭合 start；失败留 `end{error}`；进程重启旧 start 自动 stale；
+- `compactions` 行的 `start_seq` / `end_seq` / `summary_content_id` / `status` / `boot`；
+- 锁 = 同 boot 内 `status='running'`；失败留 `status='failed'` + `error`；进程重启旧 running 自动 stale；
 - transcript 保留全部原始消息；checkpoint 只改变模型视角；
 - token meter：per-node + header + provider usage 锚定；
 - tool-result pruner 默认参数与「手动不 prune」；
@@ -262,8 +260,8 @@ route-specific image pricing 在本项目等价于 DSH 的无图片回退（消�
 
 | 维度 | DSH | 本项目 | 原因 |
 |---|---|---|---|
-| 消息存储 | 一切消息都是事件，surface 从事件派生 | `messages` 关系表 + `surface_seq`；只有压缩事件进 `session_events` | 中间态：压缩子系统事件化，避免重写 turn/step/message 与 UI |
-| 事件日志范围 | 全部 session 事件（turn/step/message/request header/usage…） | 只记录压缩四类事件 | 同上；轨迹/回放仍读关系表 |
+| 消息存储 | 一切消息都是事件，surface 从事件派生 | `messages` 关系表 + `surface_seq`；压缩是 `compactions` 关系表 | 避免重写 turn/step/message 与 UI |
+| 事件日志 | 全部 session 事件（turn/step/message/request header/usage…） | 无事件日志；轨迹/回放读关系表 | 同上 |
 | 取消 | AbortSignal 贯通 summarization | 无 | 本项目没有请求中断基础设施 |
 | 图片 route pricing | 支持按路由给图片定价 | 纯文本，等价无图片回退 | 消息 content 是字符串 |
 
@@ -278,13 +276,12 @@ route-specific image pricing 在本项目等价于 DSH 的无图片回退（消�
 1. **短会话会失败**：preamble + 8 段摘要本身有固定开销，历史太短时
    `tokensAfter >= tokensBefore`，fail closed（UI 提示「历史太短」）。
 2. **checkpoint 自身也能被重写**：surface 只剩 checkpoint + 一条消息时，再压会只替换
-   checkpoint（`shadowedRange` 指向自己），`turns=0`。
-3. **`shadowedRange.start > end` 是合法的**：它是位置跨度，不是数值区间；replay 用
-   `findIndex(seq)`，不要用数值比较校验。
+   checkpoint（`start_seq` / `end_seq` 指向摘要节点自身）。
+3. **`start_seq` / `end_seq` 是位置端点**：surface replay 用 `findIndex(seq)` 定位，不要假设 seq 连续。
 4. **估值 vs 真实 usage**：计量是启发式 + 锚点；底部状态栏仍显示 provider usage，两者口径不同。
 5. **`@` 引用是临时的**：不落库，压缩重建的历史里没有它；这是既有设计，不是压缩 bug。
-6. **锁不要用「有没有 start 事件」判断**：要看「最新 start/end 标记 + boot」，否则上次进程
-   崩溃留下的 start 会永久占锁。
+6. **锁不要用「有没有 running 行」判断**：要看「running 行 + boot」，否则上次进程
+   崩溃留下的 running 会永久占锁。
 7. **r=0 的时序**：自动压缩在 step-0 落库前检查，当前 user 消息以 `extraTailTokens` 计入保留
    预算、永不参与压缩；DSH 的 pre-step 时 user 已落库，这是小的时序差异。
 
@@ -298,10 +295,12 @@ route-specific image pricing 在本项目等价于 DSH 的无图片回退（消�
 ## 11. 代码位置
 
 - `core/compaction.js`：估算、pruner、surfaceCuts、区间选择、framing、DSH prompt、overflow 正则；
+- `core/compaction-runner.js`：`surfaceNodes` / `requestMessages` / `summarizeMessages` /
+  `pruneToolResults` / `runCompaction` / `compactSession` / `maybeCompactStep`；
 - `core/token-meter.js`：header 估价、canonical header key、usage 锚定测量；
-- `core/index.js`：`compactSession` / `_maybeCompactStep` / `_runCompaction` / `_requestMessages` /
-  `_surfaceNodes` / `_summarizeMessages` / `_pruneToolResults` / `_recordTokenAnchor`；
-- `core/storage/{schema,store}.mjs`：`session_events`、`messages.surface_seq`、`tool_result_prunes`、
+- `core/index.js`：`compactSession` / `_maybeCompactStep` / `_surfaceNodes` / `_requestMessages` /
+  `_summarizeMessages` / `_pruneToolResults` / `_recordTokenAnchor` 的委托入口；
+- `core/storage/{schema,store}.mjs`：`compactions`、`messages.surface_seq`、`tool_result_prunes`、
   `token_anchors`、`getSurface()` replay、boot 锁判定；
 - `core/transports/http.js`：`compact` 走 SSE，末尾用 `result` 事件回传结果；
 - `ui/web/app.js`：`/compact` 拦截、checkpoint 卡、状态提示、轨迹标记、`contextWindow`；

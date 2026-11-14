@@ -1,7 +1,7 @@
 # 事件溯源（Event Sourcing）与 DSH 的设计
 
 > 背景概念文档。解释什么是 event sourcing、DSH 的会话层为什么是事件溯源的，
-> 以及本项目采用了哪一层（压缩子系统事件化，消息仍是关系表）。
+> 以及本项目采用了哪一层（消息与压缩都是关系表，未事件化）。
 > 压缩的具体实现见 [context-compact.md](context-compact.md)。
 
 ## 1. 一句话
@@ -80,19 +80,19 @@ goal 域同样是事件溯源的（`docs/subsystems/goal.md` 称为 "event-sourc
 
 ## 6. 本项目的中间态
 
-压缩子系统已按 DSH 事件格式实现，但**没有**把整个会话重写成事件：
+压缩子系统用关系表实现，但**没有**把整个会话重写成事件：
 
 | 层 | 本项目 | 说明 |
 |---|---|---|
 | messages | 关系表 + `surface_seq` | append-only；压缩不改写原行 |
-| 压缩事件 | `session_events`（start/summary/replace/end） | 与消息 seq 共用 per-session 序列 |
-| surface | `getSurface()` 回放 messages + replace | 只在读模型里遮蔽旧消息 |
+| 压缩 | `compactions` 关系表（start_seq / end_seq / status / boot） | 与消息 seq 共用 per-session 序列 |
+| surface | `getSurface()` 回放 messages + 按 `compactions` 做区间替换 | 只在读模型里遮蔽旧消息 |
 | transcript | UI 读 messages（append-origin） | 压缩后仍显示全部原文 |
 | token meter | 独立模块 + `token_anchors` 表 | 锚定 provider usage |
 | turn/step/call | 关系表，未事件化 | 轨迹/回放仍读关系表 |
 
-这个中间态覆盖了压缩所需的全部 DSH 语义（锁、shadowedSeqs、surfaceOp、失败留痕、
-多次压缩叠加），代价是不具备「任意时刻全量 replay 所有 turn/step」的能力。
+这个中间态覆盖了压缩所需的全部 DSH 语义（锁、区间遮蔽、失败留痕、多次压缩叠加），
+代价是不具备「任意时刻全量 replay 所有 turn/step」的能力。
 
 **完整 event sourcing 的收益与代价**：
 

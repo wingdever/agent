@@ -279,7 +279,7 @@
       "name": "Event-sourced session storage (pgmicro)",
       "description": "Sessions, turns, steps, messages, calls and compaction events are stored in a single-file pgmicro DB; the model-visible history is a replayed surface projection, with log rows never rewritten.",
       "status": "pass",
-      "evidence": "core/storage/store.mjs Store class with session.surface/compaction.append/message.add/turn.create/step.create; core/storage/schema.mjs tables incl. session_events, tool_result_prunes, token_anchors, user_jobs; docs/event-sourcing.md; docs/context-compact.md.",
+      "evidence": "core/storage/store.mjs Store class with session.surface/compaction/message.add/turn.create/step.create; core/storage/schema.mjs tables incl. compactions, tool_result_prunes, token_anchors, user_jobs; docs/event-sourcing.md; docs/dev/context-compact.md.",
       "testedAt": "2026-11-05"
     },
     {
