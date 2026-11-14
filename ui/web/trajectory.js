@@ -47,8 +47,13 @@
       var cWrap = App.makeEl("traj-compactions", "traj-compactions");
       done.forEach(function (c) {
         var row = App.makeEl("traj-compaction", "traj-compaction");
-        row.textContent = "compaction · " + (c.trigger || "manual") + " · 边界 turn " + c.upToTurnSeq + " · "
-          + (c.turns || 0) + " turns · ~" + (c.tokensBefore || 0) + " → ~" + (c.tokensAfter || 0) + " tokens";
+        var parts = ["compaction", c.trigger || "manual"];
+        if (c.upToTurnSeq != null) parts.push("边界 turn " + c.upToTurnSeq);
+        parts.push((c.turns || 0) + " turns");
+        if (c.tokensBefore != null && c.tokensAfter != null) {
+          parts.push("~" + c.tokensBefore + " → ~" + c.tokensAfter + " tokens");
+        }
+        row.textContent = parts.join(" · ");
         cWrap.appendChild(row);
       });
       trajectoryTab.appendChild(cWrap);

@@ -1,10 +1,7 @@
 "use strict";
 const fs = require("fs");
-const crypto = require("crypto");
 const compaction = require("./compaction");
 const tokenMeter = require("./token-meter");
-const { stream } = require("./response-process");
-const { emitUsage } = require("./response-process");
 
 // 上下文窗口解析（压缩域用）：优先 providers.json 每模型可选的 context_window，
 // 其次 settings.contextWindow，最后回退 128000。与 index.js 的 resolveContextWindow 同源实现。
@@ -73,7 +70,7 @@ async function summarizeMessages(core, { sessionId, system, toolDefs, input, tar
   if (system) messages.push({ role: "system", content: system });
   for (const message of input) messages.push(message);
   messages.push({ role: "user", content: compaction.COMPACTION_INSTRUCTION });
-  const answer = await stream(core, {
+  const answer = await core._stream({
     messages,
     toolDefs: toolDefs || [],
     model: target.model,
@@ -114,53 +111,33 @@ async function pruneToolResults(core, sessionId) {
   return { count, charsRemoved };
 }
 
-// One compaction transaction in DSH's event format:
-//   compaction/start -> compaction/summary -> user/message(surfaceOp:replace) -> compaction/end
-// The start row is the durable lock until the end row; a failed summary closes
-// with end{error} and leaves the surface untouched.
-async function runCompaction(core, { sessionId, trigger, surface, boundary, turn, system, toolDefs, target, onEvent = () => {} }) {
+// One compaction transaction against the `compactions` table:
+//   insert running (durable lock) -> summarize -> size check -> succeed with the
+//   [start_seq, end_seq] span. A failed summary marks the row 'failed' and leaves
+//   the surface untouched.
+async function runCompaction(core, { sessionId, trigger, surface, boundary, system, toolDefs, target, onEvent = () => {} }) {
   const boundaryIdx = surface.findIndex((node) => node.seq === boundary.seq);
   if (boundaryIdx < 0) return { ok: false, error: "selected surface node is gone" };
   const shadowed = surface.slice(0, boundaryIdx + 1);
   if (!shadowed.length) return { ok: false, error: "no compactable history yet" };
   const input = shadowed.map((node) => cleanMessage(node.message));
   const tokensBefore = shadowed.reduce((total, node) => total + node.tokens, 0);
-  const shadowedSeqs = shadowed.map((node) => node.seq);
-  const shadowedRange = { start: shadowed[0].seq, end: boundary.seq };
   const turnSeqs = new Set(
     shadowed.filter((node) => !node.checkpoint && node.turnSeq != null).map((node) => node.turnSeq),
   );
-  const compactionId = crypto.randomUUID();
+  const range = { start: shadowed[0].seq, end: boundary.seq };
 
-  let startEvent;
+  let record;
   try {
-    startEvent = await core.store.run("compaction.append", {
+    record = await core.store.run("compaction.start", {
       session_id: sessionId,
-      type: "compaction/start",
-      data: { compactionId, trigger, turn: turn == null ? null : turn },
+      trigger,
       boot: core.bootId,
     });
   } catch (error) {
     return { ok: false, error: String((error && error.message) || error) };
   }
   onEvent({ type: "compaction", phase: "start", trigger, turns: turnSeqs.size, tokensBefore });
-
-  const close = async (error) => {
-    try {
-      await core.store.run("compaction.append", {
-        session_id: sessionId,
-        type: "compaction/end",
-        data: {
-          compactionId,
-          turn: turn == null ? null : turn,
-          ...(error === undefined ? {} : { error }),
-        },
-        boot: core.bootId,
-      });
-    } catch (closeError) {
-      console.warn("[compaction] compaction/end append failed:", (closeError && closeError.message) || closeError);
-    }
-  };
 
   try {
     const summary = await summarizeMessages(core, { sessionId, system, toolDefs, input, target });
@@ -169,45 +146,19 @@ async function runCompaction(core, { sessionId, trigger, surface, boundary, turn
     if (tokensAfter >= tokensBefore) {
       throw new Error("summary is not smaller than the shadowed content (" + tokensAfter + " >= " + tokensBefore + ")");
     }
-    const summaryEvent = await core.store.run("compaction.append", {
-      session_id: sessionId,
-      type: "compaction/summary",
-      data: {
-        compactionId,
-        trigger,
-        summary,
-        provider: target.provider,
-        model: target.model,
-        maxTokens: compaction.SUMMARY_MAX_TOKENS,
-        shadowedRange,
-        shadowedSeqs,
-        shadowedTokenCount: tokensBefore,
-        tokensAfter,
-        turns: turnSeqs.size,
-        boundaryMessageId: boundary.checkpoint ? null : boundary.id,
-        boundaryTurnSeq: boundary.turnSeq == null ? null : boundary.turnSeq,
-      },
-      boot: core.bootId,
+    const content = await core.store.run("content.add", { content: summary });
+    await core.store.run("compaction.succeed", {
+      id: record.id,
+      summary_content_id: content.id,
+      start_seq: range.start,
+      end_seq: range.end,
+      provider: target.provider,
+      model: target.model,
     });
-    await core.store.run("compaction.append", {
-      session_id: sessionId,
-      type: "user/message",
-      data: {
-        compactionId,
-        content: compaction.frameCheckpoint(summary),
-        source: { kind: "plugin", plugin: "compact", compactionId },
-        surfaceOp: { op: "replace", start: shadowedRange.start, end: shadowedRange.end },
-        boundaryMessageId: boundary.checkpoint ? null : boundary.id,
-        boundaryTurnSeq: boundary.turnSeq == null ? null : boundary.turnSeq,
-        sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
-      },
-      boot: core.bootId,
-    });
-    await close();
     onEvent({ type: "compaction", phase: "done", trigger, turns: turnSeqs.size, tokensBefore, tokensAfter });
     return {
       ok: true,
-      compactionId,
+      compactionId: record.id,
       trigger,
       boundary: boundary.seq,
       boundaryTurnSeq: boundary.turnSeq == null ? null : boundary.turnSeq,
@@ -215,12 +166,15 @@ async function runCompaction(core, { sessionId, trigger, surface, boundary, turn
       tokensBefore,
       tokensAfter,
       summary,
-      shadowedSeqs,
-      shadowedRange,
+      shadowedRange: range,
     };
   } catch (error) {
     const message = String((error && error.message) || error);
-    await close(message);
+    try {
+      await core.store.run("compaction.fail", { id: record.id, error: message });
+    } catch (failError) {
+      console.warn("[compaction] marking the compaction row failed:", (failError && failError.message) || failError);
+    }
     onEvent({ type: "compaction", phase: "failed", trigger, error: message });
     return { ok: false, error: message };
   }
@@ -253,7 +207,6 @@ async function compactSession(core, { sessionId, model, onEvent = () => {} } = {
       trigger: "manual",
       surface,
       boundary,
-      turn: null,
       system,
       toolDefs,
       target: { ...target, provider: st.provider || null },
@@ -269,7 +222,7 @@ async function compactSession(core, { sessionId, model, onEvent = () => {} } = {
 
 // Automatic policy before one model request: prune first, then summarize when
 // still above the pressure threshold (or after a context-overflow rejection).
-async function maybeCompactStep(core, { sessionId, conv, system, toolDefs, model, turn, trigger = "pressure", pending, onEvent = () => {} }) {
+async function maybeCompactStep(core, { sessionId, conv, system, toolDefs, model, trigger = "pressure", pending, onEvent = () => {} }) {
   if (!core.store || !sessionId) return { conv, changed: false };
   const st = readSettingsSafe();
   if (st.autoCompact === false) return { conv, changed: false };
@@ -326,7 +279,6 @@ async function maybeCompactStep(core, { sessionId, conv, system, toolDefs, model
     trigger,
     surface,
     boundary,
-    turn: turn ? turn.seq : null,
     system,
     toolDefs,
     target: { model, baseUrl: core.baseUrl, apiKey: core.apiKey, provider: st.provider || null },

@@ -30,7 +30,6 @@ module.exports = async function run(input, ctx) {
         system: ctx.requestSystem,
         toolDefs: ctx.toolDefs,
         model: ctx.effModel,
-        turn: ctx.turn,
         trigger: "pressure",
         pending: ctx.pendingTurnMessages,
         onEvent,

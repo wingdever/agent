@@ -4,6 +4,9 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { connect } from "pg-micro";
 import { SCHEMA_STATEMENTS } from "./schema.mjs";
+// surface 回放时现拼 framed checkpoint（preamble + 标签 + 摘要）。该模块是纯函数，
+// 不反向依赖存储层。
+import compaction from "../compaction.js";
 
 // 把 jsonb 读取结果规整为对象（pgmicro 可能返回字符串或已解析对象）
 function _j(v) {
@@ -111,6 +114,11 @@ class Store {
       // 手工清理子代理委派记录（作为子会话或被委派方）。关联行里指向本会话
       // 消息的 prompt/settle 随上面的 deleteMessage 已清；这里只补 subagents 本身。
       await this.db.prepare("DELETE FROM subagents WHERE sub_sess_id=$1 OR par_sess_id=$1").run(id);
+      // 压缩记录与其摘要正文、per-session 序号缓存
+      const comps = await this.db.prepare("SELECT id, summary_content_id FROM compactions WHERE session_id=$1").all(id);
+      for (const c of comps) if (c.summary_content_id != null) await this._delete("contents", c.summary_content_id);
+      await this.db.prepare("DELETE FROM compactions WHERE session_id=$1").run(id);
+      await this.db.prepare("DELETE FROM session_seq_counters WHERE session_id=$1").run(id);
       return this._delete("sessions", id);
     }
     // 默认软删除：标记 deleted_at，保留 turns 供回溯恢复
@@ -120,88 +128,99 @@ class Store {
     return this._update("sessions", id, { deleted_at: null }, ["deleted_at"]);
   }
 
-  // ================= 压缩（DSH 事件日志格式） =================
-  // seq 与 messages.surface_seq 共用同一个 per-session 序列：
-  //   compaction/start -> compaction/summary -> user/message(surfaceOp:replace) -> compaction/end
-  // 锁 = 同一 boot 内未闭合的 compaction/start；进程重启后旧 start 自动失效。
-  _mapEvent(row) {
+  // ================= 压缩（compactions 关系表） =================
+  // seq 与 messages.surface_seq 共用同一个 per-session 序列：一次压缩消耗一个
+  // seq，作为摘要节点（checkpoint）在 surface 里的序号。
+  // 锁 = 同一 boot 内 status='running' 的行；进程重启后旧 boot 的 running 自动失效。
+  async _nextSessionSeq(sessionId) {
+    // 读-改-写，调用方必须已在 _serial 临界区内。
+    const row = await this.db.prepare("SELECT next_seq FROM session_seq_counters WHERE session_id=$1").get(sessionId);
+    const next = Number(row && row.next_seq != null ? row.next_seq : 0) + 1;
+    if (row) {
+      await this.db.prepare("UPDATE session_seq_counters SET next_seq=$1 WHERE session_id=$2").run(next, sessionId);
+    } else {
+      await this._insertRow("session_seq_counters", ["session_id", "next_seq"], [sessionId, next]);
+    }
+    return next;
+  }
+  _mapCompaction(row) {
     if (!row) return null;
     return {
       id: row.id,
       sessionId: row.session_id,
       seq: Number(row.seq),
-      type: row.type,
-      data: _j(row.data) || {},
+      startSeq: Number(row.start_seq),
+      endSeq: Number(row.end_seq),
+      summaryContentId: row.summary_content_id == null ? null : Number(row.summary_content_id),
+      trigger: row.trigger,
+      provider: row.provider,
+      model: row.model,
+      status: row.status,
+      error: row.error,
       boot: row.boot,
       createdAt: row.created_at,
+      finishedAt: row.finished_at,
     };
   }
-  async _nextSessionSeq(sessionId) {
-    const row = await this.db.prepare("SELECT next_seq FROM sessions WHERE id=$1").get(sessionId);
-    const next = Number(row && row.next_seq != null ? row.next_seq : 0) + 1;
-    await this.db.prepare("UPDATE sessions SET next_seq=$1 WHERE id=$2").run(next, sessionId);
-    return next;
-  }
-  async appendSessionEvent({ session_id, type, data, boot }) {
+  // 开始一次压缩：分配 seq 并插入 running 行（持久锁）。此时区间尚未确定，
+  // start_seq / end_seq 占位为 0，成功时再写入；因此只返回 id 与 seq。
+  async startCompaction({ session_id, trigger, boot }) {
     return this._serial(async () => {
       const seq = await this._nextSessionSeq(session_id);
-      const id = await this._nextId("session_events");
-      await this._insertRow("session_events", ["id", "session_id", "seq", "type", "data", "boot"], [
-        id, session_id, seq, type, JSON.stringify(data || {}), boot || null,
-      ]);
-      return this._mapEvent(await this._get("session_events", id));
+      const id = await this._nextId("compactions");
+      await this._insertRow("compactions", [
+        "id", "session_id", "seq", "start_seq", "end_seq", "trigger", "status", "boot",
+      ], [id, session_id, seq, 0, 0, trigger || null, "running", boot || null]);
+      return { id, seq };
     });
   }
-  async listSessionEvents({ session_id }) {
-    const rows = await this.db.prepare(
-      "SELECT * FROM session_events WHERE session_id=$1 ORDER BY seq"
-    ).all(session_id);
-    return rows.map((r) => this._mapEvent(r));
+  async succeedCompaction({ id, summary_content_id, start_seq, end_seq, provider, model }) {
+    await this.db.prepare(
+      "UPDATE compactions SET summary_content_id=$1, start_seq=$2, end_seq=$3, provider=$4, model=$5, status='succeeded', finished_at=now() WHERE id=$6"
+    ).run(summary_content_id, start_seq, end_seq, provider || null, model || null, id);
+    return this._mapCompaction(await this._get("compactions", id));
   }
-  // The lock is the newest compaction start/end marker: a trailing start means
-  // the bracket is still open. A start recorded by an earlier process boot is
-  // stale (DSH's session/end-seed boundary).
+  async failCompaction({ id, error }) {
+    await this.db.prepare(
+      "UPDATE compactions SET error=$1, status='failed', finished_at=now() WHERE id=$2"
+    ).run(error == null ? null : String(error), id);
+    return this._mapCompaction(await this._get("compactions", id));
+  }
   async getActiveCompaction({ session_id, boot }) {
-    const latest = await this.db.prepare(
-      "SELECT * FROM session_events WHERE session_id=$1 AND type IN ('compaction/start','compaction/end') ORDER BY seq DESC LIMIT 1"
+    const row = await this.db.prepare(
+      "SELECT * FROM compactions WHERE session_id=$1 AND status='running' ORDER BY seq DESC LIMIT 1"
     ).get(session_id);
-    if (!latest || latest.type !== "compaction/start") return null;
-    if (boot != null && latest.boot !== boot) return null;
-    return {
-      id: Number(latest.seq),
-      sessionId: session_id,
-      status: "started",
-      trigger: (_j(latest.data) || {}).trigger || "manual",
-      createdAt: latest.created_at,
-    };
+    if (!row) return null;
+    if (boot != null && row.boot !== boot) return null;
+    return this._mapCompaction(row);
   }
-  // UI / trajectory view of successful compactions: the summary events.
-  _mapCompactionSummary(event) {
-    const data = event.data || {};
-    return {
-      id: event.seq,
-      sessionId: event.sessionId,
-      status: "succeeded",
-      trigger: data.trigger || "manual",
-      upToMessageId: data.boundaryMessageId == null ? null : Number(data.boundaryMessageId),
-      upToTurnSeq: data.boundaryTurnSeq == null ? null : Number(data.boundaryTurnSeq),
-      turns: data.turns == null ? null : Number(data.turns),
-      summary: data.summary,
-      provider: data.provider,
-      model: data.model,
-      tokensBefore: data.shadowedTokenCount == null ? null : Number(data.shadowedTokenCount),
-      tokensAfter: data.tokensAfter == null ? null : Number(data.tokensAfter),
-      shadowedSeqs: Array.isArray(data.shadowedSeqs) ? data.shadowedSeqs : [],
-      shadowedRange: data.shadowedRange || null,
-      error: null,
-      createdAt: event.createdAt,
-    };
-  }
+  // UI / 轨迹视图：全部压缩记录（含失败）。边界消息与轮次不落列，读时按
+  // end_seq 在 messages 里定位；turn 数由区间内的消息反查。
   async listCompactions({ session_id }) {
     const rows = await this.db.prepare(
-      "SELECT * FROM session_events WHERE session_id=$1 AND type='compaction/summary' ORDER BY seq"
+      "SELECT * FROM compactions WHERE session_id=$1 ORDER BY seq"
     ).all(session_id);
-    return rows.map((r) => this._mapCompactionSummary(this._mapEvent(r)));
+    const out = [];
+    for (const row of rows) {
+      const c = this._mapCompaction(row);
+      const summary = c.summaryContentId == null ? null : await this._get("contents", c.summaryContentId);
+      c.summary = summary ? summary.content : null;
+      let boundary = null;
+      let counted = null;
+      if (c.status === "succeeded") {
+        boundary = await this.db.prepare(
+          "SELECT m.id, t.seq AS turn_seq FROM messages m JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE t.session_id=$1 AND m.surface_seq=$2"
+        ).get(session_id, c.endSeq);
+        counted = await this.db.prepare(
+          "SELECT COUNT(DISTINCT t.seq) AS n FROM messages m JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE t.session_id=$1 AND m.surface_seq>=$2 AND m.surface_seq<=$3"
+        ).get(session_id, c.startSeq, c.endSeq);
+      }
+      c.upToMessageId = boundary ? boundary.id : null;
+      c.upToTurnSeq = boundary ? boundary.turn_seq : null;
+      c.turns = counted ? Number(counted.n) : 0;
+      out.push(c);
+    }
+    return out;
   }
 
   // ---- tool-result pruner（模型无关的确定性裁剪，原始消息不动）----
@@ -270,12 +289,12 @@ class Store {
     return messages;
   }
 
-  // Surface replay (DSH): append-origin messages with every compaction
-  // `user/message` replace applied in seq order. Nodes keep their event seq, so
-  // shadowedSeqs / surfaceOp ranges are real sequence numbers.
+  // Surface replay: append-origin messages with every succeeded compaction's
+  // [start_seq, end_seq] span replaced by the framed checkpoint in seq order.
+  // The checkpoint node takes the compaction's own seq, so span endpoints stay
+  // real sequence numbers.
   async getSurface({ session_id }) {
     const messages = await this._projectMessages({ session_id });
-    const events = await this.listSessionEvents({ session_id });
     const nodes = messages
       .filter((m) => m.role !== "system")
       .sort((a, b) => a.surfaceSeq - b.surfaceSeq)
@@ -290,37 +309,39 @@ class Store {
           m.tool_call_id ? { tool_call_id: m.tool_call_id } : {},
         ),
       }));
-    for (const event of events) {
-      if (event.type !== "user/message") continue;
-      const data = event.data || {};
-      const op = data.surfaceOp;
-      if (!op || op.op !== "replace") continue;
-      const startIdx = nodes.findIndex((node) => node.seq === op.start);
-      const endIdx = nodes.findIndex((node) => node.seq === op.end);
+    const rows = await this.db.prepare(
+      "SELECT * FROM compactions WHERE session_id=$1 AND status='succeeded' ORDER BY seq"
+    ).all(session_id);
+    for (const row of rows) {
+      const startIdx = nodes.findIndex((node) => node.seq === Number(row.start_seq));
+      const endIdx = nodes.findIndex((node) => node.seq === Number(row.end_seq));
       if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) continue;
+      const summary = row.summary_content_id == null ? null : await this._get("contents", row.summary_content_id);
+      if (!summary) continue;
+      const boundaryTurnSeq = nodes[endIdx].turnSeq;
       nodes.splice(startIdx, endIdx - startIdx + 1, {
-        seq: event.seq,
+        seq: Number(row.seq),
         kind: "checkpoint",
         id: null,
-        turnSeq: data.boundaryTurnSeq == null ? null : Number(data.boundaryTurnSeq),
-        compactionId: data.source && data.source.compactionId,
-        message: { role: "user", content: data.content == null ? "" : data.content },
+        turnSeq: boundaryTurnSeq,
+        compactionId: row.id,
+        message: { role: "user", content: compaction.frameCheckpoint(summary.content) },
       });
     }
-    return { nodes, events };
+    return { nodes };
   }
 
   // Convenience projection for tests/tools: flat surface messages + latest
   // successful compaction summary.
   async getSessionHistory({ session_id }) {
     const surface = await this.getSurface({ session_id });
-    const compactions = await this.listCompactions({ session_id });
+    const succeeded = (await this.listCompactions({ session_id })).filter((c) => c.status === "succeeded");
     return {
       messages: surface.nodes.map((node) => Object.assign(
         { id: node.kind === "checkpoint" ? node.seq : node.id, turnSeq: node.turnSeq, checkpoint: node.kind === "checkpoint" },
         node.message,
       )),
-      compaction: compactions.length ? compactions[compactions.length - 1] : null,
+      compaction: succeeded.length ? succeeded[succeeded.length - 1] : null,
     };
   }
 
@@ -442,7 +463,7 @@ class Store {
   // ---- messages（content 与 thought 分别存于 contents，经 content_id / thought_id 关联）----
   async addMessage({ step_id, seq, role, content, thought, session_id, source }) {
     return this._serial(async () => {
-      // surface_seq 与 session_events.seq 共用一个 per-session 序列；调用方通常
+      // surface_seq 与 compactions.seq 共用一个 per-session 序列；调用方通常
       // 直接传 session_id，测试/旧调用则从 step -> turn 反查。
       let sid = session_id;
       if (sid == null) {
@@ -718,10 +739,11 @@ const OPS = {
   "session.trajectory": (s, p) => s.getTrajectory(p),
   "session.history": (s, p) => s.getSessionHistory(p),
   "session.surface": (s, p) => s.getSurface(p),
-  "session.events": (s, p) => s.listSessionEvents(p),
   "session.compactions": (s, p) => s.listCompactions(p),
 
-  "compaction.append": (s, p) => s.appendSessionEvent(p),
+  "compaction.start": (s, p) => s.startCompaction(p),
+  "compaction.succeed": (s, p) => s.succeedCompaction(p),
+  "compaction.fail": (s, p) => s.failCompaction(p),
   "compaction.active": (s, p) => s.getActiveCompaction(p),
 
   "toolResultPrune.list": (s, p) => s.listToolMessages(p),

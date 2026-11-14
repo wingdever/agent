@@ -69,9 +69,15 @@ export const SCHEMA_STATEMENTS = [
     description  text,
     activity  text  NOT NULL DEFAULT 'research',
     deleted_at   TIMESTAMP,
-    next_seq  integer NOT NULL DEFAULT 0,  -- per-session event sequence (messages + compaction events)
     created_at    TIMESTAMP NOT NULL DEFAULT now(),
     updated_at    TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+
+  // per-session 序号分配器的缓存。next_seq 只增不减，保证序号不复用；
+  // messages.surface_seq 与 compactions.seq 共用这个序号空间。
+  `CREATE TABLE IF NOT EXISTS session_seq_counters (
+    session_id  integer  PRIMARY KEY REFERENCES sessions (id) ON DELETE CASCADE,
+    next_seq    integer  NOT NULL DEFAULT 0
   )`,
 
   `CREATE TABLE IF NOT EXISTS turns (
@@ -104,7 +110,7 @@ export const SCHEMA_STATEMENTS = [
     id          integer PRIMARY KEY,
     step_id     INTEGER NOT NULL REFERENCES steps (id) ON DELETE CASCADE,
     seq         integer not null,
-    surface_seq integer not null default 0,  -- per-session event seq shared with session_events
+    surface_seq integer not null default 0,  -- per-session 序号，与 compactions.seq 共用
     role        text  NOT NULL,
     source      text,                          -- 消息产生机制: user_input | subagent-prompt | subagent-settle | compaction
     content_id  integer references contents (id) on delete cascade,
@@ -148,20 +154,28 @@ export const SCHEMA_STATEMENTS = [
     updated_at       TIMESTAMP NOT NULL DEFAULT now()
   )`,
 
-  // Session event log for compaction (DSH's compaction/* + the replacement
-  // user/message). seq shares one per-session space with messages.surface_seq,
-  // so shadowedSeqs and surfaceOp ranges name real event sequences.
-  `CREATE TABLE IF NOT EXISTS session_events (
-    id          integer  PRIMARY KEY,
-    session_id  integer  NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
-    seq         integer  NOT NULL,
-    type        text     NOT NULL,
-    data        text     NOT NULL,   -- JSON payload
-    boot        text,                -- process identity; stale compaction/start rows are ignored
-    created_at  TIMESTAMP NOT NULL DEFAULT now(),
+  // 压缩记录：一次压缩一行。seq 与 messages.surface_seq 共用同一个 per-session
+  // 序列，同时作为摘要节点（checkpoint）在 surface 里的序号。锁 = 同一 boot 内
+  // status='running' 的行；进程重启后旧 boot 的 running 自动失效。
+  // 摘要正文存于 contents（summary_content_id），surface 回放时现拼 framed checkpoint。
+  `CREATE TABLE IF NOT EXISTS compactions (
+    id                  integer  PRIMARY KEY,
+    session_id          integer  NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    seq                 integer  NOT NULL,
+    start_seq           integer  NOT NULL,   -- 被压缩的第一条 surface 节点 seq
+    end_seq             integer  NOT NULL,   -- 被压缩的最后一条 surface 节点 seq
+    summary_content_id  integer  REFERENCES contents (id),
+    trigger             text,                -- manual | pressure | context-overflow
+    provider            text,
+    model               text,
+    status              text     NOT NULL,   -- running | succeeded | failed
+    error               text,
+    boot                text,
+    created_at          TIMESTAMP NOT NULL DEFAULT now(),
+    finished_at         TIMESTAMP,
     unique (session_id, seq)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events (session_id, seq)`,
+  `CREATE INDEX IF NOT EXISTS idx_compactions_session ON compactions (session_id, seq)`,
 
   // Token-meter usage anchor (DSH tokenMeter anchor): the latest successful
   // request's canonical header, the surface price at that request, and the
