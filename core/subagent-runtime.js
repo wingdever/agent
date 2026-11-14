@@ -123,23 +123,48 @@ class SubagentRuntime {
   // Fire-and-forget. Returns the child session id synchronously (after the DB
   // row is created) so the delegation tool can acknowledge immediately.
   async spawn(spec) {
-    const { description, parentSessionId } = spec;
-    const parent = await this.store.run("session.get", { id: parentSessionId });
-    if (!parent) throw new Error("parent session not found: " + parentSessionId);
+    const parent = await this._loadParent(spec.parentSessionId);
     // 工具清单对所有会话相同（请求前缀要稳定），spawn 的层级限制放在执行层：
     // 子会话仍能看到 subagent，但调用被拒绝，委派只能走 subagent_fork。
     if (parent.kind === "subagent") {
       throw new Error("subagent is only available in a main session; use subagent_fork to delegate from a subagent session");
     }
+    return this._launch(spec, await this._createChild(spec, parent));
+  }
 
+  // fork 委派：子会话继承父会话到最后一个已完成轮次为止的历史。
+  // 父可以是主会话，也可以是子会话，多层树由 subagent_fork 成立。
+  async spawnFork(spec) {
+    const parent = await this._loadParent(spec.parentSessionId);
+    const boundary = await this.store.run("sessionFork.boundary", { session_id: spec.parentSessionId });
+    const childId = await this._createChild(spec, parent);
+    await this.store.run("sessionFork.add", {
+      child_session_id: childId,
+      parent_session_id: spec.parentSessionId,
+      parent_boundary_seq: boundary,
+    });
+    return this._launch(spec, childId);
+  }
+
+  async _loadParent(parentSessionId) {
+    const parent = await this.store.run("session.get", { id: parentSessionId });
+    if (!parent) throw new Error("parent session not found: " + parentSessionId);
+    return parent;
+  }
+
+  // 两种委派共用的子会话创建：同 workspace、kind=subagent、写委派关联。
+  async _createChild(spec, parent) {
     const child = await this.store.run("session.create", {
       workspace_id: parent.workspace_id,
-      name: description || "subagent",
+      name: spec.description || "subagent",
       kind: "subagent",
     });
-    const childId = child.id;
-    await this.store.run("subagent.add", { sub_sess_id: childId, par_sess_id: parentSessionId });
+    await this.store.run("subagent.add", { sub_sess_id: child.id, par_sess_id: spec.parentSessionId });
+    return child.id;
+  }
 
+  // 后台跑子循环；调用方已经写完会话与关联行。
+  _launch(spec, childId) {
     const task = this._runChild(spec, childId)
       .catch((e) => this._deps.logger.warn("[subagent] background run failed:", (e && e.message) || e))
       .finally(() => {

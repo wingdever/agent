@@ -113,9 +113,11 @@ which schedule as fresh-agent iterative loop
 
 ### 2.2 system prompt 段落
 
-`tool:subagent` 段固定注入，指引并排委派与并行工作（来源 `dsh-tool-subagent/lib/index.js:509-518`）：
+`tool:subagent` 段固定注入，指引并排委派与并行工作（来源 `dsh-tool-subagent/lib/index.js:509-518`）。段落由当前可见的委派工具集合生成，工具名用 `or` 连接；只有 `subagent` 时：
 
 > Start independent delegations with `subagent` together in one assistant message and continue useful work while they run.
+
+两个委派工具都在时的渲染见 §8.2。
 
 本子系统不注入按请求变化的深度上下文：不设委派深度上限，也没有 `tool:subagent:depth` 段。
 

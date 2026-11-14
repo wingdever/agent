@@ -206,16 +206,24 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
   const guidance = tools
     .filter((tool) => tool && typeof tool.prompt === "string" && tool.prompt.trim())
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  // 同一 promptSection 的工具共用一段：{{tools}} 替换成当前可见工具名，
+  // 多个用 or 连接（dsh-tool-subagent/lib/index.js:509-518）。
+  const guidanceSections = new Map();
   guidance.forEach((tool, index) => {
     const sectionName = tool.promptSection || tool.name;
+    if (!guidanceSections.has(sectionName)) guidanceSections.set(sectionName, { tools: [], index });
+    guidanceSections.get(sectionName).tools.push(tool);
+  });
+  for (const [sectionName, group] of guidanceSections) {
+    const names = group.tools.map((tool) => "`" + tool.name + "`").join(" or ");
     prompt.section({
       name: "tool:" + sectionName,
       order: toolOrders[sectionName] !== undefined
         ? toolOrders[sectionName]
-        : prompt.getSectionOrder("TOOL_GUIDANCE") + 100 + index,
-      text: tool.prompt,
+        : prompt.getSectionOrder("TOOL_GUIDANCE") + 100 + group.index,
+      text: group.tools[0].prompt.replace(/\{\{tools\}\}/g, names),
     });
-  });
+  }
 
   prompt.section({
     name: "runtime:context",

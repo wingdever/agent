@@ -107,6 +107,23 @@ module.exports = async function run(input, ctx) {
     // 授权通过：执行工具。plan 审批 / ask_user_question / request_user_job 等通过
     // 回调在工具执行内触发（与 linear 行为一致），最终仍是模型可见文本。
     onEvent({ type: "tool_call", id: callId, name, arguments: args });
+    // 委派工具拿父会话上下文发起 spawn / fork；两者共用同一份父轮次快照。
+    const parentChatCtx = {
+      toolNames: ctx.toolNames,
+      model: ctx.effModel,
+      effort: ctx.effort,
+      stream: ctx.effStream,
+      activity: ctx.activity,
+      autonomy: ctx.autonomy,
+    };
+    const delegation = core.subagents ? {
+      subagentSpawn: (a) => core.subagents.spawn({
+        ...a, parentSessionId: ctx.sessionId, parentOnEvent: ctx.onEvent, parentChatCtx, modelCallId: callId,
+      }),
+      subagentFork: (a) => core.subagents.spawnFork({
+        ...a, parentSessionId: ctx.sessionId, parentOnEvent: ctx.onEvent, parentChatCtx, modelCallId: callId,
+      }),
+    } : {};
     const result = await runTool(tool, args, {
       cwd,
       sessionId: ctx.sessionId,
@@ -120,23 +137,7 @@ module.exports = async function run(input, ctx) {
       requestUserJob: (job) => core.requestUserJob({ callId, sessionId: ctx.sessionId, ...job }),
       killUserJob: (jobId) => core.killUserJob(jobId),
       store: core.store,
-      // one-shot subagent 委派：工具据此拿到父会话上下文并发起 spawn。
-      subagentSpawn: core.subagents
-        ? (a) => core.subagents.spawn({
-            ...a,
-            parentSessionId: ctx.sessionId,
-            parentOnEvent: ctx.onEvent,
-            parentChatCtx: {
-              toolNames: ctx.toolNames,
-              model: ctx.effModel,
-              effort: ctx.effort,
-              stream: ctx.effStream,
-              activity: ctx.activity,
-              autonomy: ctx.autonomy,
-            },
-            modelCallId: callId,
-          })
-        : undefined,
+      ...delegation,
     });
     await finish(result, result.isError === true ? "failed" : "succeeded");
   }

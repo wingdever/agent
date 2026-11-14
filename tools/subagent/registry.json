@@ -22,7 +22,7 @@
   "type": "delegate",
   "entry": "run.js",
   "defaultVisible": true,
-  "prompt": "Start independent delegations with `subagent` together in one assistant message and continue useful work while they run.",
+  "prompt": "Start independent delegations with {{tools}} together in one assistant message and continue useful work while they run.",
   "promptSection": "subagent",
   "concurrencySafe": true,
   "result": "text"

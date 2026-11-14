@@ -107,24 +107,33 @@ class Store {
   createSession(data) { return this._create("sessions", data, ["workspace_id", "kind", "name", "description", "activity"]); }
   updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description", "activity"]); }
   async deleteSession({ id, hard } = {}) {
-    if (hard) {
-      // 工作区级删除：级联清 turns 后硬删
-      const turns = await this._list("turns", { session_id: id });
-      for (const t of turns) await this.deleteTurn({ id: t.id });
-      // 手工清理子代理委派记录（作为子会话或被委派方）。关联行里指向本会话
-      // 消息的 prompt/settle 随上面的 deleteMessage 已清；这里只补 subagents 本身。
-      await this.db.prepare("DELETE FROM subagents WHERE sub_sess_id=$1 OR par_sess_id=$1").run(id);
-      // 压缩记录与其摘要正文、per-session 序号缓存
-      const comps = await this.db.prepare("SELECT id, summary_content_id FROM compactions WHERE session_id=$1").all(id);
-      for (const c of comps) if (c.summary_content_id != null) await this._delete("contents", c.summary_content_id);
-      await this.db.prepare("DELETE FROM compactions WHERE session_id=$1").run(id);
-      await this.db.prepare("DELETE FROM session_seq_counters WHERE session_id=$1").run(id);
-      // fork 继承点：本会话作为子或父的行都清掉，避免指向已删除的会话。
-      await this.db.prepare("DELETE FROM session_forks WHERE child_session_id=$1 OR parent_session_id=$1").run(id);
-      return this._delete("sessions", id);
-    }
+    if (hard) return this._deleteSessionTree(id, new Set());
     // 默认软删除：标记 deleted_at，保留 turns 供回溯恢复
     return this._update("sessions", id, { deleted_at: "now" }, ["deleted_at"]);
+  }
+  // 硬删：先沿 session_forks 递归删掉后代会话，再清本会话的全部行。
+  // pg-micro 不强制外键，所有级联都在这里手工完成。
+  async _deleteSessionTree(id, seen) {
+    if (seen.has(id)) return { id };
+    seen.add(id);
+    const children = await this.db.prepare(
+      "SELECT child_session_id FROM session_forks WHERE parent_session_id=$1"
+    ).all(id);
+    for (const row of children) await this._deleteSessionTree(row.child_session_id, seen);
+
+    const turns = await this._list("turns", { session_id: id });
+    for (const t of turns) await this.deleteTurn({ id: t.id });
+    // 手工清理子代理委派记录（作为子会话或被委派方）。关联行里指向本会话
+    // 消息的 prompt/settle 随上面的 deleteMessage 已清；这里只补 subagents 本身。
+    await this.db.prepare("DELETE FROM subagents WHERE sub_sess_id=$1 OR par_sess_id=$1").run(id);
+    // 压缩记录与其摘要正文、per-session 序号缓存
+    const comps = await this.db.prepare("SELECT id, summary_content_id FROM compactions WHERE session_id=$1").all(id);
+    for (const c of comps) if (c.summary_content_id != null) await this._delete("contents", c.summary_content_id);
+    await this.db.prepare("DELETE FROM compactions WHERE session_id=$1").run(id);
+    await this.db.prepare("DELETE FROM session_seq_counters WHERE session_id=$1").run(id);
+    // fork 继承点：本会话作为子或父的行都清掉，避免指向已删除的会话。
+    await this.db.prepare("DELETE FROM session_forks WHERE child_session_id=$1 OR parent_session_id=$1").run(id);
+    return this._delete("sessions", id);
   }
   async restoreSession({ id }) {
     return this._update("sessions", id, { deleted_at: null }, ["deleted_at"]);
@@ -146,6 +155,14 @@ class Store {
   async deleteSessionFork({ child_session_id }) {
     await this.db.prepare("DELETE FROM session_forks WHERE child_session_id=$1").run(child_session_id);
     return { child_session_id };
+  }
+  // fork 继承点：最后一个已完成轮次的最后一条消息的 surface_seq。
+  // 在途与尚未开始的轮次不进入继承范围；没有已完成轮次时返回 0。
+  async getForkBoundary({ session_id }) {
+    const row = await this.db.prepare(
+      "SELECT MAX(m.surface_seq) AS boundary FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id WHERE t.session_id=$1 AND t.status NOT IN ('pending','running')"
+    ).get(session_id);
+    return row && row.boundary != null ? Number(row.boundary) : 0;
   }
 
   // ================= 压缩（compactions 关系表） =================
@@ -818,6 +835,7 @@ const OPS = {
   "sessionFork.get": (s, p) => s.getSessionFork(p),
   "sessionFork.list": (s, p) => s.listSessionForks(p),
   "sessionFork.delete": (s, p) => s.deleteSessionFork(p),
+  "sessionFork.boundary": (s, p) => s.getForkBoundary(p),
 
   "compaction.start": (s, p) => s.startCompaction(p),
   "compaction.succeed": (s, p) => s.succeedCompaction(p),

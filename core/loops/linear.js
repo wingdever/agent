@@ -508,6 +508,16 @@ async function runLoop(core, ctx) {
 
       // 授权通过：执行工具。结果已经是模型可见文本；meta 只给 UI/DB。
       onEvent({ type: "tool_call", id: callId, name, arguments: args });
+      // 委派工具拿父会话上下文发起 spawn / fork；两者共用同一份父轮次快照。
+      const parentChatCtx = { toolNames, model: effModel, effort, stream: effStream, activity, autonomy };
+      const delegation = core.subagents ? {
+        subagentSpawn: (a) => core.subagents.spawn({
+          ...a, parentSessionId: sessionId, parentOnEvent: onEvent, parentChatCtx, modelCallId: callId,
+        }),
+        subagentFork: (a) => core.subagents.spawnFork({
+          ...a, parentSessionId: sessionId, parentOnEvent: onEvent, parentChatCtx, modelCallId: callId,
+        }),
+      } : {};
       const result = await runTool(tool, args, {
         cwd,
         sessionId,
@@ -521,16 +531,7 @@ async function runLoop(core, ctx) {
         requestUserJob: (job) => core.requestUserJob({ callId, sessionId, ...job }),
         killUserJob: (jobId) => core.killUserJob(jobId),
         store: core.store,
-        // one-shot subagent 委派：工具据此拿到父会话上下文并发起 spawn。
-        subagentSpawn: core.subagents
-          ? (a) => core.subagents.spawn({
-              ...a,
-              parentSessionId: sessionId,
-              parentOnEvent: onEvent,
-              parentChatCtx: { toolNames, model: effModel, effort, stream: effStream, activity, autonomy },
-              modelCallId: callId,
-            })
-          : undefined,
+        ...delegation,
       });
       await finish(result, result.isError === true ? "failed" : "succeeded");
     }
