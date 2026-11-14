@@ -20,6 +20,11 @@ module.exports = async function run(input, ctx) {
       conv[conv.length - 1] = Object.assign({}, conv[conv.length - 1], { content: ctx.translatedUser });
     }
   }
+  // runtime-context（子 Agent 权限声明等）：system 之后的独立 user 消息注入 conv，
+  // 只影响本次请求的模型上下文、不落库（父子 system prompt 保持一致）。
+  if (Array.isArray(ctx.contextMessages) && ctx.contextMessages.length) {
+    conv.splice(1, 0, ...ctx.contextMessages);
+  }
   ctx.conv = conv;
   // r=0 落库前的尾部消息构造器：自动压缩重建历史时追加，落库后不再追加。
   ctx.pendingTurnMessages = () =>

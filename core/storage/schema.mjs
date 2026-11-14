@@ -64,6 +64,7 @@ export const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS sessions (
     id    integer      PRIMARY KEY,
     workspace_id  INTEGER     NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+    kind  text    NOT NULL DEFAULT 'normal',  -- normal | subagent
     name  text    NOT NULL,
     description  text,
     activity  text  NOT NULL DEFAULT 'research',
@@ -105,6 +106,7 @@ export const SCHEMA_STATEMENTS = [
     seq         integer not null,
     surface_seq integer not null default 0,  -- per-session event seq shared with session_events
     role        text  NOT NULL,
+    source      text,                          -- 消息产生机制: user_input | subagent-prompt | subagent-settle | compaction
     content_id  integer references contents (id) on delete cascade,
     thought_id  integer references contents (id) on delete cascade,
     created_at  TIMESTAMP NOT NULL DEFAULT now(),
@@ -202,5 +204,25 @@ export const SCHEMA_STATEMENTS = [
     result        text,
     created_at    TIMESTAMP NOT NULL DEFAULT now(),
     updated_at    TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+
+  // Subagent (one-shot delegation). parent/sub session link; discarded_at marks
+  // a settlement that could not be delivered (see docs/dev/subagent.md §6.4).
+  `CREATE TABLE IF NOT EXISTS subagents (
+    sub_sess_id  integer NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+    par_sess_id  integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    discarded_at TIMESTAMP
+  )`,
+
+  // Delegation tool_call <-> first user message in the child session.
+  `CREATE TABLE IF NOT EXISTS subagent_prompts (
+    call_id   integer REFERENCES calls(id),
+    prompt_id integer REFERENCES messages(id)
+  )`,
+
+  // Child's final output message <-> settlement user message in the parent session.
+  `CREATE TABLE IF NOT EXISTS subagent_settles (
+    output_id integer REFERENCES messages(id),
+    settle_id integer REFERENCES messages(id)
   )`,
 ];

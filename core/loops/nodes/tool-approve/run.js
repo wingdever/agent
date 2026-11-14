@@ -120,6 +120,23 @@ module.exports = async function run(input, ctx) {
       requestUserJob: (job) => core.requestUserJob({ callId, sessionId: ctx.sessionId, ...job }),
       killUserJob: (jobId) => core.killUserJob(jobId),
       store: core.store,
+      // one-shot subagent 委派：工具据此拿到父会话上下文并发起 spawn。
+      subagentSpawn: core.subagents
+        ? (a) => core.subagents.spawn({
+            ...a,
+            parentSessionId: ctx.sessionId,
+            parentOnEvent: ctx.onEvent,
+            parentChatCtx: {
+              toolNames: ctx.toolNames,
+              model: ctx.effModel,
+              effort: ctx.effort,
+              stream: ctx.effStream,
+              activity: ctx.activity,
+              autonomy: ctx.autonomy,
+            },
+            modelCallId: callId,
+          })
+        : undefined,
     });
     await finish(result, result.isError === true ? "failed" : "succeeded");
   }

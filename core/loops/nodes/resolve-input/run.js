@@ -5,6 +5,7 @@
 // 输入翻译（中→英）由挂在 before 槽的 translate hook 完成（设置 ctx.translatedUser），
 // 本节点读取该值；未启用翻译时 ctx.translatedUser 为 null（即直接用原文）。
 
+const path = require("path");
 const { readPermissions, permissionFor } = require("../../../permissions");
 const { readFsPolicy } = require("../../../fs-policy");
 const { resolveConfig: resolveTranslateConfig } = require("../../../translation");
@@ -24,8 +25,10 @@ module.exports = async function run(input, ctx) {
   ctx.permissions = readPermissions();
   ctx.fsPolicy = readFsPolicy();
 
-  // 工作区 cwd / 最后一条 user 校验。
-  ctx.cwd = await core._resolveCwd(ctx.persist ? ctx.sessionId : null);
+  // 工作区 cwd / 最后一条 user 校验。ctx.cwd 覆盖：子 Agent 委派可带初始工作目录
+  // （相对路径基于父当前目录）。
+  const baseCwd = await core._resolveCwd(ctx.persist ? ctx.sessionId : null);
+  ctx.cwd = ctx.cwd ? path.resolve(baseCwd, ctx.cwd) : baseCwd;
 
   const messages = ctx.messages;
   const lastInput = Array.isArray(messages) && messages.length ? messages[messages.length - 1] : null;

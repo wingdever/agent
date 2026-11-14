@@ -41,6 +41,7 @@ module.exports = async function run(input, ctx) {
         seq: ctx.systemIsNew ? (ctx.catalogMsg ? 2 : 1) : 0,
         role: "user",
         content: userContent,
+        source: ctx.inputSource,
       });
     } catch (e) {
       onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });

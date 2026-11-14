@@ -136,7 +136,9 @@ async function runLoop(core, ctx) {
   // assembled once, stored once, and displayed once. Later turns reuse the
   // stored text and neither persist nor emit it again. Requests still carry
   // it every time because Chat Completions is stateless.
-  const cwd = await core._resolveCwd(persist ? sessionId : null);
+  // ctx.cwd 覆盖：子 Agent 委派可带初始工作目录（相对路径基于父当前目录）。
+  const baseCwd = await core._resolveCwd(persist ? sessionId : null);
+  const cwd = ctx.cwd ? path.resolve(baseCwd, ctx.cwd) : baseCwd;
   let system = persist ? await store.run("session.prompt", { session_id: sessionId }) : null;
   const systemIsNew = !system;
   let catalogMsg = null;
@@ -188,6 +190,11 @@ async function runLoop(core, ctx) {
     if (translatedUser != null && conv.length > 1) {
       conv[conv.length - 1] = Object.assign({}, conv[conv.length - 1], { content: translatedUser });
     }
+  }
+  // runtime-context（子 Agent 权限声明等）：作为 system 之后的独立 user 消息注入
+  // conv，只影响本次请求的模型上下文、不落库（父子 system prompt 保持一致）。
+  if (Array.isArray(ctx.contextMessages) && ctx.contextMessages.length) {
+    conv.splice(1, 0, ...ctx.contextMessages);
   }
   // r=0 落库前的尾部消息：自动压缩重建历史时追加，落库后不再追加。
   const pendingTurnMessages = () => [...pendingRefs, pendingUser];
@@ -267,7 +274,7 @@ async function runLoop(core, ctx) {
         // 真实用户请求（pendingUser）。即使后面追加了 /name 手势，也要以真实
         // 用户输入落库，不能因为 conv 里最后一条 user 是手势而把它吞掉。
         const userContent = typeof pendingUser.content === "string" ? pendingUser.content : JSON.stringify(pendingUser.content);
-        await store.run("message.add", { step_id: step.id, seq: systemIsNew ? (catalogMsg ? 2 : 1) : 0, role: "user", content: userContent });
+        await store.run("message.add", { step_id: step.id, seq: systemIsNew ? (catalogMsg ? 2 : 1) : 0, role: "user", content: userContent, source: ctx.inputSource });
       } catch (e) {
         onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
       }
@@ -512,6 +519,16 @@ async function runLoop(core, ctx) {
         requestUserJob: (job) => core.requestUserJob({ callId, sessionId, ...job }),
         killUserJob: (jobId) => core.killUserJob(jobId),
         store: core.store,
+        // one-shot subagent 委派：工具据此拿到父会话上下文并发起 spawn。
+        subagentSpawn: core.subagents
+          ? (a) => core.subagents.spawn({
+              ...a,
+              parentSessionId: sessionId,
+              parentOnEvent: onEvent,
+              parentChatCtx: { toolNames, model: effModel, effort, stream: effStream, activity, autonomy },
+              modelCallId: callId,
+            })
+          : undefined,
       });
       await finish(result, result.isError === true ? "failed" : "succeeded");
     }

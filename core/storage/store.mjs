@@ -13,9 +13,23 @@ function _j(v) {
 }
 
 class Store {
-  constructor(db) { this.db = db; }
+  constructor(db) {
+    this.db = db;
+    // 应用层分配 integer 主键（SELECT MAX(id)+1 再 INSERT）不是原子操作。单连接
+    // pg-micro 下父子 turn 并发写会抢到同一个 id（UNIQUE constraint failed:
+    // contents.id）。所有「取 id + 插行」走这条进程内串行链。
+    this._writeChain = Promise.resolve();
+  }
 
   async close() { await this.db.close(); }
+
+  // 串行化一次「读-改-写」临界区（进程内互斥，不支持多进程）。
+  _serial(task) {
+    const run = this._writeChain.then(task, task);
+    // 吞掉链上的错误，避免一次失败污染后续任务；错误仍会传给调用方。
+    this._writeChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
 
   // ---- schema ----
   async _execSchema() {
@@ -47,13 +61,15 @@ class Store {
   }
   // 仅插入调用方提供的列（未提供的列回落到列默认值）
   async _create(table, data, allowed) {
-    const id = data.id != null ? data.id : await this._nextId(table);
-    const cols = ["id"]; const vals = [id];
-    for (const c of allowed) {
-      if (data[c] !== undefined) { cols.push(c); vals.push(data[c]); }
-    }
-    await this._insertRow(table, cols, vals);
-    return this._get(table, id);
+    return this._serial(async () => {
+      const id = data.id != null ? data.id : await this._nextId(table);
+      const cols = ["id"]; const vals = [id];
+      for (const c of allowed) {
+        if (data[c] !== undefined) { cols.push(c); vals.push(data[c]); }
+      }
+      await this._insertRow(table, cols, vals);
+      return this._get(table, id);
+    });
   }
   // 仅更新白名单内的列，并刷新 updated_at
   async _update(table, id, data, allowed) {
@@ -85,13 +101,16 @@ class Store {
     return this.db.prepare(sql).all(...params);
   }
   getSession({ id }) { return this._get("sessions", id); }
-  createSession(data) { return this._create("sessions", data, ["workspace_id", "name", "description", "activity"]); }
+  createSession(data) { return this._create("sessions", data, ["workspace_id", "kind", "name", "description", "activity"]); }
   updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description", "activity"]); }
   async deleteSession({ id, hard } = {}) {
     if (hard) {
       // 工作区级删除：级联清 turns 后硬删
       const turns = await this._list("turns", { session_id: id });
       for (const t of turns) await this.deleteTurn({ id: t.id });
+      // 手工清理子代理委派记录（作为子会话或被委派方）。关联行里指向本会话
+      // 消息的 prompt/settle 随上面的 deleteMessage 已清；这里只补 subagents 本身。
+      await this.db.prepare("DELETE FROM subagents WHERE sub_sess_id=$1 OR par_sess_id=$1").run(id);
       return this._delete("sessions", id);
     }
     // 默认软删除：标记 deleted_at，保留 turns 供回溯恢复
@@ -124,12 +143,14 @@ class Store {
     return next;
   }
   async appendSessionEvent({ session_id, type, data, boot }) {
-    const seq = await this._nextSessionSeq(session_id);
-    const id = await this._nextId("session_events");
-    await this._insertRow("session_events", ["id", "session_id", "seq", "type", "data", "boot"], [
-      id, session_id, seq, type, JSON.stringify(data || {}), boot || null,
-    ]);
-    return this._mapEvent(await this._get("session_events", id));
+    return this._serial(async () => {
+      const seq = await this._nextSessionSeq(session_id);
+      const id = await this._nextId("session_events");
+      await this._insertRow("session_events", ["id", "session_id", "seq", "type", "data", "boot"], [
+        id, session_id, seq, type, JSON.stringify(data || {}), boot || null,
+      ]);
+      return this._mapEvent(await this._get("session_events", id));
+    });
   }
   async listSessionEvents({ session_id }) {
     const rows = await this.db.prepare(
@@ -371,9 +392,11 @@ class Store {
     };
   }
   async createUserJob({ job_id, session_id, status = "pending", description, title }) {
-    const id = await this._nextId("user_jobs");
-    await this._insertRow("user_jobs", ["id", "job_id", "session_id", "status", "description", "title"], [id, job_id, session_id, status, description, title || null]);
-    return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+    return this._serial(async () => {
+      const id = await this._nextId("user_jobs");
+      await this._insertRow("user_jobs", ["id", "job_id", "session_id", "status", "description", "title"], [id, job_id, session_id, status, description, title || null]);
+      return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+    });
   }
   async getUserJob({ job_id }) {
     const row = await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id);
@@ -417,42 +440,45 @@ class Store {
   getContent({ id }) { return this._get("contents", id); }
 
   // ---- messages（content 与 thought 分别存于 contents，经 content_id / thought_id 关联）----
-  async addMessage({ step_id, seq, role, content, thought, session_id }) {
-    // surface_seq 与 session_events.seq 共用一个 per-session 序列；调用方通常
-    // 直接传 session_id，测试/旧调用则从 step -> turn 反查。
-    let sid = session_id;
-    if (sid == null) {
-      const owner = await this.db.prepare(
-        "SELECT t.session_id FROM steps s JOIN turns t ON t.id=s.turn_id WHERE s.id=$1"
-      ).get(step_id);
-      sid = owner ? owner.session_id : null;
-    }
-    const surfaceSeq = sid != null ? await this._nextSessionSeq(sid) : 0;
-    // content_id / thought_id 可空：仅当对应内容存在时才建 contents 行
-    let content_id = null;
-    if (content != null) {
-      content_id = await this._nextId("contents");
-      await this._insertRow("contents", ["id", "content"], [content_id, content]);
-    }
-    let thought_id = null;
-    if (thought != null) {
-      thought_id = await this._nextId("contents");
-      await this._insertRow("contents", ["id", "content"], [thought_id, thought]);
-    }
-    const id = await this._nextId("messages");
-    await this._insertRow("messages", ["id", "step_id", "seq", "surface_seq", "role", "content_id", "thought_id"], [
-      id, step_id, seq, surfaceSeq, role, content_id, thought_id,
-    ]);
-    return this.getMessage({ id });
+  async addMessage({ step_id, seq, role, content, thought, session_id, source }) {
+    return this._serial(async () => {
+      // surface_seq 与 session_events.seq 共用一个 per-session 序列；调用方通常
+      // 直接传 session_id，测试/旧调用则从 step -> turn 反查。
+      let sid = session_id;
+      if (sid == null) {
+        const owner = await this.db.prepare(
+          "SELECT t.session_id FROM steps s JOIN turns t ON t.id=s.turn_id WHERE s.id=$1"
+        ).get(step_id);
+        sid = owner ? owner.session_id : null;
+      }
+      const surfaceSeq = sid != null ? await this._nextSessionSeq(sid) : 0;
+      // content_id / thought_id 可空：仅当对应内容存在时才建 contents 行
+      let content_id = null;
+      if (content != null) {
+        content_id = await this._nextId("contents");
+        await this._insertRow("contents", ["id", "content"], [content_id, content]);
+      }
+      let thought_id = null;
+      if (thought != null) {
+        thought_id = await this._nextId("contents");
+        await this._insertRow("contents", ["id", "content"], [thought_id, thought]);
+      }
+      const id = await this._nextId("messages");
+      const cols = ["id", "step_id", "seq", "surface_seq", "role", "content_id", "thought_id"];
+      const vals = [id, step_id, seq, surfaceSeq, role, content_id, thought_id];
+      if (source != null) { cols.push("source"); vals.push(source); }
+      await this._insertRow("messages", cols, vals);
+      return this.getMessage({ id });
+    });
   }
   async getMessage({ id }) {
     return this.db.prepare(
-      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.id=$1"
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.source, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.id=$1"
     ).get(id);
   }
   async listMessages({ step_id }) {
     return this.db.prepare(
-      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.step_id=$1 ORDER BY messages.seq"
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.source, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.step_id=$1 ORDER BY messages.seq"
     ).all(step_id);
   }
   // 会话级 system prompt：返回该 session 最早落库的 system 消息内容。
@@ -499,7 +525,14 @@ class Store {
   async deleteMessage({ id }) {
     const msg = await this._get("messages", id);
     if (!msg) return;
-    const callsToDel = await this.db.prepare("SELECT result_id FROM calls WHERE reply_id=$1").all(msg.id);
+    const callsToDel = await this.db.prepare("SELECT id, result_id FROM calls WHERE reply_id=$1").all(msg.id);
+    // 手工清理子代理关联行（pg-micro 不强制 FK，ON DELETE CASCADE 为空文）。
+    // 该消息可能是委派 tool_call 的宿主、子会话首条 prompt、或结算/输出消息。
+    for (const c of callsToDel) {
+      await this.db.prepare("DELETE FROM subagent_prompts WHERE call_id=$1").run(c.id);
+    }
+    await this.db.prepare("DELETE FROM subagent_prompts WHERE prompt_id=$1").run(msg.id);
+    await this.db.prepare("DELETE FROM subagent_settles WHERE output_id=$1 OR settle_id=$1").run(msg.id);
     for (const c of callsToDel) if (c.result_id != null) await this._delete("contents", c.result_id);
     await this.db.prepare("DELETE FROM calls WHERE reply_id=$1").run(msg.id);
     if (msg.thought_id != null) await this._delete("contents", msg.thought_id);
@@ -508,7 +541,10 @@ class Store {
   }
 
   // ---- calls（工具调用，arguments 为 text 原文；result 存于 contents）----
-  async addCall({ reply_id, seq, name, description, arguments: args, status, category, call_id, result, error, id }) {
+  async addCall(payload) {
+    return this._serial(() => this._addCallUnlocked(payload));
+  }
+  async _addCallUnlocked({ reply_id, seq, name, description, arguments: args, status, category, call_id, result, error, id }) {
     let result_id = null;
     if (result !== undefined && result !== null) {
       result_id = await this._nextId("contents");
@@ -542,21 +578,23 @@ class Store {
     return rows.map((r) => this._callRow(r));
   }
   async updateCall({ id, status, error, result }) {
-    let result_id;
-    if (result !== undefined) {
-      result_id = await this._nextId("contents");
-      const rc = typeof result === "string" ? result : JSON.stringify(result);
-      await this._insertRow("contents", ["id", "content"], [result_id, rc]);
-    }
-    const sets = []; const vals = []; let i = 1;
-    if (status !== undefined) { sets.push(`status=$${i++}`); vals.push(status); }
-    if (error !== undefined) { sets.push(`error=$${i++}`); vals.push(error); }
-    if (result_id !== undefined && result_id !== null) { sets.push(`result_id=$${i++}`); vals.push(result_id); }
-    if (sets.length) {
-      sets.push("updated_at=now()"); vals.push(id);
-      await this.db.prepare(`UPDATE calls SET ${sets.join(", ")} WHERE id=$${i}`).run(...vals);
-    }
-    return this.getCall({ id });
+    return this._serial(async () => {
+      let result_id;
+      if (result !== undefined) {
+        result_id = await this._nextId("contents");
+        const rc = typeof result === "string" ? result : JSON.stringify(result);
+        await this._insertRow("contents", ["id", "content"], [result_id, rc]);
+      }
+      const sets = []; const vals = []; let i = 1;
+      if (status !== undefined) { sets.push(`status=$${i++}`); vals.push(status); }
+      if (error !== undefined) { sets.push(`error=$${i++}`); vals.push(error); }
+      if (result_id !== undefined && result_id !== null) { sets.push(`result_id=$${i++}`); vals.push(result_id); }
+      if (sets.length) {
+        sets.push("updated_at=now()"); vals.push(id);
+        await this.db.prepare(`UPDATE calls SET ${sets.join(", ")} WHERE id=$${i}`).run(...vals);
+      }
+      return this.getCall({ id });
+    });
   }
   async deleteCall({ id }) {
     const call = await this._get("calls", id);
@@ -601,6 +639,47 @@ class Store {
     return this._delete("skills", id);
   }
 
+
+  // ================= 子代理关联表（无 id 列，走裸 SQL / _insertRow）=================
+  async addSubagent({ sub_sess_id, par_sess_id }) {
+    await this._insertRow("subagents", ["sub_sess_id", "par_sess_id"], [sub_sess_id, par_sess_id]);
+    return this.getSubagent({ sub_sess_id });
+  }
+  getSubagent({ sub_sess_id }) {
+    return this.db.prepare("SELECT * FROM subagents WHERE sub_sess_id=$1").get(sub_sess_id);
+  }
+  listSubagents({ par_sess_id }) {
+    return this.db.prepare("SELECT * FROM subagents WHERE par_sess_id=$1").all(par_sess_id);
+  }
+  markSubagentDiscarded({ sub_sess_id }) {
+    return this.db.prepare("UPDATE subagents SET discarded_at=now() WHERE sub_sess_id=$1").run(sub_sess_id);
+  }
+  async addSubagentPrompt({ call_id, prompt_id }) {
+    await this._insertRow("subagent_prompts", ["call_id", "prompt_id"], [call_id, prompt_id]);
+    return { call_id, prompt_id };
+  }
+  getSubagentPrompt({ call_id }) {
+    return this.db.prepare("SELECT * FROM subagent_prompts WHERE call_id=$1").get(call_id);
+  }
+  async addSubagentSettle({ output_id, settle_id }) {
+    await this._insertRow("subagent_settles", ["output_id", "settle_id"], [output_id, settle_id]);
+    return { output_id, settle_id };
+  }
+  getSubagentSettle({ settle_id }) {
+    return this.db.prepare("SELECT * FROM subagent_settles WHERE settle_id=$1").get(settle_id);
+  }
+  // 反查：给定父会话结算消息 id，找出产生它的子会话 id。
+  // 分步查（pg-micro 不支持 JOIN ON 里引用外层别名的标量子查询）：
+  // settle_id -> output_id -> 子会话 session_id -> subagents 行。
+  async getSubagentBySettle({ settle_id }) {
+    const link = await this.db.prepare("SELECT output_id FROM subagent_settles WHERE settle_id=$1").get(settle_id);
+    if (!link || link.output_id == null) return undefined;
+    const owner = await this.db.prepare(
+      "SELECT t.session_id FROM messages m JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE m.id=$1"
+    ).get(link.output_id);
+    if (!owner) return undefined;
+    return this.db.prepare("SELECT * FROM subagents WHERE sub_sess_id=$1").get(owner.session_id);
+  }
 
   // ================= 关联表 =================
   async linkToolSkill({ tool_id, skill_id }) {
@@ -659,6 +738,16 @@ const OPS = {
   "userJob.list": (s, p) => s.listUserJobs(p),
   "userJob.complete": (s, p) => s.completeUserJob(p),
   "userJob.kill": (s, p) => s.killUserJob(p),
+
+  "subagent.add": (s, p) => s.addSubagent(p),
+  "subagent.get": (s, p) => s.getSubagent(p),
+  "subagent.list": (s, p) => s.listSubagents(p),
+  "subagent.discard": (s, p) => s.markSubagentDiscarded(p),
+  "subagent.bySettle": (s, p) => s.getSubagentBySettle(p),
+  "subagentPrompt.add": (s, p) => s.addSubagentPrompt(p),
+  "subagentPrompt.get": (s, p) => s.getSubagentPrompt(p),
+  "subagentSettle.add": (s, p) => s.addSubagentSettle(p),
+  "subagentSettle.get": (s, p) => s.getSubagentSettle(p),
 
   "turn.list": (s, p) => s.listTurns(p),
   "turn.get": (s, p) => s.getTurn(p),

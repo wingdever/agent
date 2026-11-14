@@ -761,6 +761,11 @@ async function createCore(config = {}) {
   setSkillsRegistry(skillsRegistry);
   core.skills = skillsRegistry;
 
+  // One-shot subagent runtime (docs/dev/subagent.md). Mounted after store/tools
+  // are ready; tools/subagent/run.js reaches it via exec.subagentSpawn.
+  const { SubagentRuntime } = require("./subagent-runtime");
+  core.subagents = new SubagentRuntime(core);
+
   return core;
 }
 
