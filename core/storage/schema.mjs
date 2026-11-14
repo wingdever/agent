@@ -112,7 +112,7 @@ export const SCHEMA_STATEMENTS = [
     seq         integer not null,
     surface_seq integer not null default 0,  -- per-session 序号，与 compactions.seq 共用
     role        text  NOT NULL,
-    source      text,                          -- 消息产生机制: user_input | subagent-prompt | subagent-settle | compaction
+    source      text,                          -- 消息产生机制: user_input | subagent-prompt | subagent-settle
     content_id  integer references contents (id) on delete cascade,
     thought_id  integer references contents (id) on delete cascade,
     created_at  TIMESTAMP NOT NULL DEFAULT now(),

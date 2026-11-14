@@ -88,7 +88,7 @@ which schedule as fresh-agent iterative loop
 
 - 委派模式：one-shot，子 Agent 跑完即止，不接受后续消息。
 - 子上下文：spawn，子 Agent 不继承父会话的任何轮次，task prompt 必须自包含。
-- 提供给 subagent 的工具：除去 `subagent` 以防止无限套娃。
+- 工具清单对所有会话相同：`subagent` 始终出现在 `payload.tools` 与 system prompt 里，子会话调用时在执行层拒绝。工具与 system prompt 是请求前缀的一部分，按会话裁剪会让前缀缓存失效。
 - 常驻子代理与会话树、`send_message` / `interrupt_agent` / `list_agents` 控制面、workflow / ralph 编排、agent-team 协作层分属协作与编排层，不在本子系统内。
 
 ## 2. 与 model 的通信契约
@@ -117,7 +117,7 @@ which schedule as fresh-agent iterative loop
 
 > Start independent delegations with `subagent` together in one assistant message and continue useful work while they run.
 
-本子系统不注入按请求变化的深度上下文：子 Agent 的工具集中不含 `subagent`，委派不产生递归，无需 `tool:subagent:depth` 与 maxDepth。
+本子系统不注入按请求变化的深度上下文：不设委派深度上限，也没有 `tool:subagent:depth` 段。
 
 ### 2.3 结果回灌消息
 
@@ -147,7 +147,7 @@ system prompt 复用 `assembleSystemPrompt`：身份、persona、语言策略、
 
 ### 4.2 工具面
 
-子 Agent 的工具集与父 Agent 本轮可见集一致，移除 `subagent` 本身，因而不会再次委派。`toolFilter` / `persona` 不作为委派参数：工具组合由工具清单决定，persona 由 `user/settings.json` 的 `persona` 段落决定。
+子 Agent 的工具集与父 Agent 本轮可见集完全一致，不裁剪任何工具：`payload.tools` 与 system prompt 构成请求前缀，按会话裁剪会让前缀缓存失效。`subagent` 仍在子会话的工具清单里，但执行时被拒绝——spawn 只允许从 `kind = normal` 的主会话发起。`toolFilter` / `persona` 不作为委派参数：工具组合由工具清单决定，persona 由 `user/settings.json` 的 `persona` 段落决定。
 
 ### 4.3 权限
 
@@ -158,6 +158,8 @@ system prompt 复用 `assembleSystemPrompt`：身份、persona、语言策略、
 该约束以 runtime-context（user 消息，非 system 段）逐字注入子 Agent，使父子 system prompt 保持同一套部署文案（来源 `dsh-subagent/lib/index.js:359-363`）：
 
 > You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
+
+这条消息插在 task prompt 之前、继承段之后，不插在 system 之后：fork 的继承段要与父会话的前缀逐字相同才能命中前缀缓存，插在头部会让整段继承历史失去缓存（§9.1）。
 
 ## 5. 存储与轨迹
 
@@ -186,3 +188,74 @@ system prompt 复用 `assembleSystemPrompt`：身份、persona、语言策略、
 结算只在子 Agent 已发布且投递目标为父会话时发放一次，同一子 Agent 的重复结算不重发。父会话已关闭、进程结束或子 Agent 被提前清理时，结算消息丢弃并记录告警，不暂存、不补发。
 
 子 Agent 的结束原因由运行时记录，settlement 首行按 `completed` / `aborted` / `max-tokens` / `refusal` / `error` 取对应文案（来源 `dsh-subagent/lib/index.js:487-500`）；正常情况下父 Agent 总会收到一次结算消息，不会静默丢失结果。
+
+# 第二步实现
+
+子代理的第二种委派模式：fork。子 Agent 继承父会话截至最后一个已完成轮次的全部历史，在既有上下文上继续工作；工具名 `subagent_fork`，与 `subagent` 并存。结算投递、自动续轮、取消、失败回灌与第一步共用，本节只写差异。
+
+## 7. 范围
+
+- 委派模式：one-shot，子 Agent 跑完即止，不接受后续消息。
+- 子上下文：fork。子 Agent 看到父会话在继承点处的模型可见历史，在它之上继续；父会话当前在途的轮次不进入继承范围。
+- 历史不复制：fork 只在 `session_forks` 记一个继承点，历史通过回放拼接父会话的消息；继承段只读。
+- 两种模式并存：spawn 用于自包含任务，fork 用于建立在当前对话上下文上的子任务。DSH 用同一个工具名、由 provider 决定是否继承上下文（`dsh-tool-subagent/lib/index.js:337-346`）；本项目把两种模式拆成两个工具，让模型按任务性质选择。
+- 与第一步共用：结算消息格式（§2.3）、结果投递与自动续轮（§3）、子 Agent 的 system prompt 装配（§4.1）、权限门（§4.3）、取消与预算与失败回灌（§6）。
+
+## 8. 与 model 的通信契约
+
+### 8.1 subagent_fork 工具定义
+
+工具经 `tools/subagent-fork/registry.json` 注册，`name = subagent_fork`。
+
+`description` 逐字采用 dsh 的 fork wording（来源 `dsh-tool-subagent/lib/index.js:339`），后接与第一步相同的运行时尾句（来源 `:384`）：
+
+> Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The completion notice includes its final answer. This backend does not accept follow-up messages.
+
+`parameters`：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `cwd` | string | 否 | `Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent.` |
+| `description` | string | 是 | `A short (3-5 word) description of the delegated task, for display.` |
+| `prompt` | string | 是 | `The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new.` |
+
+`cwd` 与 `description` 的描述与第一步逐字相同；`prompt` 的描述不同（来源 `:340`）。执行后立即返回 `started subagent <id>`（来源 `:438`），不等待子 Agent 结束。
+
+### 8.2 system prompt 段落
+
+委派指引段由工具清单整体生成，对所有会话完全相同（来源 `dsh-tool-subagent/lib/index.js:509-518`）：
+
+> Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
+
+两个工具共享同一段名 `tool:subagent`，段落内容按工具集合整体生成，不按工具逐条输出；工具清单不随会话变化（§9.2），这段文案因此是静态的。
+
+## 9. 子 Agent 构造
+
+### 9.1 上下文
+
+system prompt 装配、loop 引擎、事件隔离与第一步相同。差异在首轮上下文：模型看到的是「继承段 + 本次 task prompt」，而不是只有 task prompt。
+
+继承段是父会话在继承点处的**模型可见历史**：父此前压缩过时，它是一份 checkpoint 加压缩点之后的父消息，而不是父的 transcript 原文。父会话在途轮次的消息不在其中。这一段逐字复用父会话的消息，不重新摘要、不改写；工具清单与 system prompt 与父会话一致时，这段前缀可命中 provider 的前缀缓存。
+
+继承段只读：子 Agent 可以压缩它（吸收进本会话摘要），不能修改父会话的消息。
+
+父会话尚无已完成轮次时继承段为空，子 Agent 从零开始，与 spawn 等价。
+
+### 9.2 工具面
+
+- 两个委派工具对所有会话都出现在 `payload.tools` 与 system prompt 里，不按会话 `kind` 裁剪：工具清单是请求前缀的一部分，裁剪会让继承段与前缀缓存全部失效。
+- `subagent` 在子会话里仍在清单中，但执行时返回错误：spawn 只允许从主会话发起。
+- `subagent_fork` 在所有会话可用，多层树由这条执行许可维持。
+- 子 Agent 的其余工具与父轮次可见集一致；`toolFilter` / persona 不作为委派参数（与第一步相同）。
+
+本项目不设委派深度上限：fork 的层数由 `subagent_fork` 的执行许可维持。dsh 的 subagent 服务默认 `maxDepth = 1`（`dsh-subagent/lib/index.js:2979`），并在触顶时注入停止委派的 runtime context（`dsh-tool-subagent/lib/index.js:519-529`），本项目不复刻该上限。
+
+### 9.3 权限
+
+fork 继承对话历史，但不继承工具、服务、scope 或权限：子 Agent 的权限门与第一步完全相同，scope 在启动时固定，`ask` 档自动拒绝。`inheritsParentContext` 只声明对话前缀继承，与工具、服务、scope、授权无关（来源 `dsh-tool-subagent/lib/index.js:331-334`）。
+
+## 10. 继承点
+
+fork 在创建子会话时写一行 `session_forks`：子会话是新建的 `kind = subagent` 会话，父会话是发起委派的会话，继承点取父会话最后一个已完成轮次。该值在 fork 时写死，父之后新增轮次或再次压缩都不改变子会话看到的历史。
+
+继承点的字段定义、回放优先级与压缩吸收规则归 `session-tree.md`；本节只定义 fork 写入这个动作。

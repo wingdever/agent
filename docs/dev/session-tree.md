@@ -80,30 +80,7 @@ fork 时校验：`parent_session_id` 不能是子会话自己，也不能是自�
 - 软删（`deleted_at`）：不动 `session_forks`，历史仍可回放。
 - 硬删：沿 `session_forks` 级联删除全部后代会话，后代的 turn / step / message 一并删除。
 
-## 6. fork 工具
-
-### 6.1 契约
-
-工具注册为 `tools/subagent-fork/registry.json`，`name = subagent_fork`，参数与 `subagent` 相同（`cwd` / `description` / `prompt`）。
-
-`description` 逐字采用 dsh 的 fork wording（来源 `dsh-tool-subagent/lib/index.js:337-341`）：
-
-> Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps.
-
-`prompt` 参数描述同源（`:342-345`）：
-
-> The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new.
-
-执行后立即返回 `started subagent <id>`，与 `subagent` 相同。
-
-### 6.2 工具可见性
-
-- `subagent`（spawn）：只在 `kind=normal` 的主会话可见，子会话不再 spawn。
-- `subagent_fork`：所有会话可见。多层树靠它成立。
-
-fork 出来的子会话与 spawn 的子会话共用同一套结算逻辑：结束时把结果作为一条 `role=user`、`source=subagent-settle` 的消息回灌父会话，并触发父的自动续轮。
-
-## 7. 多层树
+## 6. 多层树
 
 - 孙会话 fork 自子会话时，子会话若已有自己的压缩，孙直接继承该压缩；若没有，递归继承子的完整历史（可能含祖父）。
 - 每层压缩都把祖先内容吸收进本层摘要，因此树的深度不增加回放成本：有压缩的会话只拼「自己的摘要 + 自己的后续消息」。

@@ -179,9 +179,9 @@ system - system_prompt
 assistant - model_reply
 tool - tool_result
 
-enum source: [user_input, subagent-prompt, subagent-settle, compaction]
+enum source: [user_input, subagent-prompt, subagent-settle]
 
-`source` 与 `role` 正交，表示消息由什么机制产生：`user_input` 是真人输入；`subagent-prompt` 是子会话首条消息（由父侧委派 tool_call 生成）；`subagent-settle` 是父会话里子代理结算产生的 user 消息；`compaction` 是压缩 checkpoint。
+`source` 与 `role` 正交，表示消息由什么机制产生：`user_input` 是真人输入；`subagent-prompt` 是子会话首条消息（由父侧委派 tool_call 生成）；`subagent-settle` 是父会话里子代理结算产生的 user 消息。
 
 
 ## calls (工具调用)

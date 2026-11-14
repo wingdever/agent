@@ -109,13 +109,6 @@ class SubagentRuntime {
     return c;
   }
 
-  _childToolNames(parentToolNames) {
-    const names = Array.isArray(parentToolNames)
-      ? parentToolNames.slice()
-      : [...this.core.tools.values()].filter((t) => t.defaultVisible !== false).map((t) => t.name);
-    return names.filter((n) => n !== "subagent");
-  }
-
   // DSH queue: a follow-up turn must wait until the parent session is idle.
   async _waitParentIdle(sessionId, maxMs = 30000) {
     const key = String(sessionId);
@@ -133,6 +126,11 @@ class SubagentRuntime {
     const { description, parentSessionId } = spec;
     const parent = await this.store.run("session.get", { id: parentSessionId });
     if (!parent) throw new Error("parent session not found: " + parentSessionId);
+    // 工具清单对所有会话相同（请求前缀要稳定），spawn 的层级限制放在执行层：
+    // 子会话仍能看到 subagent，但调用被拒绝，委派只能走 subagent_fork。
+    if (parent.kind === "subagent") {
+      throw new Error("subagent is only available in a main session; use subagent_fork to delegate from a subagent session");
+    }
 
     const child = await this.store.run("session.create", {
       workspace_id: parent.workspace_id,
@@ -170,7 +168,7 @@ class SubagentRuntime {
       messages: [{ role: "user", content: prompt }],
       sessionId: childId,
       onEvent: () => {},                  // child trajectory stays isolated (§4.1)
-      toolNames: this._childToolNames(parentChatCtx.toolNames),
+      toolNames: parentChatCtx.toolNames, // same tool list as the parent: the request prefix must stay cacheable
       model: parentChatCtx.model,
       effort: parentChatCtx.effort,
       stream: parentChatCtx.stream,

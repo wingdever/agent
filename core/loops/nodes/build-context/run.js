@@ -20,10 +20,14 @@ module.exports = async function run(input, ctx) {
       conv[conv.length - 1] = Object.assign({}, conv[conv.length - 1], { content: ctx.translatedUser });
     }
   }
-  // runtime-context（子 Agent 权限声明等）：system 之后的独立 user 消息注入 conv，
+  // runtime-context（子 Agent 权限声明等）：作为独立的 user 消息注入 conv，
   // 只影响本次请求的模型上下文、不落库（父子 system prompt 保持一致）。
+  // 插在最后一条 user（本次输入）之前，而不是 system 之后：fork 的继承段必须与
+  // 父会话的前缀逐字相同才能命中前缀缓存，插在头部会让整段继承历史失去缓存。
   if (Array.isArray(ctx.contextMessages) && ctx.contextMessages.length) {
-    conv.splice(1, 0, ...ctx.contextMessages);
+    const last = conv.length - 1;
+    const at = last > 0 && conv[last] && conv[last].role === "user" ? last : 1;
+    conv.splice(at, 0, ...ctx.contextMessages);
   }
   ctx.conv = conv;
   // r=0 落库前的尾部消息构造器：自动压缩重建历史时追加，落库后不再追加。
