@@ -125,6 +125,7 @@ module.exports = async function run(input, ctx) {
       }),
       sendMessage: (a) => core.subagents.sendMessage(a),
       interruptAgent: (a) => core.subagents.interruptAgent(a),
+      listAgents: (a) => core.subagents.listAgents(a),
     } : {};
     const result = await runTool(tool, args, {
       cwd,

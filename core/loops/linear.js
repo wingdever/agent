@@ -519,6 +519,7 @@ async function runLoop(core, ctx) {
         }),
         sendMessage: (a) => core.subagents.sendMessage(a),
         interruptAgent: (a) => core.subagents.interruptAgent(a),
+        listAgents: (a) => core.subagents.listAgents(a),
       } : {};
       const result = await runTool(tool, args, {
         cwd,

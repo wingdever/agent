@@ -302,6 +302,29 @@ class SubagentRuntime {
     return { accepted: true };
   }
 
+  // list_agents（§15.3）：返回整棵树（根 + 所有可达的可续后代，含调用方自己）。
+  // 每行含 name（从根起的斜杠路径）、description（sessions.name）、status；
+  // 本项目只有本地子级，status 只取 running / inactive，诊断状态不出现。
+  async listAgents({ callerSessionId }) {
+    const rootId = await this.rootOf(callerSessionId);
+    const rows = [];
+    const visit = async (sessionId, name) => {
+      const session = await this.store.run("session.get", { id: Number(sessionId) });
+      rows.push({
+        name,
+        description: session ? session.name : "",
+        status: this.isRunning(sessionId) ? "running" : "inactive",
+      });
+      const children = await this.store.run("subagent.list", { par_sess_id: Number(sessionId) });
+      for (const child of children) {
+        const childName = name === ROOT_AGENT_NAME ? child.agent_name : `${name}/${child.agent_name}`;
+        await visit(child.sub_sess_id, childName);
+      }
+    };
+    await visit(rootId, ROOT_AGENT_NAME);
+    return rows;
+  }
+
   // 唤醒 idle 的子会话：用消息作为本轮输入起一轮，轮末照常给父发结算（§14）。
   async _wakeChild(childId, parentSessionId, content) {
     const key = String(childId);
