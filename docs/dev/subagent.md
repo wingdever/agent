@@ -1,4 +1,4 @@
-# subagent
+# subagent 子代理系统
 seam: ctx.subagents
 
 1. backgroundMode: one-shot,continue
@@ -76,3 +76,113 @@ usable chestrate hook: agent / pipeline / parallel / phase / log
 ## tool-ralph
 for a same goal, run a new agent to iterate each time.
 which schedule as fresh-agent iterative loop
+
+
+# 第一步实现
+
+子代理系统提供一次性委派：主 Agent 把一个自包含任务交给独立的子 Agent 执行，子 Agent 在独立上下文中跑完整轮次，其结果以一条 user 消息回灌父会话，并触发父 Agent 的新一轮处理。
+
+与 model 的通信契约以已安装运行时 `@deepseek-ai/dsh@0.2.1-rc.2` 的编译产物为准，位于 `~/.nvm/versions/node/v24.22.1/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/*/lib/`。下文逐字引用的文案与参数均出自该版本，并标注来源文件。
+
+## 1. 范围
+
+- 委派模式：one-shot，子 Agent 跑完即止，不接受后续消息。
+- 子上下文：spawn，子 Agent 不继承父会话的任何轮次，task prompt 必须自包含。
+- 提供给 subagent 的工具：除去 `subagent` 以防止无限套娃。
+- 常驻子代理与会话树、`send_message` / `interrupt_agent` / `list_agents` 控制面、workflow / ralph 编排、agent-team 协作层分属协作与编排层，不在本子系统内。
+
+## 2. 与 model 的通信契约
+
+### 2.1 subagent 工具定义
+
+工具经 `tools/subagent/registry.json` 注册，其 `name` / `description` / `parameters` 进入 `payload.tools` 下发给 model。
+
+本子系统的一次性 provider 不提供 `prepareContinuable`：零父上下文 wording 与一次性后端文案是两个独立开关，此处按本项目的 provider 组合拼接成完整串（来源 `dsh-tool-subagent/lib/index.js:337-346,384`）：
+
+> Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The completion notice includes its final answer. This backend does not accept follow-up messages.
+
+`parameters`：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `cwd` | string | 否 | `Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent.` |
+| `description` | string | 是 | `A short (3-5 word) description of the delegated task, for display.` |
+| `prompt` | string | 是 | `The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.` |
+
+工具执行后立即返回 `started subagent <id>`（来源 `dsh-tool-subagent/lib/index.js:420-440,473-482`），不等待子 Agent 结束、不返回结果。`exec.signal` 作为取消通道透传给运行时。
+
+### 2.2 system prompt 段落
+
+`tool:subagent` 段固定注入，指引并排委派与并行工作（来源 `dsh-tool-subagent/lib/index.js:509-518`）：
+
+> Start independent delegations with `subagent` together in one assistant message and continue useful work while they run.
+
+本子系统不注入按请求变化的深度上下文：子 Agent 的工具集中不含 `subagent`，委派不产生递归，无需 `tool:subagent:depth` 与 maxDepth。
+
+### 2.3 结果回灌消息
+
+子 Agent 结束后，运行时构造一条 user 消息投递给父会话。消息格式取自 `dsh-subagent/lib/index.js:487-539`：
+
+- 首行是一句完整结算语，主语固定为 `Background subagent <childId>`，按 stopReason 整句替换（来源 `dsh-subagent/lib/index.js:487-500`）：`completed` → `Background subagent <id> finished. It cannot receive follow-up messages.`；`aborted` → `Background subagent <id> was stopped before it finished.`；`max-tokens` → `Background subagent <id> ran out of room before it finished.`；`refusal` → `Background subagent <id> declined the task.`；`error` → `Background subagent <id> failed before it finished.`。
+- `Its closing message:` + 子 Agent 末轮 assistant 文本；无文本时用 `It left no closing message.`。
+- 末轮文本即结果。结构化输出由 `structured_output` 工具与强制指令承载（来源 `dsh-subagent/lib/index.js:873-879`），本子系统不启用，也不产生 `Structured result:` 行。
+
+该消息带来源标记 `{ kind: "subagent-settled", form: "notice", summary, senderSessionId }`，`senderSessionId` 为子 Agent 的 session id（来源 `dsh-subagent/lib/index.js:533-539`）。它是 user 消息而非 tool result、不带 `tool_call_id`：父 model 在后续轮次里把它当作一条新输入读到。
+
+## 3. 结果投递与自动续轮
+
+子 Agent 结束时，运行时把 settlement 消息插入 `messages` 表（`role=user`，`source=subagent-settle`，带 `surface_seq`，不带 `tool_call_id`），随即触发一轮无用户输入的 `chat()`。该轮 `resolve-input` 取到的最后一条 user 即为这条 settlement 消息，父 model 据此消化结果并继续工作。`subagentId` 即子 Agent 的 session id，跨 `_requestMessages` 重建保持稳定，用于结算消息寻址。
+
+自动续轮与用户发起的轮次不靠 turns / steps 上的标记区分，而由该轮首条结算 user 消息的 `source=subagent-settle` 标识：轨迹中读到该消息即可判定本轮非用户输入触发。one-shot 委派返回后父轮次即结束，结果到达时父 Agent 处于空闲，仅走自动续轮这一条路径，不存在运行中的即时注入。
+
+## 4. 子 Agent 构造
+
+### 4.1 上下文与 system prompt
+
+子 Agent 在同一进程内以独立 `ctx` 运行：新建 session、独立装配 system prompt、零父上下文。它只收到一条 task prompt，不读父会话的 surface、transcript 或任何历史消息。
+
+system prompt 复用 `assembleSystemPrompt`：身份、persona、语言策略、运行时上下文按 session 首轮装配一次；`tool:*` 段落来自子 Agent 本轮可见的工具清单。`{{cwd}}` 取子 Agent 自己的初始工作目录。
+
+子 Agent 复用与主循环相同的 loop 引擎跑完整 step 循环，直到模型不再返回 `tool_calls`；末轮 assistant 文本作为 closing message 交给结算。其 `onEvent` 接到子会话自己的轨迹，不并入父会话事件流。
+
+### 4.2 工具面
+
+子 Agent 的工具集与父 Agent 本轮可见集一致，移除 `subagent` 本身，因而不会再次委派。`toolFilter` / `persona` 不作为委派参数：工具组合由工具清单决定，persona 由 `user/settings.json` 的 `persona` 段落决定。
+
+### 4.3 权限
+
+子 Agent 的每一次工具调用都经过与主 Agent 相同的权限门：`user/permissions.json` 的工具级档位，叠加 `user/fs-policy.json` 对 `write` / `edit` 的路径规则。权限门是唯一安全边界；工具直接作用于真实系统，不设 sandbox 分支，也不解析 sandbox 相关字段。
+
+权限 scope 在子 Agent 启动时固定，会话内不可放宽；审批策略钉死为不弹审批，无视父轮次的策略。`ask` 档工具在子作用域自动拒绝，不挂起、不发 `approval-request`；子 Agent 不重试被拒操作，把限制写进回复交由父 Agent 处理。
+
+该约束以 runtime-context（user 消息，非 system 段）逐字注入子 Agent，使父子 system prompt 保持同一套部署文案（来源 `dsh-subagent/lib/index.js:359-363`）：
+
+> You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
+
+## 5. 存储与轨迹
+
+- `messages`：settlement 以 `role=user` + `source=subagent-settle` 落一行；append-only，`surface_seq` 单调，`getSurface()` 回放时与其他消息一视同仁，压缩不改写原行。
+- 子 Agent 拥有独立 session，其消息与 step 落在同一套关系表里，以 session id 区隔。
+- UI 依据 `source` 把 settlement 渲染为子代理完成卡片；`system-prompt` / `user-input` 布局树不因该消息改变。
+
+## 6. 取消、预算与异常回灌
+
+### 6.1 取消
+
+`exec.signal` 贯穿子 Agent 的创建与运行。子 Agent 比父轮次活得久，不复用父 turn 的 signal；运行时为每个子 Agent 持有独立 `AbortController`，父轮次取消不自动中止已派发的子 Agent。取消或中断产出 `stopReason: "aborted"`，结算首行取 `Background subagent <id> was stopped before it finished.`。
+
+### 6.2 失控预算
+
+- 单次模型请求的 `max_tokens` 由会话设置决定；触顶产出 `stopReason: "max-tokens"`，结算首行取 `Background subagent <id> ran out of room before it finished.`。
+
+该上限是子 Agent 侧的硬约束，不依赖父轮次是否仍在运行。
+
+### 6.3 失败与诊断
+
+子 loop 抛异常、模型或传输失败时压平为 `stopReason: "error"`，结算首行取 `Background subagent <id> failed before it finished.`。`diagnostic` 由 provider 产出，是安全的失败说明而非异常原文；按 4096 字节上限以 UTF-8 截断（不切断多字节字符），超限部分替换为固定后缀 `\n[diagnostic truncated]` 后附在结算消息末尾（来源 `dsh-subagent/lib/index.js:2760-2781`）；请求了结构化输出却未捕获到有效值时同样降为 `error`。异常不向上抛到父进程。
+
+### 6.4 结算发放门槛
+
+结算只在子 Agent 已发布且投递目标为父会话时发放一次，同一子 Agent 的重复结算不重发。父会话已关闭、进程结束或子 Agent 被提前清理时，结算消息丢弃并记录告警，不暂存、不补发。
+
+子 Agent 的结束原因由运行时记录，settlement 首行按 `completed` / `aborted` / `max-tokens` / `refusal` / `error` 取对应文案（来源 `dsh-subagent/lib/index.js:487-500`）；正常情况下父 Agent 总会收到一次结算消息，不会静默丢失结果。
