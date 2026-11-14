@@ -39,13 +39,16 @@ function cleanMessage(message) {
   return clean;
 }
 
-// Message-level surface from the event log: append-origin messages with every
+// Message-level surface from storage: append-origin messages with every
 // compaction replacement applied, each node priced with the DSH heuristic.
+// Forked sessions also carry the inherited prefix; originSessionId tells them
+// apart because surface_seq is per-session and collides across sessions.
 async function surfaceNodes(core, sessionId) {
   const surface = await core.store.run("session.surface", { session_id: sessionId });
   return surface.nodes.map((node) => ({
     seq: node.seq,
     id: node.kind === "checkpoint" ? node.seq : node.id,
+    originSessionId: node.originSessionId,
     turnSeq: node.turnSeq == null ? null : Number(node.turnSeq),
     checkpoint: node.kind === "checkpoint",
     role: node.message.role,
@@ -53,6 +56,12 @@ async function surfaceNodes(core, sessionId) {
     tokens: compaction.estimateMessageTokens(node.message),
     message: node.message,
   }));
+}
+
+// Boundary selection only looks at this session's own nodes: an inherited
+// segment must never be the cut point (docs/dev/session-tree.md §4.2).
+function ownNodes(sessionId, surface) {
+  return surface.filter((node) => node.originSessionId === sessionId);
 }
 
 // Request messages from the replayed surface + the caller's pending tail
@@ -116,16 +125,24 @@ async function pruneToolResults(core, sessionId) {
 //   [start_seq, end_seq] span. A failed summary marks the row 'failed' and leaves
 //   the surface untouched.
 async function runCompaction(core, { sessionId, trigger, surface, boundary, system, toolDefs, target, onEvent = () => {} }) {
-  const boundaryIdx = surface.findIndex((node) => node.seq === boundary.seq);
+  // surface_seq 是 per-session 的，fork 继承段会与本会话撞号：边界一律按
+  // (originSessionId, seq) 定位。
+  const boundaryIdx = surface.findIndex(
+    (node) => node.originSessionId === sessionId && node.seq === boundary.seq,
+  );
   if (boundaryIdx < 0) return { ok: false, error: "selected surface node is gone" };
   const shadowed = surface.slice(0, boundaryIdx + 1);
   if (!shadowed.length) return { ok: false, error: "no compactable history yet" };
   const input = shadowed.map((node) => cleanMessage(node.message));
   const tokensBefore = shadowed.reduce((total, node) => total + node.tokens, 0);
   const turnSeqs = new Set(
-    shadowed.filter((node) => !node.checkpoint && node.turnSeq != null).map((node) => node.turnSeq),
+    shadowed
+      .filter((node) => node.originSessionId === sessionId && !node.checkpoint && node.turnSeq != null)
+      .map((node) => node.turnSeq),
   );
-  const range = { start: shadowed[0].seq, end: boundary.seq };
+  // fork 会话的摘要覆盖整条历史（含继承段），start_seq 记 0 作哨兵。
+  const fork = await core.store.run("sessionFork.get", { child_session_id: sessionId });
+  const range = { start: fork ? 0 : shadowed[0].seq, end: boundary.seq };
 
   let record;
   try {
@@ -196,7 +213,7 @@ async function compactSession(core, { sessionId, model, onEvent = () => {} } = {
     const active = await core.store.run("compaction.active", { session_id: sessionId, boot: core.bootId });
     if (active) return { ok: false, error: "compaction already in progress" };
     const surface = await surfaceNodes(core, sessionId);
-    const boundary = compaction.selectTailBoundary(surface);
+    const boundary = compaction.selectTailBoundary(ownNodes(sessionId, surface));
     if (!boundary) return { ok: false, error: "no compactable history yet" };
     const st = readSettingsSafe();
     const target = core._resolveTarget(model);
@@ -265,10 +282,11 @@ async function maybeCompactStep(core, { sessionId, conv, system, toolDefs, model
   // Phase 2: summarize the span older than the retained tail. The tail budget
   // counts the pending user message so it is never compacted.
   const surface = await surfaceNodes(core, sessionId);
+  const own = ownNodes(sessionId, surface);
   const boundary = isOverflow
-    ? compaction.selectTailBoundary(surface)
+    ? compaction.selectTailBoundary(own)
     : compaction.selectAutoBoundary(
-      surface,
+      own,
       Math.floor(window * compaction.AUTO_RETAIN_RATIO),
       compaction.estimateMessagesTokens(pendingMessages),
     );

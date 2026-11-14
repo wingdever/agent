@@ -172,7 +172,7 @@ UI 的占用环使用同一个 `contextWindow` RPC，不再硬编码。
 
 ## 4.2 实现链路（读代码顺序）
 
-1. `getSurface()`：append-origin 消息 + 按 `seq` 应用 `compactions` 的区间替换，得到节点；
+1. `getSurface()`：append-origin 消息 + 按 `seq` 应用 `compactions` 的区间替换，得到节点；fork 子会话在头部前置继承段，节点带 `originSessionId`；
 2. `surfaceCuts()`：计算每个切点是否平衡；
 3. `selectTailBoundary()` / `selectAutoBoundary()`：选最后一条被压缩的节点；
 4. `surfaceNodes()`：给节点补 token 价格；
@@ -198,6 +198,10 @@ surface 是逐条消息的节点序列（user / assistant / tool），外加 hea
 边界可以落在 turn 内部；被压缩的前缀在请求投影里替换为 checkpoint，原始消息仍在存储与
 transcript 中。上一份 checkpoint 也是 surface 节点，因此剩余 surface 只有一个节点时，
 再次压缩会重写该 checkpoint（DSH 允许的行为）。
+
+fork 子会话的 surface 头部是继承段。区间选择只在 `originSessionId` 等于本会话的节点里进行，
+切点不会落在继承段上；摘要本身可以覆盖继承段（`start_seq = 0`），见
+[session-tree.md](session-tree.md)。
 
 ## 5.1 手动指定区间（compaction-user-range）
 
@@ -300,8 +304,8 @@ route-specific image pricing 在本项目等价于 DSH 的无图片回退（消�
 - `core/token-meter.js`：header 估价、canonical header key、usage 锚定测量；
 - `core/index.js`：`compactSession` / `_maybeCompactStep` / `_surfaceNodes` / `_requestMessages` /
   `_summarizeMessages` / `_pruneToolResults` / `_recordTokenAnchor` 的委托入口；
-- `core/storage/{schema,store}.mjs`：`compactions`、`messages.surface_seq`、`tool_result_prunes`、
-  `token_anchors`、`getSurface()` replay、boot 锁判定；
+- `core/storage/{schema,store}.mjs`：`compactions`、`session_forks`、`messages.surface_seq`、`tool_result_prunes`、
+  `token_anchors`、`getSurface()` 回放（含 fork 继承段）、boot 锁判定；
 - `core/transports/http.js`：`compact` 走 SSE，末尾用 `result` 事件回传结果；
 - `ui/web/app.js`：`/compact` 拦截、checkpoint 卡、状态提示、轨迹标记、`contextWindow`；
 - `ui/web/settings.js`：`autoCompact` 开关；

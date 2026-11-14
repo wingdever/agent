@@ -34,8 +34,7 @@ create table session_forks (
 
 `hist(session)` 返回该会话的完整消息数组，每个节点带 `origin_session_id`（这条消息属于哪个会话）。按以下顺序：
 
-1. **本会话有压缩**（`compactions` 中 `seq` 最大的 `succeeded` 一行）：
-   `[该压缩的 checkpoint 消息] + [本会话 surface_seq 大于该压缩终点的消息]`
+1. **本会话有压缩**：在基础序列上按 `seq` 顺序应用本会话每个成功压缩，把 `[start_seq, end_seq]` 区间替换成该行的 checkpoint。`start_seq = 0` 表示从整段历史头部替换（fork 会话把继承段吸收进摘要）。应用后不再访问父会话。
 2. **否则本会话有 `session_forks` 记录**：
    - 父存在可继承的压缩（按 §2 的规则推算）：`[该压缩的 checkpoint] + [父消息中 surface_seq 大于该压缩终点且不超过 parent_boundary_seq 的部分]`，再拼 `[本会话全部消息]`
    - 父无压缩：`hist(父)` 的祖先部分全部保留，父自己的消息截断到 `parent_boundary_seq`，再拼 `[本会话全部消息]`

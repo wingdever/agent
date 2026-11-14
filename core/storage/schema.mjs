@@ -80,6 +80,16 @@ export const SCHEMA_STATEMENTS = [
     next_seq    integer  NOT NULL DEFAULT 0
   )`,
 
+  // fork 继承：子会话不复制父历史，只记录继承到父的哪条消息为止。
+  // 回放时按父会话的 compactions 与 parent_boundary_seq 拼接继承段。
+  `CREATE TABLE IF NOT EXISTS session_forks (
+    child_session_id     integer  PRIMARY KEY REFERENCES sessions (id) ON DELETE CASCADE,
+    parent_session_id    integer  NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    parent_boundary_seq  integer  NOT NULL,   -- 父会话最后一条已完成消息的 surface_seq
+    created_at           TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_session_forks_parent ON session_forks (parent_session_id)`,
+
   `CREATE TABLE IF NOT EXISTS turns (
     id          integer PRIMARY KEY,
     session_id  INTEGER NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,

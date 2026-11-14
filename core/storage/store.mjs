@@ -119,6 +119,8 @@ class Store {
       for (const c of comps) if (c.summary_content_id != null) await this._delete("contents", c.summary_content_id);
       await this.db.prepare("DELETE FROM compactions WHERE session_id=$1").run(id);
       await this.db.prepare("DELETE FROM session_seq_counters WHERE session_id=$1").run(id);
+      // fork 继承点：本会话作为子或父的行都清掉，避免指向已删除的会话。
+      await this.db.prepare("DELETE FROM session_forks WHERE child_session_id=$1 OR parent_session_id=$1").run(id);
       return this._delete("sessions", id);
     }
     // 默认软删除：标记 deleted_at，保留 turns 供回溯恢复
@@ -126,6 +128,24 @@ class Store {
   }
   async restoreSession({ id }) {
     return this._update("sessions", id, { deleted_at: null }, ["deleted_at"]);
+  }
+
+  // ================= 会话 fork 继承（无 id 列，走裸 SQL / _insertRow）=================
+  async addSessionFork({ child_session_id, parent_session_id, parent_boundary_seq }) {
+    await this._insertRow("session_forks", [
+      "child_session_id", "parent_session_id", "parent_boundary_seq",
+    ], [child_session_id, parent_session_id, parent_boundary_seq]);
+    return this.getSessionFork({ child_session_id });
+  }
+  getSessionFork({ child_session_id }) {
+    return this.db.prepare("SELECT * FROM session_forks WHERE child_session_id=$1").get(child_session_id);
+  }
+  listSessionForks({ parent_session_id }) {
+    return this.db.prepare("SELECT * FROM session_forks WHERE parent_session_id=$1").all(parent_session_id);
+  }
+  async deleteSessionFork({ child_session_id }) {
+    await this.db.prepare("DELETE FROM session_forks WHERE child_session_id=$1").run(child_session_id);
+    return { child_session_id };
   }
 
   // ================= 压缩（compactions 关系表） =================
@@ -289,13 +309,11 @@ class Store {
     return messages;
   }
 
-  // Surface replay: append-origin messages with every succeeded compaction's
-  // [start_seq, end_seq] span replaced by the framed checkpoint in seq order.
-  // The checkpoint node takes the compaction's own seq, so span endpoints stay
-  // real sequence numbers.
-  async getSurface({ session_id }) {
+  // 单个会话自己的 surface 节点：append-origin 消息（无 system），带 originSessionId。
+  // 节点 seq 是 per-session 的，跨会话复用同一个数值，定位一律用 (originSessionId, seq)。
+  async _ownSurfaceNodes(session_id) {
     const messages = await this._projectMessages({ session_id });
-    const nodes = messages
+    return messages
       .filter((m) => m.role !== "system")
       .sort((a, b) => a.surfaceSeq - b.surfaceSeq)
       .map((m) => ({
@@ -303,32 +321,87 @@ class Store {
         kind: "message",
         id: m.id,
         turnSeq: m.turnSeq == null ? null : Number(m.turnSeq),
+        originSessionId: session_id,
         message: Object.assign(
           { role: m.role, content: m.content },
           m.tool_calls ? { tool_calls: m.tool_calls } : {},
           m.tool_call_id ? { tool_call_id: m.tool_call_id } : {},
         ),
       }));
-    const rows = await this.db.prepare(
-      "SELECT * FROM compactions WHERE session_id=$1 AND status='succeeded' ORDER BY seq"
-    ).all(session_id);
+  }
+
+  async _checkpointNode(row, originSessionId, turnSeq, summaryContent) {
+    const content = summaryContent != null
+      ? summaryContent
+      : ((await this._get("contents", row.summary_content_id)) || {}).content;
+    return {
+      seq: Number(row.seq),
+      kind: "checkpoint",
+      id: null,
+      turnSeq: turnSeq == null ? null : Number(turnSeq),
+      originSessionId,
+      compactionId: row.id,
+      message: { role: "user", content: compaction.frameCheckpoint(content == null ? "" : content) },
+    };
+  }
+
+  // 历史回放（fork 感知）。boundarySeq 非空表示「父侧冻结」：只取该会话
+  // 截至该 seq 的历史，用于 fork 子会话重建继承段。
+  //
+  // 基础序列 = 继承段 + 本会话消息，然后按 seq 顺序应用本会话的成功压缩：
+  // 有 fork 记录时 start_seq 记 0，表示从整段历史的头部替换；否则按
+  // [originSessionId, seq] 定位区间端点（surface_seq 是 per-session 的，会跨会话撞号）。
+  async _hist(sessionId, boundarySeq, seen) {
+    const key = sessionId + "@" + (boundarySeq == null ? "live" : boundarySeq);
+    if (seen.has(key)) throw new Error("session fork cycle detected at session " + sessionId);
+    seen.add(key);
+    if (boundarySeq === 0) return [];
+
+    const own = await this._ownSurfaceNodes(sessionId);
+    const scoped = boundarySeq == null ? own : own.filter((node) => node.seq <= boundarySeq);
+
+    let rows = boundarySeq == null
+      ? await this.db.prepare(
+        "SELECT * FROM compactions WHERE session_id=$1 AND status='succeeded' ORDER BY seq"
+      ).all(sessionId)
+      : await this.db.prepare(
+        "SELECT * FROM compactions WHERE session_id=$1 AND status='succeeded' AND end_seq<=$2 ORDER BY seq"
+      ).all(sessionId, boundarySeq);
+
+    // start_seq = 0 的压缩从整段历史头部替换，已经吸收继承段与更早的压缩：
+    // 只保留这一行，也不再访问父会话。
+    const latest = rows.length ? rows[rows.length - 1] : null;
+    const absorbsAll = latest != null && Number(latest.start_seq) === 0;
+    if (absorbsAll) rows = [latest];
+
+    const fork = absorbsAll ? null : await this.getSessionFork({ child_session_id: sessionId });
+    const inherited = fork
+      ? await this._hist(fork.parent_session_id, Number(fork.parent_boundary_seq), seen)
+      : [];
+    const nodes = [...inherited, ...scoped];
+
     for (const row of rows) {
-      const startIdx = nodes.findIndex((node) => node.seq === Number(row.start_seq));
-      const endIdx = nodes.findIndex((node) => node.seq === Number(row.end_seq));
+      const startSeq = Number(row.start_seq);
+      const endSeq = Number(row.end_seq);
+      const startIdx = startSeq === 0
+        ? 0
+        : nodes.findIndex((node) => node.originSessionId === sessionId && node.seq === startSeq);
+      const endIdx = nodes.findIndex((node) => node.originSessionId === sessionId && node.seq === endSeq);
       if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) continue;
       const summary = row.summary_content_id == null ? null : await this._get("contents", row.summary_content_id);
       if (!summary) continue;
-      const boundaryTurnSeq = nodes[endIdx].turnSeq;
-      nodes.splice(startIdx, endIdx - startIdx + 1, {
-        seq: Number(row.seq),
-        kind: "checkpoint",
-        id: null,
-        turnSeq: boundaryTurnSeq,
-        compactionId: row.id,
-        message: { role: "user", content: compaction.frameCheckpoint(summary.content) },
-      });
+      nodes.splice(
+        startIdx,
+        endIdx - startIdx + 1,
+        await this._checkpointNode(row, sessionId, nodes[endIdx].turnSeq, summary.content),
+      );
     }
-    return { nodes };
+    return nodes;
+  }
+
+  // 模型可见历史：fork 子会话 = 继承段 + 本会话消息。
+  async getSurface({ session_id }) {
+    return { nodes: await this._hist(session_id, null, new Set()) };
   }
 
   // Convenience projection for tests/tools: flat surface messages + latest
@@ -740,6 +813,11 @@ const OPS = {
   "session.history": (s, p) => s.getSessionHistory(p),
   "session.surface": (s, p) => s.getSurface(p),
   "session.compactions": (s, p) => s.listCompactions(p),
+
+  "sessionFork.add": (s, p) => s.addSessionFork(p),
+  "sessionFork.get": (s, p) => s.getSessionFork(p),
+  "sessionFork.list": (s, p) => s.listSessionForks(p),
+  "sessionFork.delete": (s, p) => s.deleteSessionFork(p),
 
   "compaction.start": (s, p) => s.startCompaction(p),
   "compaction.succeed": (s, p) => s.succeedCompaction(p),
