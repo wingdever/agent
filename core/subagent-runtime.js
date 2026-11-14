@@ -23,6 +23,10 @@ const SUBAGENT_DELEGATION_CONTEXT = "You are a delegated subagent: your permissi
 const MAX_DIAGNOSTIC_BYTES = 4096;
 const DIAGNOSTIC_TRUNCATION_SUFFIX = "\n[diagnostic truncated]";
 
+// 模型侧名称（docs/dev/subagent.md §12）。
+const ROOT_AGENT_NAME = "lead";
+const AGENT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+
 function settlementSummary(childId, stopReason) {
   const subject = `Background subagent ${childId}`;
   switch (stopReason) {
@@ -120,8 +124,8 @@ class SubagentRuntime {
     return true;
   }
 
-  // Fire-and-forget. Returns the child session id synchronously (after the DB
-  // row is created) so the delegation tool can acknowledge immediately.
+  // Fire-and-forget. Returns { childId, name } after the DB rows are created so
+  // the delegation tool can acknowledge immediately with the full path name.
   async spawn(spec) {
     const parent = await this._loadParent(spec.parentSessionId);
     // 工具清单对所有会话相同（请求前缀要稳定），spawn 的层级限制放在执行层：
@@ -137,13 +141,13 @@ class SubagentRuntime {
   async spawnFork(spec) {
     const parent = await this._loadParent(spec.parentSessionId);
     const boundary = await this.store.run("sessionFork.boundary", { session_id: spec.parentSessionId });
-    const childId = await this._createChild(spec, parent);
+    const created = await this._createChild(spec, parent);
     await this.store.run("sessionFork.add", {
-      child_session_id: childId,
+      child_session_id: created.childId,
       parent_session_id: spec.parentSessionId,
       parent_boundary_seq: boundary,
     });
-    return this._launch(spec, childId);
+    return this._launch(spec, created);
   }
 
   async _loadParent(parentSessionId) {
@@ -152,19 +156,58 @@ class SubagentRuntime {
     return parent;
   }
 
-  // 两种委派共用的子会话创建：同 workspace、kind=subagent、写委派关联。
+  // 名称规则（docs/dev/subagent.md §12）：1–32 位小写字母/数字/连字符，字母
+  // 开头，不能是 lead；省略时取第一个空闲的 agent-N。同父唯一由
+  // subagents 表的 UNIQUE (par_sess_id, agent_name) 承担。
+  async _allocateAgentName(parentSessionId, requested) {
+    const siblings = await this.store.run("subagent.list", { par_sess_id: parentSessionId });
+    const taken = new Set(siblings.map((row) => row.agent_name));
+    if (requested != null) {
+      const name = String(requested);
+      if (!AGENT_NAME_PATTERN.test(name) || name === ROOT_AGENT_NAME) {
+        throw new Error(`Invalid agent name "${name}": use 1-32 lower-case letters, digits or hyphens, starting with a letter; "lead" is reserved`);
+      }
+      if (taken.has(name)) {
+        throw new Error(`Agent name "${name}" is already used by another subagent of this parent`);
+      }
+      return name;
+    }
+    for (let index = 1; ; index += 1) {
+      const candidate = `agent-${index}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  }
+
+  // 模型侧完整名称：从根开始沿 subagents 边拼出的斜杠路径；根为 lead。
+  async pathOf(sessionId) {
+    const parts = [];
+    let current = sessionId;
+    for (let guard = 0; guard < 100; guard += 1) {
+      const row = await this.store.run("subagent.get", { sub_sess_id: current });
+      if (!row) break;
+      parts.unshift(row.agent_name);
+      current = row.par_sess_id;
+    }
+    return parts.length ? parts.join("/") : ROOT_AGENT_NAME;
+  }
+
+  // 两种委派共用的子会话创建：同 workspace、kind=subagent、分配名称并写委派关联。
   async _createChild(spec, parent) {
+    const agentName = await this._allocateAgentName(spec.parentSessionId, spec.name);
     const child = await this.store.run("session.create", {
       workspace_id: parent.workspace_id,
       name: spec.description || "subagent",
       kind: "subagent",
     });
-    await this.store.run("subagent.add", { sub_sess_id: child.id, par_sess_id: spec.parentSessionId });
-    return child.id;
+    await this.store.run("subagent.add", {
+      sub_sess_id: child.id, par_sess_id: spec.parentSessionId, agent_name: agentName,
+    });
+    return { childId: child.id, name: await this.pathOf(child.id) };
   }
 
   // 后台跑子循环；调用方已经写完会话与关联行。
-  _launch(spec, childId) {
+  _launch(spec, created) {
+    const { childId } = created;
     const task = this._runChild(spec, childId)
       .catch((e) => this._deps.logger.warn("[subagent] background run failed:", (e && e.message) || e))
       .finally(() => {
@@ -172,7 +215,7 @@ class SubagentRuntime {
         this.controllers.delete(childId);
       });
     this.tasks.set(childId, task);
-    return { childId };
+    return created;
   }
 
   async _runChild(spec, childId) {
@@ -304,6 +347,8 @@ class SubagentRuntime {
 module.exports = {
   SubagentRuntime,
   SUBAGENT_DELEGATION_CONTEXT,
+  ROOT_AGENT_NAME,
+  AGENT_NAME_PATTERN,
   settlementSummary,
   limitDiagnostic,
   buildSettlementText,

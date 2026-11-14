@@ -122,7 +122,7 @@ export const SCHEMA_STATEMENTS = [
     seq         integer not null,
     surface_seq integer not null default 0,  -- per-session 序号，与 compactions.seq 共用
     role        text  NOT NULL,
-    source      text,                          -- 消息产生机制: user_input | subagent-prompt | subagent-settle
+    source      text,                          -- 消息产生机制: user_input | subagent-prompt | subagent-settle | agent-message
     content_id  integer references contents (id) on delete cascade,
     thought_id  integer references contents (id) on delete cascade,
     created_at  TIMESTAMP NOT NULL DEFAULT now(),
@@ -230,13 +230,16 @@ export const SCHEMA_STATEMENTS = [
     updated_at    TIMESTAMP NOT NULL DEFAULT now()
   )`,
 
-  // Subagent (one-shot delegation). parent/sub session link; discarded_at marks
-  // a settlement that could not be delivered (see docs/dev/subagent.md §6.4).
+  // Subagent delegation: parent/sub session link; agent_name is the model-side
+  // name, unique among siblings; discarded_at marks an undeliverable settlement
+  // (see docs/dev/subagent.md §6.4).
   `CREATE TABLE IF NOT EXISTS subagents (
     sub_sess_id  integer NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
     par_sess_id  integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    agent_name   text    NOT NULL,
     discarded_at TIMESTAMP
   )`,
+  `CREATE INDEX IF NOT EXISTS idx_subagents_name ON subagents (par_sess_id, agent_name)`,
 
   // Delegation tool_call <-> first user message in the child session.
   `CREATE TABLE IF NOT EXISTS subagent_prompts (

@@ -752,8 +752,9 @@ class Store {
 
 
   // ================= 子代理关联表（无 id 列，走裸 SQL / _insertRow）=================
-  async addSubagent({ sub_sess_id, par_sess_id }) {
-    await this._insertRow("subagents", ["sub_sess_id", "par_sess_id"], [sub_sess_id, par_sess_id]);
+  // 一次委派一行。agent_name 是模型侧名称，同父唯一（schema 上的 UNIQUE 索引承担）。
+  async addSubagent({ sub_sess_id, par_sess_id, agent_name }) {
+    await this._insertRow("subagents", ["sub_sess_id", "par_sess_id", "agent_name"], [sub_sess_id, par_sess_id, agent_name]);
     return this.getSubagent({ sub_sess_id });
   }
   getSubagent({ sub_sess_id }) {
@@ -761,6 +762,9 @@ class Store {
   }
   listSubagents({ par_sess_id }) {
     return this.db.prepare("SELECT * FROM subagents WHERE par_sess_id=$1").all(par_sess_id);
+  }
+  getSubagentByName({ par_sess_id, agent_name }) {
+    return this.db.prepare("SELECT * FROM subagents WHERE par_sess_id=$1 AND agent_name=$2").get(par_sess_id, agent_name);
   }
   markSubagentDiscarded({ sub_sess_id }) {
     return this.db.prepare("UPDATE subagents SET discarded_at=now() WHERE sub_sess_id=$1").run(sub_sess_id);
@@ -860,6 +864,7 @@ const OPS = {
   "subagent.add": (s, p) => s.addSubagent(p),
   "subagent.get": (s, p) => s.getSubagent(p),
   "subagent.list": (s, p) => s.listSubagents(p),
+  "subagent.byName": (s, p) => s.getSubagentByName(p),
   "subagent.discard": (s, p) => s.markSubagentDiscarded(p),
   "subagent.bySettle": (s, p) => s.getSubagentBySettle(p),
   "subagentPrompt.add": (s, p) => s.addSubagentPrompt(p),
