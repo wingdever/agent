@@ -356,3 +356,11 @@ fork 在创建子会话时写一行 `session_forks`：子会话是新建的 `kin
 - 两个 loop 的 step 内消息序号改为计数器（system / catalog / 输入 / 计划通知 / steer / assistant / tool 依次取号），取代现有的硬编码序号。
 - 注入点：自动压缩之后、模型请求之前（压缩重建 conv 时不会丢掉尚未落库的 steer 消息）。linear 在 `step.create` 之后取队列并落库；node-graph 在 `model-request` 建 step 之后取队列并落库。
 - steer 只对 `kind = subagent` 的会话生效；消息以 `source = agent-message` 落库后追加到 conv。
+
+
+# 尚未完成（下一步）
+
+  1. steer 注入：send_message 给运行中目标的队列消息，需在 linear / node-graph
+  压缩后、模型请求前落库并追加到 conv（§17，含 step 序号计数器）— 目前队列已存储但未投递。
+  2. 子会话身份段（§13）：注入 kind=subagent 会话的名称与协作指引，使子 Agent
+  知道自己名字、能用 send_message 指名他人。
