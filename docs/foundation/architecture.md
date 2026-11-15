@@ -81,3 +81,15 @@ sequenceDiagram
 - **流式与用量**：`model-call` 模块拆为三子模块——`model-request.js`（payload 构造 + effort 翻译 + `postChatCompletions`）、`response-process.js`（`stream` / `emitUsage`，读响应 + 累积 + 归一化）、`stream-render.js`（增量 → UI 事件的渲染层）。`stream` 依赖 `core.reasoningParamFor` / `core.effort` / `core.model` / `core.baseUrl` / `core.apiKey`。（详见 `docs/dev/model-call.md`）
 - **压缩自治**：`compaction-runner` 自带 `resolveContextWindow`（不 import `index.js`），仅向上发 `compaction` 事件，由 UI 层（`compaction-ui.js`）呈现。
 - **token 锚点**：`token-anchor.js` 仅依赖 `token-meter.anchorFrom`，与对话循环解耦。
+
+## 4. 数据流
+
+```text
+user/settings.json
+|
+core/readSettings()
+|
+ui/settings-modal
+
+user/providers.json as so.
+```

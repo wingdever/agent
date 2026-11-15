@@ -7,16 +7,16 @@ A micro AI agent aims to help learn harness engineer.
 ### commands
 
 ```bash
-npm install          # install dependencies (includes electron 44.9.3)
-npm start            # launch the default electron UI + http transport
-npm test             # run tests
+pnpm install         # install dependencies (includes electron 44.9.3)
+pnpm start           # launch the default electron UI + http transport
 ```
 
 ### environment-variables
 
 ```bash
-AGENT_UI=electron 
+AGENT_UI=electron
 AGENT_TRANSPORT=http
+AGENT_LOOP_ENGINE=node-graph
 ```
 
 - `AGENT_UI`: 
@@ -25,6 +25,9 @@ Currently registered: `electron` (default).
 - `AGENT_TRANSPORT`: 
 how the core communicates with the UI. 
 Supports `http` (default) and `ipc`.
+- `AGENT_LOOP_ENGINE`: 
+which agent-loop engine to use. 
+`node-graph` is the default and active engine; `linear` is frozen as a reference.
 
 
 ## Architecture
@@ -36,18 +39,21 @@ This makes it easy to replace or add a client.
 ```tree
 agent/
 ├── launcher.js           coordinator: picks UI and starts transport
-├── core/                 core: business logic
-│   ├── index.js         createCore() entry point
-│   ├── transport.js     transport registry
-│   ├── transports/      http.js / ipc.js
-│   ├── tools/           core-side tool support
-│   ├── storage/         session / data persistence
-│   └── system-prompt.js
+├── core/                 agent runtime: loops, context, tools, storage
+│   ├── index.js          createCore() entry point
+│   ├── loops/            node-graph (active) + linear (frozen)
+│   ├── tools/            tool registry / executor / result shaping
+│   ├── storage/          session / data persistence
+│   ├── skills/           skill registry and filesystem provider
+│   ├── network/          provider HTTP client and tracker
+│   ├── transport.js      transport registry
+│   ├── transports/       http / ipc
+│   └── subagent-runtime.js
 ├── tools/                pluggable tools
 ├── ui/
-│   ├── electron/        electron client (main.js / preload.js)
-│   └── web/             renderer (app.js / index.html / styles.css)
-└── docs/                 design and impl docs
+│   ├── electron/         electron client (main.js / preload.js)
+│   └── web/              renderer modules
+└── docs/                 documentation tree (docs/README.md)
 ```
 
 ### Tools
@@ -62,6 +68,10 @@ now config files in `user/` includes:
 basic `settings.json`, `providers.json`;
 permit `permissions.json`, `bash-policy.json`, `fs-policy.json`
 
+
+## Documentation
+
+The documentation tree starts at [`docs/README.md`](docs/README.md). The root README introduces the project; the docs README introduces the tree.
 
 ## Module design
 
