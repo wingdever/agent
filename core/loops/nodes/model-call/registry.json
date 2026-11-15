@@ -1,6 +1,6 @@
 {
-  "id": "tool-run",
-  "next": "plan-review",
+  "id": "model-call",
+  "next": "tool-execute",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

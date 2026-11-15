@@ -3,7 +3,7 @@
 //   - Left: read-only static next chain + live hooks overlay (dashed edges).
 //   - Right: editable hook table (id/type/next are read-only; next is a label, not a select).
 // Depends on window.AgentClient (api.js) and window.uiConfirm/uiAlert (app.js).
-// Layout tree: see docs/ui.md loops-modal.
+// Layout tree: see docs/ui/ui.md loops-modal.
 (function () {
   function ready(fn) {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn);
@@ -40,25 +40,23 @@
 
   // Repo default hook entries (REAL prefixed builtin ids). Used by reset-defaults.
   var DEFAULT_HOOKS = [
-    { on: "resolve-input", slot: "before", target: "builtin.translate-input" },
-    { on: "model-request", slot: "after", target: "builtin.translate-output" },
+    { on: "assemble-input", slot: "before", target: "builtin.translate-input" },
+    { on: "model-call", slot: "after", target: "builtin.translate-output" },
   ];
   var SLOTS = ["before", "after", "onError"];
 
-  // Static next chain (decide-next loops back to auto-compact).
+  // Static next chain (decide-next loops back to pre-step).
   var CHAIN = [
-    "resolve-input",
-    "resolve-model",
+    "turn-start",
+    "resolve-target",
     "assemble-system",
-    "build-context",
-    "auto-compact",
-    "model-request",
-    "tool-approve",
-    "tool-run",
-    "plan-review",
+    "assemble-input",
+    "pre-step",
+    "model-call",
+    "tool-execute",
     "decide-next",
   ];
-  var LOOP_BACK = { from: "decide-next", to: "auto-compact" };
+  var LOOP_BACK = { from: "decide-next", to: "pre-step" };
 
   // ---- Module state ----
   var state = {
@@ -71,7 +69,10 @@
 
   // Backend wrapper: loops.fn with op.
   function api(op, payload) {
-    return window.AgentClient.call("loops", { op: op, payload: payload || {} });
+    if (op === "get") return window.AgentClient.call("loops.get", {});
+    if (op === "list") return window.AgentClient.call("loops.list", {});
+    if (op === "upsert") return window.AgentClient.call("loops.upsert", { payload: payload || {} });
+    return Promise.reject(new Error("unknown loops op: " + op));
   }
 
   function clone(arr) {

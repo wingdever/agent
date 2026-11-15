@@ -1,4 +1,4 @@
-// 数据持久化 DDL —— 真值来源：docs/data-struct.md
+// 数据持久化 DDL —— 真值来源：docs/foundation/storage/schema.md
 // 适配说明（pgmicro 约束）：
 //   1. TIMESTAMP 默认值用 now() 代替 CURRENT_TIMESTAMP（pgmicro 不支持后者作为列默认值）
 //   2. calls.arguments 为保留字，SQL 中统一双引号引用
@@ -232,7 +232,7 @@ export const SCHEMA_STATEMENTS = [
 
   // Subagent delegation: parent/sub session link; agent_name is the model-side
   // name, unique among siblings; discarded_at marks an undeliverable settlement
-  // (see docs/dev/subagent.md §6.4).
+  // (see docs/subagent/subagent.md §6.4).
   `CREATE TABLE IF NOT EXISTS subagents (
     sub_sess_id  integer NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
     par_sess_id  integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

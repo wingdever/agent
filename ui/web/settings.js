@@ -45,20 +45,20 @@
 
   async function loadSettings() {
     try {
-      var st = await window.AgentClient.call("settings", { op: "get" });
+      var st = await window.AgentClient.call("config.get", {});
       state = Object.assign({ stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch", autoCompact: true }, st || {});
     } catch (e) { /* 后端未就绪时用默认 */ }
     normalizeTranslate();
   }
 
   async function loadProviders() {
-    try { providers = await window.AgentClient.call("settings", { op: "providers" }); }
+    try { providers = await window.AgentClient.call("config.providers.get", {}); }
     catch (e) { providers = []; }
     if (!Array.isArray(providers)) providers = [];
   }
 
   function save() {
-    window.AgentClient.call("settings", { op: "set", payload: state }).catch(function () {});
+    window.AgentClient.call("config.set", { payload: state }).catch(function () {});
   }
 
   function renderStreamSwitch() {

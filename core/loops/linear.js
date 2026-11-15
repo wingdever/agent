@@ -3,14 +3,12 @@
 // 线性 agent-loop 引擎（原 core/index.js chat() 主循环抽离而来）。
 // 行为保持与抽离前完全一致；只是把"调用方"从函数式循环换成节点调度器之外的
 // 另一种形态。runLoop(core, ctx) 与 index.js 的 chat() 入参一致：
-//   core = AgentCore 实例（所有 this.xxx 方法都挂在这里）
+//   core = createCore 返回的服务集合
 //   ctx  = { messages, toolNames, model, onEvent, sessionId, stream, autonomy, activity, references, effort }
 //
-// 这是 loopEngine 注册表的默认引擎（AGENT_LOOP_ENGINE 缺省/未知时回落到它），
-// 以保证向后兼容与现有测试不退化。
+// 这是冻结的对照基线：默认引擎是 node-graph；linear 只用于对比，
+// 不补 subagent 或后续新功能。
 
-const crypto = require("crypto");
-const fs = require("fs");
 const path = require("path");
 const { DEFAULT_IDENTITY, assembleSystemPrompt } = require("../system-prompt");
 const { isModelInvocable } = require("../skills");
@@ -28,27 +26,6 @@ const { errorResult } = require("../tools/result");
 const { reset: resetTodos } = require("../todo-state");
 const planMode = require("../plan-mode");
 const { TurnError } = require("../turn-error");
-const { prepareUserInput } = require("../user-input");
-
-// readSettings 是 index.js 的模块级函数；这里复刻一份最小实现，避免循环依赖。
-const SETTINGS_FILE = path.join(__dirname, "..", "..", "user", "settings.json");
-function readSettings() {
-  try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch (_) { return {}; }
-}
-
-// resolveProvider 是 index.js 的模块级函数（读取 user/providers.json）；复刻一份最小实现。
-const PROVIDERS_FILE = path.join(__dirname, "..", "..", "user", "providers.json");
-function resolveProvider(name) {
-  if (!name) return null;
-  let providers;
-  try { providers = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8")); } catch (_) { return null; }
-  if (!Array.isArray(providers)) return null;
-  const p = providers.find((x) => x.name === name);
-  if (!p) return null;
-  const models = Array.isArray(p.models) ? p.models : [];
-  const model = models.length ? (models[0].name || models[0]) : null;
-  return { baseUrl: p.base_url, apiKey: p.api_key, model };
-}
 
 async function runLoop(core, ctx) {
   const {
@@ -64,23 +41,22 @@ async function runLoop(core, ctx) {
     effort,
   } = ctx;
 
-  core._onEvent = onEvent;
-  core.autonomy = autonomy === "autonomous" ? "autonomous" : "supervised";
+  core.agent.beginTurn({ emit: onEvent, autonomy });
   // 推理参数：none(或旧值 off)=关闭推理，其余非空值=分级推理(reasoning_effort，按 provider 字段映射)，空=不注入。
   // 注意：分级推理的取值是 provider 相关的（如 radeon 的 minimal/xhigh、deepseek 的 max），不再硬编码白名单。
-  core.effort = (effort && effort !== "undefined") ? effort : null;
-  core.activity = activity === "plan-mode" ? "plan-mode" : (activity || "bare-chat");
+  core.agent.effort = (effort && effort !== "undefined") ? effort : null;
+  core.agent.activity = activity === "plan-mode" ? "plan-mode" : (activity || "bare-chat");
   // activity=plan-mode 驱动 per-session plan-mode：选 plan-mode 即进入计划态（POLICY 生效），
-  // 切到其他 activity 即退出（见 docs/agent-mode.md）。exit_plan_mode 批准后由 UI 切到 build-code。
-  if (sessionId) planMode.setActive(sessionId, core.activity === "plan-mode");
+  // 切到其他 activity 即退出。exit_plan_mode 批准后由 UI 切到 build-code。
+  if (sessionId) planMode.setActive(sessionId, core.agent.activity === "plan-mode");
   const store = core.store;
   const persist = !!(sessionId && store);
   // A persisted turn owns the session: /compact and manual compaction must
   // wait until the loop releases it (DSH runMaintenance's idle claim).
   if (persist) {
-    const compactionGate = core.compacting.get(String(sessionId));
+    const compactionGate = core.agent.compacting.get(String(sessionId));
     if (compactionGate) await compactionGate;  // DSH queues waking input behind compaction
-    core.activeSessions.add(String(sessionId));
+    core.agent.activeSessions.add(String(sessionId));
   }
   // DSH resets the todo projection on turn/start; one chat() call is one turn.
   resetTodos(sessionId);
@@ -96,7 +72,7 @@ async function runLoop(core, ctx) {
   let currentStep = null;
   try {
   // Apply persisted settings (user/settings.json): provider -> baseUrl/apiKey, model, stream.
-  const st = readSettings();
+  const st = core.config.readSettings();
   const translateCfg = resolveTranslateConfig(st);
   // Input translation: the model must only see English. A failure blocks the
   // turn before anything is persisted; the UI restores the composer and asks
@@ -117,18 +93,13 @@ async function runLoop(core, ctx) {
     }
   }
   const effStream = stream !== undefined ? !!stream : (st.stream === true);
-  let effModel = model || st.model || core.model;
-  if (st.provider) {
-    const p = resolveProvider(st.provider);
-    if (p) {
-      core.baseUrl = p.baseUrl;
-      core.apiKey = p.apiKey;
-      if (!effModel) effModel = p.model;
-    }
-  }
+  const target = core.config.resolveTarget({ provider: st.provider, model: model || st.model });
+  const effModel = target.model;
+  const effBaseUrl = target.baseUrl;
+  const effApiKey = target.apiKey;
   // Deterministic schema/guidance order: registration order is a filesystem artifact.
-  const tools = core._selectTools(toolNames);
-  const toolDefs = core._toolDefs(tools);
+  const tools = core.tools.select(toolNames);
+  const toolDefs = core.tools.defs(tools);
   const permissions = readPermissions();
   const fsPolicy = readFsPolicy();
 
@@ -137,7 +108,7 @@ async function runLoop(core, ctx) {
   // stored text and neither persist nor emit it again. Requests still carry
   // it every time because Chat Completions is stateless.
   // ctx.cwd 覆盖：子 Agent 委派可带初始工作目录（相对路径基于父当前目录）。
-  const baseCwd = await core._resolveCwd(persist ? sessionId : null);
+  const baseCwd = await core.context.resolveCwd(persist ? sessionId : null);
   const cwd = ctx.cwd ? path.resolve(baseCwd, ctx.cwd) : baseCwd;
   let system = persist ? await store.run("session.prompt", { session_id: sessionId }) : null;
   const systemIsNew = !system;
@@ -171,7 +142,7 @@ async function runLoop(core, ctx) {
   const pendingUser = { role: "user", content: translatedUser != null ? translatedUser : lastInput.content };
   // @引用：把引用文件/会话/技能内容作为上下文注入（位于真实问题之前，独立于翻译步骤）。
   // 由 core/user-input 统一准备，两条 loop 路径共用同一份输入准备逻辑。
-  const { refs: pendingRefs } = await prepareUserInput(core, {
+  const { refs: pendingRefs } = await core.context.prepareInput({
     text: lastInput.content,
     cwd,
     references,
@@ -180,7 +151,7 @@ async function runLoop(core, ctx) {
   });
   let conv;
   if (persist) {
-    conv = await core._requestMessages(sessionId, system, [...pendingRefs, pendingUser]);
+    conv = await core.context.requestMessages(sessionId, system, [...pendingRefs, pendingUser]);
   } else {
     conv = [{ role: "system", content: system }, ...messages];
     // 非持久会话也注入 skill 目录消息（system 之后、用户消息之前），保证模型可见。
@@ -239,7 +210,7 @@ async function runLoop(core, ctx) {
     if (persist) {
       // 自动压缩失败不应掐断对话（DSH 在 pre-step 只告警并继续本轮）。
       try {
-        const auto = await core._maybeCompactStep({
+        const auto = await core.context.maybeCompactStep({
           sessionId,
           conv,
           system: requestSystem,
@@ -260,24 +231,28 @@ async function runLoop(core, ctx) {
     const step = persist ? await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "running" }) : null;
     currentStep = step;
     steps = r + 1;
+    // Per-step message sequence counter: system/catalog/user/notices/assistant/tool
+    // all share one monotonically increasing seq (UNIQUE(step_id, seq)).
+    let messageSeq = 0;
+    const nextSeq = () => messageSeq++;
     // 新一轮 step 开始（r=0 由前端 onSend 预建 UI；r>0 由本事件驱动 UI 建立新 step）
     if (r > 0) onEvent({ type: "step-start", seq: r });
 
     // step 0：只有 session 首轮落 system + 目录消息；触发本轮的用户请求始终落入本步骤
     // （写库失败只告警：对话仍可继续，历史缺一条不应掐断整轮）。目录消息排 system 之后、
-    // 真实用户之前（docs/dev/skill.md 5.2）。
+    // 真实用户之前（docs/skills/skills.md 5.2）。
     if (persist && r === 0) {
       try {
         if (systemIsNew) {
-          await store.run("message.add", { step_id: step.id, seq: 0, role: "system", content: system });
+          await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "system", content: system });
           if (catalogMsg) {
-            await store.run("message.add", { step_id: step.id, seq: 1, role: "user", content: catalogMsg.content });
+            await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "user", content: catalogMsg.content });
           }
         }
         // 真实用户请求（pendingUser）。即使后面追加了 /name 手势，也要以真实
         // 用户输入落库，不能因为 conv 里最后一条 user 是手势而把它吞掉。
         const userContent = typeof pendingUser.content === "string" ? pendingUser.content : JSON.stringify(pendingUser.content);
-        await store.run("message.add", { step_id: step.id, seq: systemIsNew ? (catalogMsg ? 2 : 1) : 0, role: "user", content: userContent, source: ctx.inputSource });
+        await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "user", content: userContent, source: ctx.inputSource });
       } catch (e) {
         onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
       }
@@ -291,9 +266,8 @@ async function runLoop(core, ctx) {
     for (const notice of switchNotices) {
       conv.push({ role: "user", content: notice });
       if (persist && step) {
-        const seq = systemIsNew ? (catalogMsg ? 3 : 2) : 1;
         try {
-          await store.run("message.add", { step_id: step.id, seq: seq, role: "user", content: notice });
+          await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "user", content: notice });
         } catch (e) {
           onEvent({ type: "error", error: "persist plan-mode notice failed: " + (e.message || e) });
         }
@@ -308,7 +282,17 @@ async function runLoop(core, ctx) {
     let overflowRetried = false;
     for (;;) {
       try {
-        a = await core._stream({ messages: conv, toolDefs, model: effModel, onEvent, sessionId, stream: effStream });
+        a = await core.model.stream({
+          messages: conv,
+          toolDefs,
+          model: effModel,
+          baseUrl: effBaseUrl,
+          apiKey: effApiKey,
+          effort: core.agent.effort,
+          onEvent,
+          sessionId,
+          stream: effStream,
+        });
         break;
       } catch (err) {
         const text = String((err && err.message) || err);
@@ -317,7 +301,7 @@ async function runLoop(core, ctx) {
           onEvent({ type: "compaction", phase: "overflow", trigger: "context-overflow" });
           let recovered = { changed: false };
           try {
-            recovered = await core._maybeCompactStep({
+            recovered = await core.context.maybeCompactStep({
               sessionId,
               conv,
               system: requestSystem,
@@ -345,20 +329,20 @@ async function runLoop(core, ctx) {
     // DSH usage anchor: remember this request's header/surface price plus the
     // provider usage so the next pressure measurement reuses it.
     if (persist) {
-      await core._recordTokenAnchor({
+      await core.context.recordTokenAnchor({
         sessionId,
         model: effModel,
         system: requestSystem,
         tools: toolDefs,
         messages: conv.slice(1),
-        assistant: core._cleanMessage(message),
+        assistant: core.context.cleanMessage(message),
         usage: a.usage,
       });
     }
     conv.push(message);
 
     // 记录本轮助手回复与（可能的）工具调用（首轮有 system 时整体后移一位）
-    const assistantSeq = r === 0 ? (systemIsNew ? 2 : 1) : 0;
+    const assistantSeq = nextSeq();
     let assistantMsg = null;
     const callIds = [];
     if (persist) {
@@ -472,7 +456,7 @@ async function runLoop(core, ctx) {
           try {
             await store.run("message.add", {
               step_id: step.id,
-              seq: assistantSeq + 1 + i,
+              seq: nextSeq(),
               role: "tool",
               content: result.text,
             });
@@ -496,7 +480,7 @@ async function runLoop(core, ctx) {
       }
       let decision;
       if (permission === "ask") {
-        decision = await core.requestApproval({ callId, name, args, permission });
+        decision = await core.interactions.requestApproval({ callId, name, args, permission });
       } else {
         onEvent({ type: "approval-request", callId, name, arguments: args, permission });
         decision = permission === "allow" ? "approve" : "deny";
@@ -508,19 +492,6 @@ async function runLoop(core, ctx) {
 
       // 授权通过：执行工具。结果已经是模型可见文本；meta 只给 UI/DB。
       onEvent({ type: "tool_call", id: callId, name, arguments: args });
-      // 委派工具拿父会话上下文发起 spawn / fork；两者共用同一份父轮次快照。
-      const parentChatCtx = { toolNames, model: effModel, effort, stream: effStream, activity, autonomy };
-      const delegation = core.subagents ? {
-        subagentSpawn: (a) => core.subagents.spawn({
-          ...a, parentSessionId: sessionId, parentOnEvent: onEvent, parentChatCtx, modelCallId: callId,
-        }),
-        subagentFork: (a) => core.subagents.spawnFork({
-          ...a, parentSessionId: sessionId, parentOnEvent: onEvent, parentChatCtx, modelCallId: callId,
-        }),
-        sendMessage: (a) => core.subagents.sendMessage(a),
-        interruptAgent: (a) => core.subagents.interruptAgent(a),
-        listAgents: (a) => core.subagents.listAgents(a),
-      } : {};
       const result = await runTool(tool, args, {
         cwd,
         sessionId,
@@ -528,13 +499,12 @@ async function runLoop(core, ctx) {
         toolName: name,
         goals: core.goals,
         isPlanMode: () => planMode.isActive(sessionId),
-        reviewPlan: (plan) => core.requestPlanReview({ callId, plan, sessionId }),
-        askUserQuestion: (questions) => core.requestUserQuestion({ callId, questions }),
-        requestApproval: (payload) => core.requestApproval(payload),
-        requestUserJob: (job) => core.requestUserJob({ callId, sessionId, ...job }),
-        killUserJob: (jobId) => core.killUserJob(jobId),
+        reviewPlan: (plan) => core.interactions.requestPlanReview({ callId, plan, sessionId }),
+        askUserQuestion: (questions) => core.interactions.requestUserQuestion({ callId, questions }),
+        requestApproval: (payload) => core.interactions.requestApproval(payload),
+        requestUserJob: (job) => core.interactions.requestUserJob({ callId, sessionId, ...job }),
+        killUserJob: (jobId) => core.interactions.killUserJob(jobId),
         store: core.store,
-        ...delegation,
       });
       await finish(result, result.isError === true ? "failed" : "succeeded");
     }
@@ -554,7 +524,7 @@ async function runLoop(core, ctx) {
     }
     return { role: "assistant", content: "", error: errorText, stopReason: reason };
   } finally {
-    if (persist) core.activeSessions.delete(String(sessionId));
+    if (persist) core.agent.activeSessions.delete(String(sessionId));
     const durationMs = Date.now() - startedAt;
     // 每个 turn 结束都留一行原因：正常收尾也打，才能分清"答完了"和"被掐断"。
     console.log("[turn] session=" + (sessionId || "none") + " turn=" + (turn ? turn.id : "-") +

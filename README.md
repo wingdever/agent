@@ -40,7 +40,13 @@ This makes it easy to replace or add a client.
 agent/
 ├── launcher.js           coordinator: picks UI and starts transport
 ├── core/                 agent runtime: loops, context, tools, storage
-│   ├── index.js          createCore() entry point
+│   ├── index.js          createCore() composition root
+│   ├── config/           user/*.json paths, readers and provider/model resolution
+│   ├── model/            provider requests, usage, model catalog
+│   ├── context/          prompt, input refs, compaction, token anchors, cwd
+│   ├── interactions/     approvals, questions, plan reviews, user jobs
+│   ├── rpc/              command registry + params schema
+│   ├── agent.js          turn runtime: chat / loop dispatch / turn state
 │   ├── loops/            node-graph (active) + linear (frozen)
 │   ├── tools/            tool registry / executor / result shaping
 │   ├── storage/          session / data persistence

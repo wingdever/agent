@@ -10,7 +10,7 @@
 // Assignments in the command prefix (e.g. `NODE_ENV=prod npm ...`) are stripped
 // from the effective command used for policy matching. But security-relevant
 // variables must NOT be stripped: they change execution semantics and are a known
-// privilege-escalation / sandbox-escape vector. See docs/tool/bash.md §6.
+// privilege-escalation / sandbox-escape vector. See docs/tools/bash.md §6.
 //
 // A variable name matches the denylist if it is exactly listed, matches a `PREFIX_*`
 // wildcard entry, or equals a `*` suffix pattern. We keep it in `raw` when matched.
@@ -135,7 +135,7 @@ export function makeRedirectNode(command, redirects) {
 
 export function makeCompound(compoundType, range, summary) {
   // Compound control structures are not deeply analyzed (fail-closed posture,
-  // see docs/tool/bash.md structural difficulty #1 and bashcage rationale).
+  // see docs/tools/bash.md structural difficulty #1 and bashcage rationale).
   return { kind: "compound", compoundType, dynamic: true, summary, range };
 }
 

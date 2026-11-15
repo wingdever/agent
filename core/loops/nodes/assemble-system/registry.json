@@ -1,6 +1,6 @@
 {
   "id": "assemble-system",
-  "next": "build-context",
+  "next": "assemble-input",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

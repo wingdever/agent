@@ -4,7 +4,7 @@
 //   - bash 命令级策略   user/bash-policy.json
 //   - 文件写精细策略    user/fs-policy.json
 // 依赖 window.AgentClient（api.js）与 window.uiConfirm/uiAlert（app.js）。
-// 布局树见 docs/ui.md 的 permissions-modal。
+// 布局树见 docs/ui/ui.md 的 permissions-modal。
 (function () {
   function ready(fn) {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn);
@@ -53,9 +53,13 @@
 
   var overlay = null, tabBtnsEl = null, summaryEl = null, viewport = null;
 
-  // 后端封装：permissions.fn 一组 op
+  // 后端封装：config.permissions.* 命令
   function api(op, payload) {
-    return window.AgentClient.call("permissions", { op: op, payload: payload || {} });
+    if (op === "get") return window.AgentClient.call("config.permissions.get", {});
+    if (op === "permissions.upsert") return window.AgentClient.call("config.permissions.upsert", { payload: payload || {} });
+    if (op === "bashpolicy.upsert") return window.AgentClient.call("config.permissions.bashPolicy.upsert", { payload: payload || {} });
+    if (op === "fspolicy.upsert") return window.AgentClient.call("config.permissions.fsPolicy.upsert", { payload: payload || {} });
+    return Promise.reject(new Error("unknown permissions op: " + op));
   }
 
   // 工具档位映射：name -> permission（仅显式设置的）
@@ -74,7 +78,7 @@
       state.fsPolicy = cfg.fsPolicy || { rules: [] };
     } catch (e) { console.error("load permissions failed:", e); }
     try {
-      var fns = await window.AgentClient.call("listFunctions");
+      var fns = await window.AgentClient.call("tools.list", {});
       state.toolNames = (fns || []).map(function (f) { return f.name || (f.function && f.function.name); }).filter(Boolean);
     } catch (e) { /* 后端未就绪：降级为空，用户仍可手动添加档位行 */ }
   }

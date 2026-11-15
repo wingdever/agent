@@ -1,4 +1,4 @@
-// 数据持久化存储引擎（真值：docs/data-struct.md）
+// 数据持久化存储引擎（真值：docs/foundation/storage/schema.md）
 // 使用 pgmicro（PostgreSQL 兼容的嵌入式数据库），单文件存储于 ./data/store.db
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";

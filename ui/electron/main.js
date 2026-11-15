@@ -1,14 +1,10 @@
 "use strict";
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
-const { createCore } = require("../../core");
-const { startTransport } = require("../../core/transport");
 
 const TRANSPORT = process.env.AGENT_TRANSPORT || "http";
-const LOOP_ENGINE = process.env.AGENT_LOOP_ENGINE || "node-graph";
-let server = null;
 
-// 原生文件夹选择对话框：供渲染进程经 agentBridge.selectFolder 调用
+// Native folder picker for the renderer (via preload's agentBridge).
 let _selectFolderRegistered = false;
 function registerSelectFolder() {
   if (_selectFolderRegistered) return;
@@ -21,7 +17,7 @@ function registerSelectFolder() {
 }
 registerSelectFolder();
 
-// Linux 显示兼容：Wayland 会话下显式走 ozone-wayland，否则窗口可能建了但不显示
+// Linux display compatibility: explicit ozone-wayland under Wayland.
 if (process.env.WAYLAND_DISPLAY && !process.env.AGENT_OZONE) {
   app.commandLine.appendSwitch("ozone-platform", "wayland");
 } else if (process.env.AGENT_OZONE) {
@@ -32,13 +28,12 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 900,
     height: 680,
-    show: false, // 等页面就绪再显式 show，避免 Wayland 下闪没
+    show: false,
     webPreferences:
       TRANSPORT === "ipc"
         ? { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
         : { contextIsolation: true, nodeIntegration: false },
   });
-  // Markdown links open in the system browser instead of a new Electron window.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
     return { action: "deny" };
@@ -51,37 +46,4 @@ function createWindow() {
   return win;
 }
 
-function start(core) {
-  const _core = core || createCore();
-  app.whenReady()
-    .then(() =>
-      startTransport(TRANSPORT, _core)
-        .then((s) => {
-          server = s || null;
-          console.log("[main] transport=" + TRANSPORT + " ready, loopEngine=" + LOOP_ENGINE);
-          createWindow();
-          app.on("activate", () => {
-            if (BrowserWindow.getAllWindows().length === 0) createWindow();
-          });
-        })
-        .catch((e) => {
-          console.error("[main] 启动失败: " + e.message + (e.code === "EADDRINUSE" ? "（端口被占用）" : ""));
-          app.quit();
-        })
-    )
-    .catch((e) => {
-      console.error("[main] app 启动失败:", e.message);
-      app.quit();
-    });
-  app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
-  });
-  app.on("before-quit", () => {
-    if (server && server.close) server.close();
-  });
-}
-
-if (require.main === module) start();
-
-module.exports = { start, createWindow };
- 
+module.exports = { createWindow };

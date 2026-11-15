@@ -57,7 +57,7 @@
     if (App.sendBtn) App.sendBtn.disabled = true;
     if (App.input) App.input.disabled = true;
     try {
-      var res = await window.AgentClient.call("compact", {
+      var res = await window.AgentClient.call("chat.compact", {
         session_id: App.currentSessionId,
         model: (App.modelSelector && App.modelSelector.value) ? App.modelSelector.value : undefined,
       }, App.handleCompactionEvent);
@@ -110,7 +110,7 @@
   // 与 core 的自动压缩阈值同源。
   App.refreshContextWindow = async function refreshContextWindow() {
     try {
-      var res = await window.AgentClient.call("contextWindow", {
+      var res = await window.AgentClient.call("models.contextWindow", {
         model: (App.modelSelector && App.modelSelector.value) ? App.modelSelector.value : undefined,
       });
       if (res && res.contextWindow > 0) {

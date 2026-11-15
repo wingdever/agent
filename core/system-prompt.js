@@ -10,7 +10,7 @@ const { isSkillName } = require("./skills");
 // Skill catalog message (dsh's session skill-catalog). The block is rendered by
 // assembleSystemPrompt as a user-role message appended right after the system
 // message, once at session start. The body uses dsh's verbatim catalog template
-// (see docs/dev/skill.md 4.1): each entry is `- \`name\`: description`,
+// (see docs/skills/skills.md 4.1): each entry is `- \`name\`: description`,
 // description whitespace collapsed, truncated to catalogDescriptionMaxLength, then
 // &/</> escaped; names are validated with isSkillName. The template also carries
 // the user-invocation guidance ("A user may also invoke a skill directly; its

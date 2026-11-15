@@ -3,11 +3,11 @@
 // Loop (agent-loop) engine registry.
 //
 // 两种 agent-loop 引擎并存，由环境变量 AGENT_LOOP_ENGINE 选择（实现层配置，与 AGENT_TRANSPORT 一致）：
-//   - "linear"    ：现有 chat() 主循环（已抽离到 core/loops/linear.js）。
-//   - "node-graph"：节点化、支持 hook 的引擎（设计见 docs/agent-loop-node-graph.md，未实现）。
+//   - "node-graph"：节点化、支持 hook 的正式引擎。
+//   - "linear"    ：冻结对照基线；不补新功能，也不要求与 node-graph parity。
 //
 // 每个引擎模块导出一个 async runLoop(core, ctx)，签名与现有 chat() 的循环体一致：
-//   core = AgentCore 实例（所有 this.xxx 方法都在这里）
+//   core = createCore 返回的服务集合
 //   ctx  = 归一化后的请求上下文（messages / model / onEvent / sessionId / stream /
 //          autonomy / activity / references / effort / toolNames 等）
 
@@ -17,7 +17,7 @@ const path = require("path");
 // 引擎目录：本文件所在目录
 const LOOPS_DIR = __dirname;
 
-// 内置默认引擎：node-graph（节点化、支持 hook 的引擎，见 docs/agent-loop-node-graph.md）。
+// 内置默认引擎：node-graph（节点化、支持 hook 的引擎，见 docs/runtime/node-graph.md）。
 // 不设 AGENT_LOOP_ENGINE 时即走此引擎。
 const DEFAULT_ENGINE = "node-graph";
 
@@ -33,11 +33,17 @@ function listEngineNames() {
   }
   const names = [];
   for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
-    // 跳过非引擎目录（如 future: nodes/ builtins/）
-    if (ent.name === "nodes" || ent.name === "builtins") continue;
-    const modPath = path.join(LOOPS_DIR, ent.name, "index.js");
-    if (fs.existsSync(modPath)) names.push(ent.name);
+    if (ent.isDirectory()) {
+      // 跳过非引擎目录（nodes/ builtins/）
+      if (ent.name === "nodes" || ent.name === "builtins") continue;
+      if (fs.existsSync(path.join(LOOPS_DIR, ent.name, "index.js"))) names.push(ent.name);
+      continue;
+    }
+    // 文件型引擎（linear.js）：单文件引擎也要被发现。
+    if (!ent.name.endsWith(".js") || ent.name === "index.js") continue;
+    const name = ent.name.slice(0, -3);
+    if (name === "registry" || name === "shared" || name === "loops-config") continue;
+    names.push(name);
   }
   if (!names.includes(DEFAULT_ENGINE)) names.push(DEFAULT_ENGINE);
   return names;

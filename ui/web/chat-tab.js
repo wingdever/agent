@@ -221,7 +221,7 @@
       submit.disabled = true;
       skip.disabled = true;
       error.hidden = true;
-      window.AgentClient.call("answerQuestions", { id: evt.id, answers: answers }).then(function (ok) {
+      window.AgentClient.call("interactions.answerQuestions", { payload: { id: evt.id, answers: answers } }).then(function (ok) {
         if (ok === false) throw new Error("该问题已失效或本轮已结束");
         if (ok && ok.error) throw new Error(ok.error);
         form.querySelectorAll("input,button").forEach(function (node) { node.disabled = true; });
@@ -289,7 +289,7 @@
       submit.disabled = true;
       cancel.disabled = true;
       error.hidden = true;
-      window.AgentClient.call("answerUserJob", { id: evt.id, cancel: cancelOnly, result: result }).then(function (ok) {
+      window.AgentClient.call("interactions.answerUserJob", { payload: { id: evt.id, cancel: cancelOnly, result: result } }).then(function (ok) {
         if (ok === false) throw new Error("该任务已失效或本轮已结束");
         if (ok && ok.error) throw new Error(ok.error);
         form.querySelectorAll("input,textarea,button").forEach(function (node) { node.disabled = true; });
@@ -344,11 +344,11 @@
       var deny = document.createElement("button");
       deny.textContent = "拒绝"; deny.className = "btn-deny";
       allow.addEventListener("click", function () {
-        window.AgentClient.call("approval", { id: evt.id, decision: "approve" });
+        window.AgentClient.call("interactions.approve", { payload: { id: evt.id, decision: "approve" } });
         allow.disabled = true; deny.disabled = true; allow.textContent = "已批准";
       });
       deny.addEventListener("click", function () {
-        window.AgentClient.call("approval", { id: evt.id, decision: "deny" });
+        window.AgentClient.call("interactions.approve", { payload: { id: evt.id, decision: "deny" } });
         allow.disabled = true; deny.disabled = true; deny.textContent = "已拒绝";
       });
       bar.appendChild(allow); bar.appendChild(deny);
@@ -587,7 +587,7 @@
       arguments: evt.arguments,
       autoDenied: evt.autoDenied === true,
       onDecision: (permission === "ask" && !evt.autoDenied) ? function (decision) {
-        window.AgentClient.call("approval", { id: evt.id, decision: decision });
+        window.AgentClient.call("interactions.approve", { payload: { id: evt.id, decision: decision } });
       } : null
     });
   }
@@ -659,10 +659,12 @@
       approve.disabled = true;
       keep.disabled = true;
       error.hidden = true;
-      window.AgentClient.call("answerPlanReview", {
-        id: evt.id,
-        approved: approved,
-        feedback: feedback.value,
+      window.AgentClient.call("interactions.answerPlanReview", {
+        payload: {
+          id: evt.id,
+          approved: approved,
+          feedback: feedback.value,
+        },
       }).then(function (ok) {
         if (ok === false) throw new Error("该计划审批已失效或本轮已结束");
         if (ok && ok.error) throw new Error(ok.error);
@@ -820,11 +822,11 @@
   App.renderSessionMessages = async function renderSessionMessages(sessionId) {
     App.chatTab.innerHTML = "";
     App.resetLive();
-    var turns = await window.AgentClient.call("storage", { op: "turn.list", payload: { session_id: sessionId } });
+    var turns = await window.AgentClient.call("turn.list", { session_id: sessionId });
     if (!turns || !turns.length) { App.showEmptyHint(); return; }
     var compactions = [];
     try {
-      compactions = await window.AgentClient.call("storage", { op: "session.compactions", payload: { session_id: sessionId } }) || [];
+      compactions = await window.AgentClient.call("session.compactions", { session_id: sessionId }) || [];
     } catch (e) { compactions = []; }
     var markersByMessage = {};
     var markersByTurn = {};
@@ -844,13 +846,13 @@
       var turnNode = App.makeEl("turn", "turn");
       App.chatTab.appendChild(turnNode);
       turnNodeBySeq[turns[t].seq] = turnNode;
-      var steps = await window.AgentClient.call("storage", { op: "step.list", payload: { turn_id: turns[t].id } });
+      var steps = await window.AgentClient.call("step.list", { turn_id: turns[t].id });
       for (var st = 0; st < (steps || []).length; st++) {
         var stepNode = App.makeEl("step", "step");
         turnNode.appendChild(stepNode);
         var respNode = App.makeEl("model-response", "model-response");
         stepNode.appendChild(respNode);
-        var msgs = await window.AgentClient.call("storage", { op: "message.list", payload: { step_id: steps[st].id } });
+        var msgs = await window.AgentClient.call("message.list", { step_id: steps[st].id });
         var systemMsg = null, userMsg = null, asstMsg = null, toolMsgs = [];
         for (var k = 0; k < (msgs || []).length; k++) {
           var m = msgs[k];
@@ -880,7 +882,7 @@
             AgentMarkdown.set(ans, asstMsg.content || "");
             respNode.appendChild(ans);
           }
-          var calls = await window.AgentClient.call("storage", { op: "call.list", payload: { reply_id: asstMsg.id } });
+          var calls = await window.AgentClient.call("call.list", { reply_id: asstMsg.id });
           for (var c = 0; c < (calls || []).length; c++) {
             var call = calls[c];
             var card = App.makeEl("tool-call-card", "tool-call-card tool-call");

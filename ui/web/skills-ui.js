@@ -6,7 +6,7 @@
 //     （经 AgentMarkdown 渲染的完整技能正文）。
 //   - Panel (skills-panel): close-skills-btn 关闭。
 // 仅浏览，无编辑/保存：与后端 skills.list / skills.get（只读）一致。
-// 布局树见 docs/ui.md skills-modal；模块在 DOMContentLoaded 自绑定 skillsBtn。
+// 布局树见 docs/ui/ui.md skills-modal；模块在 DOMContentLoaded 自绑定 skillsBtn。
 (function () {
   function ready(fn) {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn);
@@ -39,7 +39,9 @@
   }
 
   function api(op, payload) {
-    return window.AgentClient.call("skills", Object.assign({ op: op }, payload || {}));
+    if (op === "list") return window.AgentClient.call("skills.list", {});
+    if (op === "get") return window.AgentClient.call("skills.get", payload || {});
+    return Promise.reject(new Error("unknown skills op: " + op));
   }
 
   // ---- Module state ----
@@ -52,7 +54,7 @@
   // dsh 有 6 个发现根（source: project-dsh / project-agents / custom / user-dsh /
   // user-agents / bundled），但本项目只注册了 1 个 filesystem provider，故 provider
   // 字段恒为 "filesystem"。按 source 分组才能还原 dsh 的 6 根语义（runtime 技能
-  // 回退到 provider）。见 docs/dev/skill.md 3.1 / 5.7。
+  // 回退到 provider）。见 docs/skills/skills.md 3.1 / 5.7。
   function groupSkills(items) {
     var map = new Map();
     items.forEach(function (s) {

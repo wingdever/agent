@@ -4,9 +4,8 @@ const path = require("path");
 const { isUserInvocable, renderSkillContent } = require("../skills");
 
 // 解析引用上下文（文件 / 会话 / 技能），拼成注入 system 的引用块。
-// 从 AgentCore._resolveReferences 抽出，现作为 core/user-input 的子模块；
-// 依赖 core.store（读会话轨迹）与 core.skills（技能引用渲染）。
-async function resolveReferences(core, references, sessionId, cwd) {
+// `deps` = { store, skills }.
+async function resolveReferences(deps, references, sessionId, cwd) {
   const MAX_FILE = 20000; // 单文件上限，避免超长上下文
   const parts = []; // 文件 / 会话引用块
   const skillParts = []; // 技能引用块（<skill_content> 指令，拼在末尾）
@@ -25,7 +24,7 @@ async function resolveReferences(core, references, sessionId, cwd) {
       }
     } else if (ref.type === "session" && ref.id != null) {
       try {
-        const tree = await core.store.run("session.trajectory", { session_id: ref.id });
+        const tree = await deps.store.run("session.trajectory", { session_id: ref.id });
         const name = (ref.name || ("会话 " + ref.id));
         let excerpt = "";
         let turns = 0, steps = 0, calls = 0;
@@ -40,7 +39,7 @@ async function resolveReferences(core, references, sessionId, cwd) {
       // <skill_content> 指令块，收集到 skillParts，最后拼在引用上下文消息末尾
       // （指令最靠近回答，与手势注入位置一致）。
       try {
-        const registry = core && core.skills;
+        const registry = deps && deps.skills;
         if (!registry || typeof registry.list !== "function" || typeof registry.get !== "function") {
           skillParts.push(`[引用技能] ${ref.name}（技能注册表不可用）`);
         } else {

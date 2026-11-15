@@ -156,7 +156,7 @@
     artifactPreviewBody.innerHTML = "<div class='artifact-loading'>读取中…</div>";
     artifactPreviewOpen.hidden = true;
     try {
-      var res = await window.AgentClient.call("fs", { op: "read", path: filePath });
+      var res = await window.AgentClient.call("fs.read", { path: filePath });
       if (res && res.isDirectory) { artifactPreviewBody.innerHTML = "<div class='artifact-loading'>目录，无法预览</div>"; return; }
       var text = (res && res.content) || "";
       if (res && res.truncated) {

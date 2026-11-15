@@ -1,6 +1,6 @@
 {
-  "id": "tool-approve",
-  "next": "tool-run",
+  "id": "resolve-target",
+  "next": "assemble-system",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

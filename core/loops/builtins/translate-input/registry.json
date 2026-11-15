@@ -1,7 +1,11 @@
 {
   "id": "builtin.translate-input",
-  "next": "resolve-input",
+  "next": "assemble-input",
   "type": "builtin",
-  "hooks": { "before": [], "after": [], "onError": [] },
+  "hooks": {
+    "before": [],
+    "after": [],
+    "onError": []
+  },
   "entry": "run.js"
 }

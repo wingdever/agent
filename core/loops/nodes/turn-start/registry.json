@@ -1,6 +1,6 @@
 {
-  "id": "resolve-input",
-  "next": "resolve-model",
+  "id": "turn-start",
+  "next": "resolve-target",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

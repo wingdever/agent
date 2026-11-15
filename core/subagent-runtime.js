@@ -1,8 +1,10 @@
 "use strict";
 
 const crypto = require("crypto");
+const { InteractionService } = require("./interactions");
+const { ContextService } = require("./context");
 
-// One-shot subagent runtime (docs/dev/subagent.md # 第一步实现).
+// One-shot subagent runtime (docs/subagent/subagent.md # 第一步实现).
 //
 // This harness has no resident agent loop / inbox / sendWaking like DSH. The
 // DSH-equivalent behaviors are mapped onto the request/response loop as:
@@ -25,14 +27,14 @@ const SUBAGENT_DELEGATION_CONTEXT = "You are a delegated subagent: your permissi
 const MAX_DIAGNOSTIC_BYTES = 4096;
 const DIAGNOSTIC_TRUNCATION_SUFFIX = "\n[diagnostic truncated]";
 
-// 模型侧名称（docs/dev/subagent.md §12）。
+// 模型侧名称（docs/subagent/subagent.md §12）。
 const ROOT_AGENT_NAME = "lead";
 const AGENT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
 function settlementSummary(childName, stopReason) {
   const subject = `Background subagent ${childName}`;
   switch (stopReason) {
-    // 本地子会话可继续（docs/dev/subagent.md §14）：completed 用可续文案。
+    // 本地子会话可继续（docs/subagent/subagent.md §14）：completed 用可续文案。
     case "completed": return `${subject} finished and will do no further work unless you send it more.`;
     case "aborted": return `${subject} was stopped before it finished.`;
     case "max-tokens": return `${subject} ran out of room before it finished.`;
@@ -90,8 +92,8 @@ class SubagentRuntime {
     this.childContexts = new Map(); // childId -> { parentChatCtx, parentOnEvent } 跨轮次保留，唤醒时复用
     this._waking = new Set();     // sessionId being woken: closes the check-then-launch race
     this._deps = {
-      runChild: deps.runChild || ((childCore, ctx) => childCore.chat(ctx)),
-      resumeParent: deps.resumeParent || ((resumeCore, ctx) => resumeCore.chat(ctx)),
+      runChild: deps.runChild || ((childCore, ctx) => childCore.agent.chat(ctx)),
+      resumeParent: deps.resumeParent || ((resumeCore, ctx) => resumeCore.agent.chat(ctx)),
       now: deps.now || (() => new Date()),
       logger: deps.logger || console,
     };
@@ -103,19 +105,27 @@ class SubagentRuntime {
   _isolatedCore() {
     const p = this.core;
     const c = Object.create(p);
-    c._onEvent = () => {};
-    c.autonomy = "autonomous";
-    c.effort = p.effort;
-    c.activity = p.activity;
-    c.activeSessions = new Set();
-    c.compacting = new Map();
-    c.pendingApprovals = new Map();
-    c.pendingQuestions = new Map();
-    c.pendingPlanReviews = new Map();
-    c.pendingUserJobs = new Map();
-    c.userJobs = new Map();
+    c.agent = Object.create(p.agent);
+    c.agent.core = c;
+    c.agent.emit = () => {};
+    c.agent.autonomy = "autonomous";
+    c.agent.effort = p.agent.effort;
+    c.agent.activity = p.agent.activity;
+    c.agent.activeSessions = new Set();
+    c.agent.compacting = new Map();
     // Permission scope fixed: ask -> deny, no approval-request event (§4.3).
-    c.requestApproval = () => Promise.resolve("deny");
+    c.interactions = new InteractionService({ store: p.store, autonomy: "autonomous" });
+    c.interactions.requestApproval = () => Promise.resolve("deny");
+    c.context = new ContextService({
+      config: p.config,
+      model: p.model,
+      tools: p.tools,
+      skills: p.skills,
+      store: p.store,
+    });
+    c.context.setRuntime(c.agent);
+    c.agent.interactions = c.interactions;
+    c.agent.context = c.context;
     return c;
   }
 
@@ -123,7 +133,7 @@ class SubagentRuntime {
   async _waitParentIdle(sessionId, maxMs = 30000) {
     const key = String(sessionId);
     const start = this._deps.now().getTime();
-    while (this.core.activeSessions.has(key)) {
+    while (this.core.agent.activeSessions.has(key)) {
       if (this._deps.now().getTime() - start > maxMs) return false;
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -162,7 +172,7 @@ class SubagentRuntime {
     return parent;
   }
 
-  // 名称规则（docs/dev/subagent.md §12）：1–32 位小写字母/数字/连字符，字母
+  // 名称规则（docs/subagent/subagent.md §12）：1–32 位小写字母/数字/连字符，字母
   // 开头，不能是 lead；省略时取第一个空闲的 agent-N。同父唯一由
   // subagents 表的 UNIQUE (par_sess_id, agent_name) 承担。
   async _allocateAgentName(parentSessionId, requested) {
@@ -197,7 +207,7 @@ class SubagentRuntime {
     return parts.length ? parts.join("/") : ROOT_AGENT_NAME;
   }
 
-  // 控制面（docs/dev/subagent.md §14-§17）。
+  // 控制面（docs/subagent/subagent.md §14-§17）。
 
   // 会话所在 subagent 树的根：沿 subagents 边向上走到没有父行的会话。
   async rootOf(sessionId) {
@@ -239,7 +249,7 @@ class SubagentRuntime {
   // 会话是否在跑一轮：根会话看主 core 的活动集，子会话看运行时的任务/唤醒集合（§16）。
   isRunning(sessionId) {
     const key = String(sessionId);
-    return this.tasks.has(key) || this._waking.has(key) || this.core.activeSessions.has(key);
+    return this.tasks.has(key) || this._waking.has(key) || this.core.agent.activeSessions.has(key);
   }
 
   // send_message（§15.1）：idle 目标起一轮，运行中目标入 steer 队列（§17）。

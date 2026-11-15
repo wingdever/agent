@@ -1,6 +1,6 @@
 {
-  "id": "auto-compact",
-  "next": "model-request",
+  "id": "pre-step",
+  "next": "model-call",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

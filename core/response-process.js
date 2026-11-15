@@ -133,9 +133,9 @@ async function readStreaming(res, acc, onEvent) {
 // 流式增量渲染委托 stream-render.js（renderDelta），本模块只做「读响应 + 累积 + 归一化」。
 // 流式与非流式共用同一 finalize，流式仅多一层增量渲染（feed 的调用节奏不同），两分支重复已归并。
 // 依赖 core 的 reasoningParamFor / effort / model / baseUrl / apiKey（经 issueRequest）。
-async function stream(core, { messages, toolDefs, model, onEvent, sessionId, stream = false, maxTokens, baseUrl, apiKey, effort }) {
+async function stream(modelService, { messages, toolDefs, model, onEvent, sessionId, stream = false, maxTokens, baseUrl, apiKey, effort }) {
   onEvent({ type: "model-http-status", state: "on-post" });
-  const { res, cap } = await issueRequest(core, { messages, toolDefs, model, maxTokens, baseUrl, apiKey, effort, sessionId, stream });
+  const { res, cap } = await issueRequest(modelService, { messages, toolDefs, model, maxTokens, baseUrl, apiKey, effort, sessionId, stream });
   onEvent({ type: "model-http-status", state: "on-get", status: cap.status });
 
   const acc = newAccumulator();

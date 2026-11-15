@@ -7,7 +7,7 @@
 //   - Panel (tools-panel): close-tools-btn 关闭。
 // 仅浏览，无编辑/保存，与后端 listFunctions（只读）一致。listFunctions 已包含
 // parameters / type / prompt，故无需单独的 get op。
-// 布局树见 docs/ui.md tools-modal；模块在 DOMContentLoaded 自绑定 toolsBtn。
+// 布局树见 docs/ui/ui.md tools-modal；模块在 DOMContentLoaded 自绑定 toolsBtn。
 (function () {
   function ready(fn) {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn);
@@ -40,7 +40,7 @@
   }
 
   function apiList() {
-    return window.AgentClient.call("listFunctions", {});
+    return window.AgentClient.call("tools.list", {});
   }
 
   // ---- Module state ----

@@ -22,10 +22,10 @@
     if (trajectoryLoadedFor === sessionId) return;
     trajectoryTab.innerHTML = '<div class="empty-hint">加载轨迹中…</div>';
     try {
-      var tree = await window.AgentClient.call("storage", { op: "session.trajectory", payload: { session_id: sessionId } });
+      var tree = await window.AgentClient.call("session.trajectory", { session_id: sessionId });
       var compactions = [];
       try {
-        compactions = await window.AgentClient.call("storage", { op: "session.compactions", payload: { session_id: sessionId } }) || [];
+        compactions = await window.AgentClient.call("session.compactions", { session_id: sessionId }) || [];
       } catch (e) { compactions = []; }
       trajectoryLoadedFor = sessionId;
       renderTrajectoryTree(tree || [], compactions || []);

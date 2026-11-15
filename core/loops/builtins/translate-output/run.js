@@ -3,12 +3,12 @@
 // 二级预定义节点 builtin.translate-output（type: builtin，不在默认 next 链上）。
 // 英→中输出翻译：**仅最终回答**（有 tool_calls 的模型响应不翻译，history 保持英文）。
 // 翻译只发事件、不改 message（UI 用 translation 事件展示中文，历史/下游仍用英文）。
-// 由挂在 model-request.after 的普通 hook 调用（见 node-graph.js 的 translate 注入）。
+// 由挂在 model-call.after 的普通 hook 调用。
 
 const translation = require("../../../translation");
 
 module.exports = async function run(input, ctx) {
-  const { onEvent } = ctx;
+  const onEvent = ctx.emit;
   const message = ctx.message;
   // 仅最终回答（无 tool_calls、且非截断）才翻译；带工具调用的模型响应与截断响应不翻译，
   // history 保持英文。tool_calls 为 undefined 表示无调用，应翻译；仅当为「非空数组」时跳过。
@@ -24,7 +24,7 @@ module.exports = async function run(input, ctx) {
       text: message.content,
       target: "zh",
       config: ctx.translateCfg,
-      sessionId: ctx.sessionId,
+      sessionId: ctx.session.id,
       timeoutMs: ctx.translateCfg.outputTimeoutMs,
     });
     onEvent({ type: "translation", role: "assistant", phase: "done", sourceLang: "en", targetLang: "zh", source: message.content, text: translated });

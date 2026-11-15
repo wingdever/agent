@@ -1,6 +1,6 @@
 {
   "id": "decide-next",
-  "next": "auto-compact",
+  "next": "pre-step",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

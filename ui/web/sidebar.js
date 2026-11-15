@@ -24,7 +24,7 @@
   App.loadDeletedSessions = async function loadDeletedSessions(container) {
     container.innerHTML = "";
     try {
-      var list = await window.AgentClient.call("storage", { op: "session.list", payload: { includeDeleted: true } });
+      var list = await window.AgentClient.call("session.list", { includeDeleted: true });
       var deleted = (list || []).filter(function (s) { return s.deleted_at != null; });
       if (!deleted.length) { container.innerHTML = '<div class="empty-hint">回收站为空</div>'; return; }
       deleted.forEach(function (s) { renderDeletedSession(s, container); });
@@ -47,11 +47,11 @@
     purgeBtn.textContent = "彻底删除";
     node.appendChild(label); node.appendChild(restoreBtn); node.appendChild(purgeBtn);
     restoreBtn.addEventListener("click", async function () {
-      try { await window.AgentClient.call("storage", { op: "session.restore", payload: { id: sess.id } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
+      try { await window.AgentClient.call("session.restore", { payload: { id: sess.id } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
     });
     purgeBtn.addEventListener("click", async function () {
       if (!(await App.uiConfirm("彻底删除该会话？不可恢复"))) return;
-      try { await window.AgentClient.call("storage", { op: "session.delete", payload: { id: sess.id, hard: true } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
+      try { await window.AgentClient.call("session.delete", { payload: { id: sess.id, hard: true } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
     });
     container.appendChild(node);
   }
@@ -103,7 +103,7 @@
 
   App.loadWorkspaces = async function loadWorkspaces() {
     try {
-      var list = await window.AgentClient.call("storage", { op: "workspace.list", payload: {} });
+      var list = await window.AgentClient.call("workspace.list", {});
       var treeList = document.querySelector(".workspace-session-tree-list");
       if (treeList) treeList.innerHTML = "";
       (list || []).forEach(function (ws) { renderWorkspace(ws, treeList); });
@@ -114,8 +114,7 @@
     if (!folderPath) return;
     var idx = folderPath.lastIndexOf("/"); if (idx === -1) idx = folderPath.lastIndexOf(String.fromCharCode(92)); var name = idx >= 0 ? folderPath.slice(idx + 1) : folderPath;
     try {
-      var ws = await window.AgentClient.call("storage", {
-        op: "workspace.create",
+      var ws = await window.AgentClient.call("workspace.create", {
         payload: { folder_path: folderPath, folder_name: name },
       });
       var treeList = document.querySelector(".workspace-session-tree-list");
@@ -133,9 +132,9 @@
   App.findSessionList = findSessionList;
 
   App.ensureDefaultWorkspace = async function ensureDefaultWorkspace() {
-    var list = await window.AgentClient.call("storage", { op: "workspace.list", payload: {} });
+    var list = await window.AgentClient.call("workspace.list", {});
     if (list && list.length) return list[0];
-    var ws = await window.AgentClient.call("storage", { op: "workspace.create", payload: { folder_path: ".", folder_name: "默认工作区" } });
+    var ws = await window.AgentClient.call("workspace.create", { payload: { folder_path: ".", folder_name: "默认工作区" } });
     var treeList = document.querySelector(".workspace-session-tree-list");
     renderWorkspace(ws, treeList);
     return ws;
@@ -179,7 +178,7 @@
 
   App.loadSessions = async function loadSessions(workspaceId, container) {
     try {
-      var list = await window.AgentClient.call("storage", { op: "session.list", payload: { workspace_id: workspaceId } });
+      var list = await window.AgentClient.call("session.list", { workspace_id: workspaceId });
       container.innerHTML = "";
       (list || []).forEach(function (s) { renderSession(s, workspaceId, container); });
     } catch (e) { /* 静默 */ }
@@ -188,7 +187,7 @@
   App.addSession = async function addSession(workspaceId, container, name) {
     if (!name) return;
     try {
-      var sess = await window.AgentClient.call("storage", { op: "session.create", payload: { workspace_id: workspaceId, name: name, activity: App.selectedInitialActivity } });
+      var sess = await window.AgentClient.call("session.create", { payload: { workspace_id: workspaceId, name: name, activity: App.selectedInitialActivity } });
       var node = renderSession(sess, workspaceId, container);
       App.selectSession(sess, node);
     } catch (e) { console.error("add session failed:", e); }
@@ -198,7 +197,7 @@
     var name = await App.uiPrompt("重命名会话", label.textContent);
     if (!name) return;
     try {
-      var sess = await window.AgentClient.call("storage", { op: "session.update", payload: { id: sessionId, name: name } });
+      var sess = await window.AgentClient.call("session.update", { payload: { id: sessionId, name: name } });
       label.textContent = (sess && sess.name) || name;
     } catch (e) { console.error("rename session failed:", e); }
   };
@@ -206,7 +205,7 @@
   App.deleteSession = async function deleteSession(sessionId, node) {
     if (!(await App.uiConfirm("删除该会话？"))) return;
     try {
-      await window.AgentClient.call("storage", { op: "session.delete", payload: { id: sessionId } });
+      await window.AgentClient.call("session.delete", { payload: { id: sessionId } });
       if (node && node.parentNode) node.parentNode.removeChild(node);
     } catch (e) { console.error("delete session failed:", e); }
   };
@@ -214,7 +213,7 @@
   App.deleteWorkspace = async function deleteWorkspace(workspaceId, node) {
     if (!(await App.uiConfirm("删除该工作区及其下所有会话？"))) return;
     try {
-      await window.AgentClient.call("storage", { op: "workspace.delete", payload: { id: workspaceId } });
+      await window.AgentClient.call("workspace.delete", { payload: { id: workspaceId } });
       if (node && node.parentNode) node.parentNode.removeChild(node);
     } catch (e) { console.error("delete workspace failed:", e); }
   };

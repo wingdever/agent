@@ -18,8 +18,8 @@ const LOOPS_FILE = path.join(__dirname, "..", "..", "user", "loops.json");
 // settings.translate.enabled gating (translate on by default). Builtin node
 // ids are prefixed "builtin." (see core/loops/builtins/*/registry.json).
 const DEFAULT_HOOKS = [
-  { on: "resolve-input", slot: "before", target: "builtin.translate-input" },
-  { on: "model-request", slot: "after", target: "builtin.translate-output" },
+  { on: "assemble-input", slot: "before", target: "builtin.translate-input" },
+  { on: "model-call", slot: "after", target: "builtin.translate-output" },
 ];
 
 // Read the overlay. A missing/broken file falls back to the repo default so the

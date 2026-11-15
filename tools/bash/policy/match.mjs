@@ -1,6 +1,6 @@
 // Matching layer: turns a SimpleCommand IR into a single allow/ask/deny decision.
 //
-// Design (per docs/tool/bash-policy-plan.md, confirmed decisions):
+// Design (per docs/tools/bash-policy.md, confirmed decisions):
 //  - Candidate match specs (most specific first): base {program, argv}, then for
 //    each wrapper: the outer-composite {wrapper.program, wrapper.args} AND the
 //    penetrated inner {innerProgram, innerArgs}. This prevents a `rm:deny` rule

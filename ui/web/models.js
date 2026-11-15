@@ -38,7 +38,8 @@
 
   // 后端封装：providers.op 一组（读写 user/providers.json，见 core/index.js）
   var api = function (op, payload) {
-    return window.AgentClient.call("providers", { op: op, payload: payload || {} });
+    if (op === "get") return window.AgentClient.call("config.providers.get", {});
+    return window.AgentClient.call("config.providers.upsert", { payload: payload || [] });
   };
   function fmtDate(v) {
     if (!v) return "—";
@@ -94,8 +95,10 @@
       if (p.base_url != null) out.base_url = p.base_url;
       if (p.api_key != null) out.api_key = p.api_key;
       if (p.description != null) out.description = p.description;
+      if (p.reasoning_param != null) out.reasoning_param = p.reasoning_param;
       out.models = (p.models || []).map(function (m) {
-        var mo = { name: m.name, fee: m.fee || "unknown" };
+        var mo = { name: m.name, fee: m.fee || "unknown", enabled: m.enabled === true };
+        if (m.context_window != null) mo.context_window = m.context_window;
         if (m.effort) mo.effort = m.effort;  // 推理等级缓存（supported_levels / default_level）
         return mo;
       });
@@ -383,7 +386,7 @@
       var apikey = apiInput.value;
       remoteModelsEl.innerHTML = ""; remoteResponseEl.textContent = ""; remoteStatus.textContent = "拉取中…"; remoteStatus.className = "conn-status";
       if (!isValidUrl(baseurl)) { remoteStatus.textContent = "Base URL 不合法"; remoteStatus.className = "conn-status bad"; return; }
-      window.AgentClient.call("fetchModels", { baseurl: baseurl, apikey: apikey }).then(function (res) {
+      window.AgentClient.call("models.fetch", { baseurl: baseurl, apikey: apikey }).then(function (res) {
         var list = res && res.list ? res.list : (Array.isArray(res) ? res : []);
         remoteStatus.textContent = "获取到 " + list.length + " 个模型"; remoteStatus.className = "conn-status ok";
         renderRemoteList(list);

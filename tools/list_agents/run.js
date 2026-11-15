@@ -1,6 +1,6 @@
 "use strict";
 
-// list_agents 控制工具（docs/dev/subagent.md §15.3）。
+// list_agents 控制工具（docs/subagent/subagent.md §15.3）。
 // 列出整棵 subagent 树：根 + 所有可达的可续后代，含调用方自己；每行
 // `<name> [<status>] — <description>`，根行固定为 `lead […] — root agent`。
 

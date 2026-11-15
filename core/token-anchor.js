@@ -2,12 +2,12 @@
 const tokenMeter = require("./token-meter");
 
 // Record the DSH usage anchor after one successful response.
-// 从 AgentCore._recordTokenAnchor 抽出：纯数据落库逻辑，依赖 core.store 与 tokenMeter。
-async function recordTokenAnchor(core, { sessionId, model, system, tools, messages, assistant, usage }) {
-  if (!core.store || !sessionId) return null;
+// Explicit deps: { store }.
+async function recordTokenAnchor({ store }, { sessionId, model, system, tools, messages, assistant, usage }) {
+  if (!store || !sessionId) return null;
   try {
     const anchor = tokenMeter.anchorFrom({ messages, assistant, system, tools, model, usage });
-    return await core.store.run("tokenAnchor.save", {
+    return await store.run("tokenAnchor.save", {
       session_id: sessionId,
       header_key: anchor.headerKey,
       header_tokens: anchor.headerTokens,

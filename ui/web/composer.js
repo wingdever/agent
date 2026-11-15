@@ -8,10 +8,10 @@
 
   // ---------- 设置读写（与 settings.js 同源） ----------
   function getSettings() {
-    try { return window.AgentClient.call("settings", { op: "get" }); } catch (e) { return Promise.resolve({}); }
+    try { return window.AgentClient.call("config.get", {}); } catch (e) { return Promise.resolve({}); }
   }
   function saveSettings(patch) {
-    try { return window.AgentClient.call("settings", { op: "set", payload: patch }); } catch (e) { return Promise.resolve({}); }
+    try { return window.AgentClient.call("config.set", { payload: patch }); } catch (e) { return Promise.resolve({}); }
   }
   App.getSettings = getSettings;
   App.saveSettings = saveSettings;
@@ -36,7 +36,7 @@
     } else { // read-only
       Object.keys(App.WRITE_TOOLS).forEach(function (t) { tools[t] = "deny"; });
     }
-    window.AgentClient.call("permissions", { op: "permissions.upsert", payload: { default: (preset === "full-access") ? "allow" : "deny", tools: tools } })
+    window.AgentClient.call("config.permissions.upsert", { payload: { default: (preset === "full-access") ? "allow" : "deny", tools: tools } })
       .catch(function (e) { console.error("applyPermissionPreset failed:", e); });
   };
 
@@ -52,7 +52,7 @@
     App.modelSelector = document.getElementById("modelSelector");
     function refreshModelSelector() {
       if (!App.modelSelector) return;
-      window.AgentClient.call("providers", { op: "get" }).then(function (list) {
+      window.AgentClient.call("config.providers.get", {}).then(function (list) {
         var models = [];
         App.modelSelector.innerHTML = "";
         (list || []).forEach(function (p) {
@@ -83,7 +83,7 @@
       var provider = opt ? opt.getAttribute("data-provider") : null;
       getSettings().then(function (st) {
         var savedEffort = st && st.effort;
-        return window.AgentClient.call("modelCapabilities", { provider: provider, model: modelName }).then(function (res) {
+        return window.AgentClient.call("models.capabilities", { provider: provider, model: modelName }).then(function (res) {
           var levels = (res && res.effort && res.effort.length) ? res.effort.slice() : ["low", "medium", "high"];
           if (levels.indexOf("none") < 0) levels.unshift("none");
           App.effortSelector.innerHTML = "";
@@ -261,7 +261,7 @@
 
     async function pickSessionRef() {
       try {
-        var list = await window.AgentClient.call("storage", { op: "session.list", payload: { includeDeleted: true } });
+        var list = await window.AgentClient.call("session.list", { includeDeleted: true });
         if (!list || !list.length) { await App.uiAlert("没有可引用的会话"); return; }
         var options = list.map(function (s) { return (s.name || ("会话 " + s.id)) + (s.deleted_at ? " (已删)" : ""); }).join("\n");
         var pick = await App.uiPrompt("输入要引用的会话序号（0 取消）:\n" + options.split("\n").map(function (n, i) { return (i + 1) + ". " + n; }).join("\n"), "1");
@@ -283,11 +283,11 @@
     // @菜单的技能引用块：skills.list 已按 isUserInvocable 过滤，故选择器只出现
     // 用户可调用技能；选中后推 {type:"skill", name} 引用 chip，随 chat 的
     // references 参数发出（后端 resolveReferences 渲染为 <skill_content> 块）。
-    // 选择器 UI 对应 docs/ui.md 的 skill-ref-selector（skill-search-input + skill-list）。
+    // 选择器 UI 对应 docs/ui/ui.md 的 skill-ref-selector（skill-search-input + skill-list）。
     async function openSkillRefSelector() {
       var list;
       try {
-        list = await window.AgentClient.call("skills", { op: "list" });
+        list = await window.AgentClient.call("skills.list", {});
       } catch (e) {
         console.error("load skills failed:", e);
         list = [];
@@ -383,7 +383,7 @@
     App.bareHistory.push({ role: "user", content: text });
     App.currentAssistantBubble = null; App.toolCards = {};
     try {
-      await window.AgentClient.call("chat", { mode: "bare", messages: App.bareHistory.slice(), references: App.pendingRefs.slice(), effort: App.computeEffort(), model: (App.modelSelector && App.modelSelector.value ? App.modelSelector.value : undefined) }, App.onChatEvent);
+      await window.AgentClient.call("chat.send", { mode: "bare", messages: App.bareHistory.slice(), references: App.pendingRefs.slice(), effort: App.computeEffort(), model: (App.modelSelector && App.modelSelector.value ? App.modelSelector.value : undefined) }, App.onChatEvent);
       App.pendingRefs = []; App.renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);
@@ -412,7 +412,7 @@
     App.addAgentRequest(text);
     try {
       var refs = App.pendingRefs.slice();
-      await window.AgentClient.call("chat", { messages: [{ role: "user", content: text }], sessionId: App.currentSessionId, autonomy: App.getAutonomyMode(), activity: App.getActivityMode(), references: refs, effort: App.computeEffort(), model: (App.modelSelector && App.modelSelector.value ? App.modelSelector.value : undefined) }, App.onChatEvent);
+      await window.AgentClient.call("chat.send", { messages: [{ role: "user", content: text }], sessionId: App.currentSessionId, autonomy: App.getAutonomyMode(), activity: App.getActivityMode(), references: refs, effort: App.computeEffort(), model: (App.modelSelector && App.modelSelector.value ? App.modelSelector.value : undefined) }, App.onChatEvent);
       App.pendingRefs = []; App.renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);

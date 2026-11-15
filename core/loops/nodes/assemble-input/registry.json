@@ -1,6 +1,6 @@
 {
-  "id": "plan-review",
-  "next": "decide-next",
+  "id": "assemble-input",
+  "next": "pre-step",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

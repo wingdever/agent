@@ -1,6 +1,6 @@
 {
-  "id": "resolve-model",
-  "next": "assemble-system",
+  "id": "tool-execute",
+  "next": "decide-next",
   "type": "core",
   "hooks": { "before": [], "after": [], "onError": [] },
   "entry": "run.js"

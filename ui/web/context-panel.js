@@ -25,7 +25,7 @@
     try { localStorage.setItem("agent.activity", v); } catch (e) {}
     if (opts && opts.silent) return;
     if (App.currentSessionId) {
-      window.AgentClient.call("storage", { op: "session.update", payload: { id: App.currentSessionId, activity: v } })
+      window.AgentClient.call("session.update", { payload: { id: App.currentSessionId, activity: v } })
         .catch(function () {});
     }
   };
@@ -36,7 +36,7 @@
     var active = App.getActivityMode() === "plan-mode";
     App.currentPlanMode = active;
     try {
-      await window.AgentClient.call("planMode", { op: "set", session_id: App.currentSessionId, active: active });
+      await window.AgentClient.call("plan.set", { payload: { session_id: App.currentSessionId, active: active } });
     } catch (e) { /* 忽略同步失败 */ }
   };
 

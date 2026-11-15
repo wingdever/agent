@@ -1,6 +1,6 @@
 "use strict";
 
-// Bare-chat is a session-mode layer, not a third loop engine (see docs/agent-mode.md).
+// Bare-chat is a session-mode layer, not a third loop engine (see docs/runtime/agent-mode.md).
 // It is a stateless, single-request chat entry: no sessionId, no persistence,
 // no tools, no step/turn store usage. The system prompt is assembled per turn.
 // It mirrors the linear engine's translation and termination/log contract so
@@ -15,7 +15,6 @@ const {
 } = require("./translation");
 const { assembleSystemPrompt, DEFAULT_IDENTITY } = require("./system-prompt");
 const { TurnError } = require("./turn-error");
-const { readSettings } = require("./loops/shared");
 
 async function runBareChat(core, ctx) {
   // ctx = { messages, model, effort, stream, onEvent }.
@@ -28,8 +27,8 @@ async function runBareChat(core, ctx) {
     onEvent = () => {},
   } = ctx;
 
-  core._onEvent = onEvent;
-  // Pass effort straight to _stream (no core.effort mutation needed).
+  core.agent.emit = onEvent;
+  core.agent.effort = effort || null;
 
   // Termination/log state. steps=1, tools=0, persist=false (no activeSessions,
   // no turn/step updates). The [turn] log uses session=none turn=-.
@@ -41,7 +40,7 @@ async function runBareChat(core, ctx) {
   const toolsUsed = 0;
 
   try {
-    const st = readSettings();
+    const st = core.config.readSettings();
     const translateCfg = resolveTranslateConfig(st);
 
     // The last message must be a user message.
@@ -72,12 +71,13 @@ async function runBareChat(core, ctx) {
 
     // Per-turn system prompt: tools=[] so no tool:* sections. No caching, no
     // DB read, and no system-prompt event (the flat renderer ignores it).
+    const target = core.config.resolveTarget({ provider: st.provider, model });
     const system = assembleSystemPrompt({
       identity: typeof st.identity === "string" ? st.identity : DEFAULT_IDENTITY,
       persona: typeof st.persona === "string" ? st.persona : "",
       tools: [],
       cwd: process.cwd(),
-      model: model || core.model,
+      model: target.model,
     }).system;
 
     const translatedMessages = messages.slice();
@@ -90,10 +90,12 @@ async function runBareChat(core, ctx) {
     // to empty here regardless of what the UI passes.
     let a;
     try {
-      a = await core._stream({
+      a = await core.model.stream({
         messages: requestMessages,
         toolDefs: [],
-        model: model || core.model,
+        model: target.model,
+        baseUrl: target.baseUrl,
+        apiKey: target.apiKey,
         onEvent,
         sessionId: undefined,
         stream,

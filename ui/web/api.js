@@ -6,7 +6,7 @@
     return {
       name: "http",
       listFunctions: function () {
-        return fetch(BASE + "/api/functions").then(function (r) { return r.json(); });
+        return this.call("tools.list", {}, function () {});
       },
       call: function (fn, params, onEvent) {
         return fetch(BASE + "/api/call", {

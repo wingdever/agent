@@ -7,7 +7,7 @@
 // Adapted from @deepseek-ai/dsh@0.2.1-rc.2 / @deepseek-ai/dsh-skill/lib/index.js
 // but WITHOUT cordis layered scopes: this project is a single-process,
 // single-session agent, so resolution is a single flat rank merge
-// (see docs/dev/skill.md 5.7). `scope` is intentionally absent from the API.
+// (see docs/skills/skills.md 5.7). `scope` is intentionally absent from the API.
 
 const { isSkillName } = require("./names");
 

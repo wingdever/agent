@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld("agentBridge", {
     }
   },
   listFunctions() {
-    return ipcRenderer.invoke("agent:call", { fn: "listFunctions", params: {}, callId: "x" });
+    return ipcRenderer.invoke("agent:call", { fn: "tools.list", params: {}, callId: "x" });
   },
 });
  

@@ -1,7 +1,7 @@
 // Evaluation layer: walk the IR, decide every simple command, aggregate the
 // compound structure, and emit a Decision. Pure function; does not execute.
 //
-// Aggregation (docs/tool/bash.md §(3), Claude Code-style):
+// Aggregation (docs/tools/bash.md §(3), Claude Code-style):
 //   any deny  -> overall deny (short-circuit; record first deny)
 //   any ask   -> overall ask
 //   all allow -> overall allow
