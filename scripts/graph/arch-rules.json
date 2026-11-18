@@ -1,0 +1,178 @@
+{
+  "$comment": "Architecture rules for the file-level dependency graph. Rules are data: each one states which files may depend on which, and what to do about the rest. scan.js evaluates them and emits violations.",
+  "layers": {
+    "$comment": "Each file maps to exactly one layer by path prefix, first match wins.",
+    "mapping": [
+      {
+        "layer": "lib",
+        "prefix": "lib/"
+      },
+      {
+        "layer": "entry",
+        "prefix": "launcher.js"
+      },
+      {
+        "layer": "core",
+        "prefix": "core/"
+      },
+      {
+        "layer": "tools",
+        "prefix": "tools/"
+      },
+      {
+        "layer": "ui-electron",
+        "prefix": "ui/electron/"
+      },
+      {
+        "layer": "ui-web",
+        "prefix": "ui/web/"
+      },
+      {
+        "layer": "providers",
+        "prefix": "providers/"
+      },
+      {
+        "layer": "scripts",
+        "prefix": "scripts/"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "lib-is-a-leaf",
+      "severity": "error",
+      "description": "lib/ holds host-agnostic shared facilities. It must not depend on any application layer; if a lib module needs core state, the state belongs in core and reaches lib through arguments, not imports.",
+      "from": [
+        "lib/**"
+      ],
+      "deny": [
+        "core/**",
+        "tools/**",
+        "ui-electron",
+        "ui-web",
+        "providers/**",
+        "scripts/**"
+      ],
+      "allow": []
+    },
+    {
+      "id": "core-no-ui",
+      "severity": "error",
+      "description": "Business logic must not depend on any client. The UI only renders what core emits.",
+      "from": [
+        "core/**"
+      ],
+      "deny": [
+        "ui-electron",
+        "ui-web"
+      ],
+      "allow": []
+    },
+    {
+      "id": "core-tools-only-via-registry",
+      "severity": "error",
+      "description": "core reaches tools only through the directory-scanning registry (slot loading). Any other core file depending on a tool is a hard-wired dependency that breaks the slot contract. Shared facilities belong in lib/.",
+      "from": [
+        "core/**"
+      ],
+      "deny": [
+        "tools/**"
+      ],
+      "allow": [
+        "core/tools/registry.js"
+      ],
+      "allowNote": "core/tools/registry.js scans tools/*/registry.json and loads each entry; this is the declared slot loader, not a static dependency."
+    },
+    {
+      "id": "ui-no-core-direct",
+      "severity": "error",
+      "description": "The renderer must reach core through the transport (HTTP/IPC) and the preload bridge, never by requiring core modules directly.",
+      "from": [
+        "ui-web"
+      ],
+      "deny": [
+        "core/**",
+        "tools/**"
+      ],
+      "allow": []
+    },
+    {
+      "id": "entry-composes-only",
+      "severity": "error",
+      "description": "The launcher coordinates (selects UI, starts transport); it must not depend on tools or individual UI modules except through the UIS registry.",
+      "from": [
+        "launcher.js"
+      ],
+      "deny": [
+        "tools/**"
+      ],
+      "allow": []
+    },
+    {
+      "id": "providers-leaf",
+      "severity": "error",
+      "description": "Provider adapters are leaves: they shape provider-specific requests and must not pull in core, tools or UI.",
+      "from": [
+        "providers/**"
+      ],
+      "deny": [
+        "core/**",
+        "tools/**",
+        "ui-electron",
+        "ui-web"
+      ],
+      "allow": []
+    },
+    {
+      "id": "tools-no-core-internals",
+      "severity": "error",
+      "description": "Tools are replaceable slot implementations. They depend on lib/ for shared facilities and never on core internals. This rule is unconditional: no file exemptions are allowed.",
+      "from": [
+        "tools/**"
+      ],
+      "deny": [
+        "core/**"
+      ],
+      "allow": []
+    },
+    {
+      "id": "tools-no-ui",
+      "severity": "error",
+      "description": "Tools run in core's process and report results through the tool result contract; they never reach a client.",
+      "from": [
+        "tools/**"
+      ],
+      "deny": [
+        "ui-electron",
+        "ui-web"
+      ],
+      "allow": []
+    },
+    {
+      "id": "scripts-isolated",
+      "severity": "warn",
+      "description": "Developer scripts are standalone tooling; depending on application code makes them break silently when app layers move.",
+      "from": [
+        "scripts/**"
+      ],
+      "deny": [
+        "core/**",
+        "tools/**",
+        "ui-electron",
+        "ui-web",
+        "providers/**"
+      ],
+      "allow": []
+    }
+  ],
+  "cycles": {
+    "severity": "warn",
+    "$comment": "Dependency cycles are not automatically wrong (store/compaction, context/compaction-runner legitimately interlock), so they are reported for review rather than failed.",
+    "ignore": [
+      [
+        "core/storage/store.mjs",
+        "core/compaction.js"
+      ]
+    ]
+  }
+}

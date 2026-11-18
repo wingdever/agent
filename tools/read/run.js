@@ -12,7 +12,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { record } = require("../../core/tools/fs-observe");
+const { record } = require("../../lib/fs-observe");
 
 const READ_LIMIT = 2000;
 const READ_MAX_LINE_LENGTH = 2000;

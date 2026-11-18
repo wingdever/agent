@@ -9,7 +9,7 @@
 // single-session agent, so resolution is a single flat rank merge
 // (see docs/skills/skills.md 5.7). `scope` is intentionally absent from the API.
 
-const { isSkillName } = require("./names");
+const { isSkillName } = require("../../lib/skill-policy");
 
 const RUNTIME_RANK = 250;
 const RUNTIME_PROVIDER = "runtime";

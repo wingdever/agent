@@ -22,8 +22,8 @@ const {
 } = require("../translation");
 const compaction = require("../compaction");
 const { validateToolArgs, runTool } = require("../tools/executor");
-const { errorResult } = require("../tools/result");
-const { reset: resetTodos } = require("../todo-state");
+const { errorResult } = require("../../lib/tool-result");
+const { reset: resetTodos } = require("../../lib/todo-state");
 const planMode = require("../plan-mode");
 const { TurnError } = require("../turn-error");
 

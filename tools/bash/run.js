@@ -9,8 +9,8 @@
 
 const { spawn } = require("child_process");
 const path = require("path");
-const { shellEnv } = require("../../core/tools/env");
-const { writeSpill, tailByBytes } = require("../../core/tools/result");
+const { shellEnv } = require("../../lib/shell-env");
+const { writeSpill, tailByBytes } = require("../../lib/tool-result");
 
 // Phase 2 permission gate (tools/bash/policy). ESM modules are loaded lazily once
 // and cached; CJS calls them via dynamic import. The gate runs before any shell

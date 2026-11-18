@@ -6,7 +6,7 @@
 const { permissionFor } = require("../../../permissions");
 const { resolveFsPermission } = require("../../../fs-policy");
 const { validateToolArgs, runTool } = require("../../../tools/executor");
-const { errorResult } = require("../../../tools/result");
+const { errorResult } = require("../../../../lib/tool-result");
 const planMode = require("../../../plan-mode");
 
 module.exports = async function run(input, ctx) {

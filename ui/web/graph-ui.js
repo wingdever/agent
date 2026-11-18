@@ -36,6 +36,8 @@
   var statusEl = null;
   var searchEl = null;
   var detailEl = null;
+  var archBadge = null;
+  var archPanelEl = null;
   var cy = null;
   var data = null;
   var selectedId = null;
@@ -75,10 +77,16 @@
       placeholder: "搜索文件路径（如 loops/nodes）",
       oninput: onSearch,
     });
+    archBadge = el("button", {
+      className: "meta-arch-badge",
+      dataset: { name: "meta-arch-badge" },
+      onclick: toggleArchPanel,
+    }, "架构规则");
     var opbar = el("div", { className: "meta-codegraph-opbar", dataset: { name: "meta-codegraph-opbar" } }, [
       searchEl,
       el("button", { dataset: { name: "meta-graph-fit-btn" }, onclick: fitGraph }, "适应窗口"),
       el("button", { dataset: { name: "meta-graph-reload-btn" }, onclick: function () { loadGraph(true); } }, "重新加载"),
+      archBadge,
       statusEl,
     ]);
 
@@ -91,7 +99,9 @@
       '<span class="meta-dot dot-in"></span>入边（谁依赖我）' +
       '<span class="meta-dot dot-out"></span>出边（我依赖谁）'
     });
-    var view = el("div", { className: "meta-codegraph-view", dataset: { name: "meta-codegraph-view" } }, [canvasEl, legend]);
+    archPanelEl = el("div", { className: "meta-arch-panel", dataset: { name: "meta-arch-panel" } });
+    archPanelEl.hidden = true;
+    var view = el("div", { className: "meta-codegraph-view", dataset: { name: "meta-codegraph-view" } }, [canvasEl, legend, archPanelEl]);
     var tab = el("div", { className: "meta-codegraph-tab", dataset: { name: "meta-codegraph-tab" } }, [opbar, view]);
 
     var navBtn = el("button", {
@@ -161,6 +171,7 @@
       .then(function (json) {
         data = json;
         render(json);
+        renderArch(json.arch);
         setStatus(
           "文件 " + json.nodes.length + " · 边 " + json.edges.length +
             " · 生成于 " + new Date(json.generatedAt).toLocaleString(),
@@ -298,6 +309,75 @@
     cy.on("tap", function (evt) { if (evt.target === cy) clearSelection(); });
     if (selectedId && cy.getElementById(selectedId).length) applySelection(selectedId);
     else clearSelection();
+  }
+
+  // ---- Architecture rules ----
+  function renderArch(arch) {
+    if (!archBadge || !archPanelEl) return;
+    if (!arch) {
+      archBadge.textContent = "架构规则 —";
+      archBadge.setAttribute("data-state", "unknown");
+      return;
+    }
+    var s = arch.summary;
+    archBadge.textContent = s.error
+      ? "架构规则 " + s.error + " 违规"
+      : s.warn
+        ? "架构规则 " + s.warn + " 警告"
+        : "架构规则 通过";
+    archBadge.setAttribute("data-state", s.error ? "error" : s.warn ? "warn" : "ok");
+    archPanelEl.innerHTML = archPanelHtml(arch);
+    Array.prototype.forEach.call(archPanelEl.querySelectorAll("[data-focus]"), function (node) {
+      node.addEventListener("click", function () {
+        var id = node.getAttribute("data-focus");
+        if (cy && cy.getElementById(id).length) selectNode(id);
+      });
+    });
+  }
+
+  function archPanelHtml(arch) {
+    var out = ['<div class="meta-arch-head">架构规则检查（' + arch.summary.rules + " 条规则）</div>"];
+    if (!arch.violations.length && !arch.cycles.length) {
+      out.push('<div class="meta-arch-ok">全部通过，代码符合分层设计。</div>');
+      return out.join("");
+    }
+    var groups = {};
+    arch.violations.forEach(function (v) {
+      (groups[v.rule] = groups[v.rule] || { severity: v.severity, description: v.description, items: [] }).items.push(v);
+    });
+    Object.keys(groups).forEach(function (ruleId) {
+      var g = groups[ruleId];
+      out.push('<div class="meta-arch-group" data-severity="' + g.severity + '">');
+      out.push('<div class="meta-arch-rule">' + esc(ruleId) + " <span class=\"meta-arch-count\">" + g.items.length + "</span></div>");
+      out.push('<div class="meta-arch-desc">' + esc(g.description) + "</div>");
+      g.items.forEach(function (v) {
+        out.push(
+          '<div class="meta-arch-item">' +
+            '<button class="meta-arch-file" data-focus="' + esc(v.from) + '">' + esc(v.from) + "</button>" +
+            '<span class="meta-arch-arrow">→</span>' +
+            '<button class="meta-arch-file" data-focus="' + esc(v.to) + '">' + esc(v.to) + "</button>" +
+            '<span class="meta-arch-tag">' + esc(v.reason) + "</span>" +
+            (v.candidate ? '<span class="meta-arch-tag candidate">候选公共设施</span>' : "") +
+          "</div>"
+        );
+      });
+      out.push("</div>");
+    });
+    arch.cycles.forEach(function (c) {
+      out.push('<div class="meta-arch-group" data-severity="' + c.severity + '">');
+      out.push('<div class="meta-arch-rule">' + esc(c.rule) + "</div>");
+      out.push('<div class="meta-arch-desc">' + esc(c.description) + "</div>");
+      out.push('<div class="meta-arch-item">' + c.members.map(function (m) {
+        return '<button class="meta-arch-file" data-focus="' + esc(m) + '">' + esc(m) + "</button>";
+      }).join('<span class="meta-arch-arrow">↔</span>') + "</div>");
+      out.push("</div>");
+    });
+    return out.join("");
+  }
+
+  function toggleArchPanel() {
+    if (!archPanelEl) return;
+    archPanelEl.hidden = !archPanelEl.hidden;
   }
 
   // Below the readable threshold, node labels turn into ellipsis so the

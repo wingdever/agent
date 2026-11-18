@@ -739,3 +739,24 @@ select, textarea, input { font-family: inherit; }
 .meta-side-item:hover { background: #e0e7ff; }
 .meta-side-empty { color: #9ca3af; padding-left: 4px; }
 .close-meta-btn { border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 8px; padding: 8px; font-size: 13px; }
+
+/* 架构规则检查（meta-codegraph-opbar 徽标 + 面板） */
+.meta-arch-badge { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; height: 28px; padding: 0 10px; font-size: 12px; }
+.meta-arch-badge[data-state="ok"] { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+.meta-arch-badge[data-state="warn"] { border-color: #fcd34d; background: #fffbeb; color: #b45309; }
+.meta-arch-badge[data-state="error"] { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.meta-arch-panel { max-height: 42%; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 10px 12px; font-size: 12px; }
+.meta-arch-head { font-weight: 600; color: #111827; margin-bottom: 8px; }
+.meta-arch-ok { color: #15803d; }
+.meta-arch-group { border-left: 3px solid #e5e7eb; padding-left: 10px; margin-bottom: 10px; }
+.meta-arch-group[data-severity="error"] { border-left-color: #dc2626; }
+.meta-arch-group[data-severity="warn"] { border-left-color: #f59e0b; }
+.meta-arch-rule { font-weight: 600; color: #1f2937; }
+.meta-arch-count { display: inline-block; background: #e5e7eb; color: #374151; border-radius: 999px; padding: 0 7px; font-size: 11px; margin-left: 4px; }
+.meta-arch-desc { color: #6b7280; line-height: 1.5; margin: 3px 0 6px; }
+.meta-arch-item { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 2px 0; }
+.meta-arch-file { border: none; background: transparent; color: #1d4ed8; padding: 1px 3px; border-radius: 4px; font-size: 12px; word-break: break-all; }
+.meta-arch-file:hover { background: #e0e7ff; }
+.meta-arch-arrow { color: #9ca3af; }
+.meta-arch-tag { font-size: 11px; color: #6b7280; background: #f3f4f6; border-radius: 4px; padding: 0 5px; }
+.meta-arch-tag.candidate { color: #b45309; background: #fef3c7; }

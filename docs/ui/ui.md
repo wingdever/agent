@@ -204,7 +204,11 @@
 | **meta-graph-fit-btn** | 适应窗口按钮（缩放到全图可见） |
 | **meta-graph-reload-btn** | 重新加载按钮（重新读取 graph-data.json） |
 | **meta-status** | 数据状态（文件数 / 边数 / 生成时间；失败时显示原因） |
-| **meta-codegraph-view** | 代码图视图区（画布 + 图例） |
+| **meta-arch-badge** | 架构规则徽标：错误数 / 警告数 / 通过；点击展开或收起 meta-arch-panel |
+| **meta-codegraph-view** | 代码图视图区（画布 + 图例 + 架构规则面板） |
+| **meta-arch-panel** | 架构规则检查面板：按规则分组列出违规边（from → to、依赖类型、是否为候选公共设施），项可点击跳转到图上节点；含静态依赖环 |
+| **meta-arch-item*** | 单条违规边（或环成员链） |
+| **meta-arch-file*** | 违规边端点文件按钮（点击选中并居中对应节点） |
 | **meta-codegraph-canvas** | 依赖图画布（Cytoscape，dagre 左→右分层；节点按层级着色，运行时规则边为虚线） |
 | **meta-codegraph-legend** | 图例（层级颜色、虚线语义、入边/出边颜色） |
 | **meta-panel** | 本体弹窗右侧详情栏 |
@@ -613,10 +617,14 @@ meta-modal
 │     │  ├─ meta-graph-search
 │     │  ├─ meta-graph-fit-btn
 │     │  ├─ meta-graph-reload-btn
+│     │  ├─ meta-arch-badge
 │     │  └─ meta-status
 │     └─ meta-codegraph-view
 │        ├─ meta-codegraph-canvas
-│        └─ meta-codegraph-legend
+│        ├─ meta-codegraph-legend
+│        └─ meta-arch-panel?
+│           └─ meta-arch-item*
+│              └─ meta-arch-file*
 └─ meta-panel
    ├─ meta-codegraph-detail
    └─ close-meta-btn
@@ -679,6 +687,8 @@ meta-codegraph-btn -> meta-codegraph-tab（页切换；当前仅代码图一页�
 meta-graph-search(input) -> 按文件路径过滤，不匹配节点淡出
 meta-graph-fit-btn -> 缩放到全图可见
 meta-graph-reload-btn -> 重新 fetch "graph-data.json" 并重建图
+meta-arch-badge -> 展开/收起 meta-arch-panel（展示 scan 求值结果 graph-data.json 的 arch 段）
+meta-arch-file(click) -> 选中并居中对应节点
 点击 meta-codegraph-canvas 节点 -> 高亮入边（谁依赖我）/ 出边（我依赖谁），其余淡出；选中节点缩放到可读级别并居中；meta-codegraph-detail 列出入边与出边清单
 点击 meta-codegraph-canvas 边 -> meta-codegraph-detail 显示 from / to / 类型（require | import | dynamic）与命中的运行时规则
 meta-side-item(click) -> 选中并居中对应节点
@@ -767,8 +777,8 @@ meta-modal
    three-part: meta-sidebar | meta-viewport | meta-panel
    meta-sidebar: meta-codegraph-btn（页导航，可扩展为多页）
    meta-viewport: meta-codegraph-tab
-      meta-codegraph-opbar: meta-graph-search, meta-graph-fit-btn, meta-graph-reload-btn, meta-status
-      meta-codegraph-view: meta-codegraph-canvas（上）, meta-codegraph-legend（下）
+      meta-codegraph-opbar: meta-graph-search, meta-graph-fit-btn, meta-graph-reload-btn, meta-arch-badge, meta-status
+      meta-codegraph-view: meta-codegraph-canvas（上）, meta-codegraph-legend（下）, meta-arch-panel（可选，默认收起）
    meta-panel: meta-codegraph-detail（上，选中节点/边的明细）, close-meta-btn（下）
    note: 图数据来自 graph-data.json（scripts/graph/scan.js 生成）；节点按层级着色，运行时规则边画虚线；点击节点同时高亮入边与出边
 

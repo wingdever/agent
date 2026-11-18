@@ -2,11 +2,11 @@
 
 // Model-facing write: create or fully replace a UTF-8 text file.
 // The fs-observation policy requires reading an existing file first; that check
-// lives in core/tools/fs-observe.js and is shared with edit.
+// lives in lib/fs-observe and is shared with edit.
 
 const fs = require("fs");
 const path = require("path");
-const { record, assertVersion } = require("../../core/tools/fs-observe");
+const { record, assertVersion } = require("../../lib/fs-observe");
 
 const DIFF_BASIS_MAX_BYTES = 200 * 1024;
 

@@ -1,9 +1,9 @@
 "use strict";
 
 // Model-facing whole-list replacement. The projection lives for one turn and
-// resets when the next turn starts (core/todo-state.js).
+// resets when the next turn starts (core turn-start node calls lib/todo-state reset).
 
-const { set } = require("../../core/todo-state");
+const { set } = require("../../lib/todo-state");
 
 const STATUSES = new Set(["pending", "in_progress", "completed"]);
 

@@ -4,7 +4,7 @@
 // 2000 bytes, grouped by file, with a spill locator when capped.
 
 const { runRg } = require("../lib/ripgrep");
-const { writeSpill, headByBytes, byteLength } = require("../../core/tools/result");
+const { writeSpill, headByBytes, byteLength } = require("../../lib/tool-result");
 
 const MAX_MATCHES = 250;
 const MAX_LINE_BYTES = 2000;

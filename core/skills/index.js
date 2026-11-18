@@ -3,17 +3,19 @@
 // Skill subsystem entry point.
 // - registry.js: provider merge + rank resolution + list/snapshot/get
 // - filesystem.js: local skill discovery + frontmatter parsing
-// - content.js: shared <skill_content> rendering (used by skill tool and /name)
-// - names.js: kebab-case name validation
-// - policy.js: invocation-policy readers
-// - instance.js: active-registry accessor for tools/gesture wiring
+// Shared, host-agnostic pieces live in lib/ so the skill tool can use them
+// without depending on core:
+// - lib/skill-content: <skill_content> rendering
+// - lib/skill-policy: kebab-case name validation + invocation policy
+// - lib/skill-instance: active-registry accessor
+// Subsystem-only pieces stay here:
+// - registry.js / filesystem.js: provider merge, discovery, caching
 
 const { SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER } = require("./registry");
 const { FileSystemSkillProvider, createFileSystemProvider } = require("./filesystem");
-const content = require("./content");
-const { isSkillName, SKILL_NAME_RE } = require("./names");
-const { isModelInvocable, isUserInvocable } = require("./policy");
-const { setSkillsRegistry, getSkillsRegistry } = require("./instance");
+const content = require("../../lib/skill-content");
+const { isSkillName, SKILL_NAME_RE, isModelInvocable, isUserInvocable } = require("../../lib/skill-policy");
+const { setSkillsRegistry, getSkillsRegistry } = require("../../lib/skill-instance");
 
 module.exports = {
   SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER,

@@ -5,7 +5,7 @@
 // because they need the session UI; this module only owns the tool contract.
 
 const { validateSchema } = require("./schema");
-const { errorResult, normalizeResult } = require("./result");
+const { errorResult, normalizeResult } = require("../../lib/tool-result");
 
 function validateToolArgs(tool, args) {
   return validateSchema(tool.parameters, args);

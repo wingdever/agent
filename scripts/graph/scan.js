@@ -15,13 +15,14 @@
 const fs = require("fs");
 const path = require("path");
 const { init, parse } = require("es-module-lexer");
+const { readArchRules, evaluateRules } = require("./arch-check");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const RULES_FILE = path.join(__dirname, "runtime-edges.json");
 const OUT_FILE = path.join(ROOT, "ui", "web", "graph-data.json");
 
 // Scan roots relative to ROOT. Anything reachable from these is a graph node.
-const SCAN_ROOTS = ["launcher.js", "core", "tools", "ui", "providers", "scripts"];
+const SCAN_ROOTS = ["launcher.js", "lib", "core", "tools", "ui", "providers", "scripts"];
 
 // Excluded paths (relative to ROOT, forward slashes). Generator output and
 // third-party vendor bundles are not part of the project's dependency graph.
@@ -142,6 +143,7 @@ function expandTarget(target, files) {
 
 function layerOf(rel) {
   if (rel === "launcher.js") return "entry";
+  if (rel.startsWith("lib/")) return "lib";
   if (rel.startsWith("core/")) return "core";
   if (rel.startsWith("tools/")) return "tools";
   if (rel.startsWith("ui/electron/")) return "ui-electron";
@@ -205,13 +207,47 @@ async function main() {
     edges: finalEdges,
     unresolved: missing,
   };
+
+  const arch = evaluateRules(payload, readArchRules());
+  payload.arch = arch;
   fs.writeFileSync(OUT_FILE, JSON.stringify(payload, null, 2) + "\n");
 
   const byKind = {};
   for (const e of finalEdges) byKind[e.kind] = (byKind[e.kind] || 0) + 1;
   console.log(`[graph] nodes=${nodes.size} edges=${finalEdges.length} ${JSON.stringify(byKind)} unresolved=${missing.length}`);
   for (const m of missing) console.warn(`[graph] unresolved relative require in ${m.from}: ${m.specifier}`);
+  reportArch(arch);
   console.log(`[graph] wrote ${toRel(OUT_FILE)}`);
+  if (arch.summary.error > 0) process.exitCode = 1;
+}
+
+function reportArch(arch) {
+  const { violations, cycles, summary } = arch;
+  const total = violations.length + cycles.length;
+  if (total === 0) {
+    console.log(`[arch] clean: ${summary.rules} rules, no violations`);
+    return;
+  }
+  console.log(`[arch] ${summary.error} error(s), ${summary.warn} warning(s) across ${summary.rules} rules`);
+
+  const byRule = new Map();
+  for (const v of violations) {
+    if (!byRule.has(v.rule)) byRule.set(v.rule, { severity: v.severity, description: v.description, items: [] });
+    byRule.get(v.rule).items.push(v);
+  }
+  for (const [ruleId, group] of byRule) {
+    console.log(`\n  [${group.severity}] ${ruleId} (${group.items.length})`);
+    console.log(`    ${group.description}`);
+    for (const v of group.items) {
+      const tag = v.candidate ? "  (candidate shared facility)" : "";
+      console.log(`    - ${v.from} -> ${v.to}  [${v.reason}]${tag}`);
+    }
+  }
+  for (const c of cycles) {
+    console.log(`\n  [${c.severity}] ${c.rule} (1)`);
+    console.log(`    ${c.description}`);
+    console.log(`    - ${c.members.join(" <-> ")}`);
+  }
 }
 
 main().catch((e) => {

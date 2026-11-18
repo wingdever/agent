@@ -5,7 +5,7 @@
 
 const path = require("path");
 const { runRg } = require("../lib/ripgrep");
-const { writeSpill } = require("../../core/tools/result");
+const { writeSpill } = require("../../lib/tool-result");
 
 const MAX_RESULTS = 100;
 const TIMEOUT_MS = 30000;

@@ -5,7 +5,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { record, assertVersion } = require("../../core/tools/fs-observe");
+const { record, assertVersion } = require("../../lib/fs-observe");
 
 function parseEditArgs(args, cwd) {
   const filePath = typeof args.file_path === "string" ? args.file_path : "";

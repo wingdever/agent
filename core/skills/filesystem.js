@@ -17,7 +17,7 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
-const { isSkillName } = require("./names");
+const { isSkillName } = require("../../lib/skill-policy");
 
 const PROJECT_DSH_RANK = 100;
 const PROJECT_AGENTS_RANK = 200;

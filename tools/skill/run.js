@@ -6,8 +6,9 @@
 // then render. The registry is reached through the startup singleton so this
 // module stays decoupled from provider wiring.
 
-const { getSkillsRegistry } = require("../../core/skills/instance");
-const { renderSkillContent, isModelInvocable, isSkillName } = require("../../core/skills");
+const { getSkillsRegistry } = require("../../lib/skill-instance");
+const { renderSkillContent } = require("../../lib/skill-content");
+const { isModelInvocable, isSkillName } = require("../../lib/skill-policy");
 
 async function run(args, exec = {}) {
   const name = args && args.name;

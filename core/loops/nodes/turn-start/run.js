@@ -6,7 +6,7 @@ const path = require("path");
 const { readPermissions } = require("../../../permissions");
 const { readFsPolicy } = require("../../../fs-policy");
 const planMode = require("../../../plan-mode");
-const { reset: resetTodos } = require("../../../todo-state");
+const { reset: resetTodos } = require("../../../../lib/todo-state");
 
 module.exports = async function run(input, ctx) {
   const { runtime, services, session, turn } = ctx;
