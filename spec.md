@@ -2,6 +2,11 @@
 
 本文件是项目顶层设计的唯一权威，定义功能模块、模块接口与全局命名。三层结构（core / transport / UI）是分层约定；模块在编译期解耦、运行时经注册表接合。代码标识符一律英文。
 
+编写规范要求定义：
+- 功能域目录、模块单元文件、数据封装、函数接口。
+- 关于数据流表明调用顺序。
+- 关于状态位表明信号逻辑。
+
 ## 1 功能树
 
 按「能力域 → 功能模块」两级组织。每个末端节点是一个模块，也是独立完成与替换的封装单元；模块名同时作为第 2 章契约条目的标题。
@@ -18,7 +23,7 @@ foundation 基础与接入
 
 runtime 运行时
   agent-runtime               turn 状态与模式分派
-  bare-chat                   无持久化对话
+  bare-chat                   无持久化连续对话
   agent-mode                  presence / autonomy / activity 三轴
   loop-registry               引擎与节点注册表
   loop-node-graph             图执行引擎（活跃）
@@ -58,33 +63,6 @@ tools-core 工具内核
   tool-service                工具选择 / 定义 / 目录投影
   fs-observe                  read-before-write 与版本 CAS
 
-tools-fs 文件与命令工具
-  tool-read                   带行号读取与观察记录
-  tool-write                  新建或整体替换
-  tool-edit                   字面串替换
-  tool-glob                   路径发现
-  tool-grep                   内容检索
-  tool-bash                   shell 命令执行与命令门
-
-tools-web 网络工具
-  tool-web-search             Tavily 搜索聚合
-  tool-web-fetch              URL 到有界 markdown
-  tool-lib                    ripgrep / web 共享实现库
-
-tools-state 交互与状态工具
-  tool-ask-user-question      挂起等待用户选择
-  tool-request-user-job       委派真实任务给人类
-  tool-job-output             user job 结果 / 状态
-  tool-job-list               会话 user job 列表
-  tool-job-kill               取消 pending user job
-  tool-create-goal            新建会话目标
-  tool-get-goal               读取当前目标
-  tool-update-goal            目标状态机变更
-  tool-todo-write             替换任务清单
-  tool-exit-plan-mode         计划审阅与批准
-  tool-calculator             算术求值（默认隐藏）
-  tool-get-current-time       ISO8601 时钟（默认隐藏）
-
 interaction 交互服务
   interaction-service         审批 / 问答 / 计划审阅 / user job 的挂起与恢复
 
@@ -108,9 +86,6 @@ storage 存储
   storage-schema              表结构定义
   session-projection          surface / history 回放投影
   session-fork                会话派生
-
-quality 质量
-  test-suite                  node --test 测试集
 ```
 
 ## 2 模块契约表
@@ -334,37 +309,10 @@ quality 质量
 - 接口：`record(path)`；`assertVersion(path)`；`versionOf(path)`；`reset()`。
 - 命名：版本键 `mtime:size`；断言函数 `assertVersion`。
 
-### 2.6 tools-fs 文件与命令工具
+### 2.6 tools-slot 工具插槽注册与范式
 
 每个工具对外统一为 `run(args, ctx) → { text, meta }`，参数由各自 `registry.json.parameters` 声明。下表给出各自参数要点与专属约束。
-
-- **tool-read**：`file_path, offset?, limit?`；返回带行号内容；记录观察；2000 行 / 2000 字符 / 50KB 上限，10MB 流式，NUL 判二进制。
-- **tool-write**：`file_path, content`；建父目录、原子写；先观察且版本一致，否则拒绝。
-- **tool-edit**：`file_path, old_string, new_string, replace_all?`；唯一匹配或 `replace_all`；先观察、拒陈旧版本、CRLF 归一化。
-- **tool-glob**：`pattern, path?`；包含 hidden/ignored；100 条上限 + spill；`concurrencySafe`，30s 超时。
-- **tool-grep**：`pattern, path?, include?`；`rg --json`；250 匹配上限 + spill；`concurrencySafe`，30s 超时。
-- **tool-bash**：`description, command, timeoutMs?, workdir?`；fresh `bash -c`；120s 默认 / 600s 上限；每流 64KB 截尾 + spill；命令门来自 `bash-policy.json`；不实现 sandbox、不做后台 job。
-
-### 2.7 tools-web 网络工具
-
-- **tool-web-search**：`queries`；Tavily 合并至多四查询，返回来源 URL；结果标记为不可信，建议随后 web_fetch；30s 超时、`concurrencySafe`。
-- **tool-web-fetch**：`url`；抓单个 HTTP(S) URL 转有界 markdown（turndown）；返回 `statusCode` / `truncated`；30s 超时、`concurrencySafe`。
-- **tool-lib**：共享实现库——`ripgrep.js` 供 glob/grep；`web/` 下 config / transport / network / policy / trust / tavily / search / render 供 web 工具。不暴露为模型工具。
-
-### 2.8 tools-state 交互与状态工具
-
-- **tool-ask-user-question**：`questions`；挂起等待 UI 提交，自主模式直接解析；返回 `{"answers":[...]}`。
-- **tool-request-user-job**：`description, title?`；挂起等待人类报告，返回报告与 `job_id`。
-- **tool-job-output**：`job_id`；读取 user job 结果 / 状态；需活跃会话。
-- **tool-job-list**：无参数；列出本会话 user job（job_id / status / 描述摘要）。
-- **tool-job-kill**：`job_id`；取消 pending job，完成或已取消的只报状态。
-- **tool-create-goal**：`objective, max_goal_rounds?`；新建会话目标。
-- **tool-get-goal**：无参数；读取当前目标（含 id / revision）。
-- **tool-update-goal**：`goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?`；按 revision CAS 做状态变更。
-- **tool-todo-write**：`todos`；整表替换，turn 开始重置。
-- **tool-exit-plan-mode**：`plan`；仅 plan 模式可用；批准退出，拒绝返回反馈并保持 plan。
-- **tool-calculator**：`expression`；正则白名单求值；`defaultVisible: false`。
-- **tool-get-current-time**：无参数；`Date().toISOString()`；`defaultVisible: false`。
+除非与本系统的状态或数据交互，否则具体各个工具不在本文件中定义。
 
 ### 2.9 interaction 交互服务
 
@@ -458,7 +406,7 @@ quality 质量
 
 ### 3.1 模块名
 
-- 能力域目录用小写单数：`foundation` / `runtime` / `model` / `context` / `tools-core` / `tools-fs` / `tools-web` / `tools-state` / `interaction` / `skills` / `subagent` / `storage` / `quality`。
+- 能力域目录用小写单数：`foundation` / `runtime` / `model` / `context` / `tools-core` / `tools-state` / `interaction` / `skills` / `subagent` / `storage` / `quality`。
 - 模块名小写连字符：`tool-execution-pipeline` / `token-anchor` / `permission-gate`。
 - 工具模块以 `tool-` 前缀 + 工具名：`tool-read` / `tool-subagent-fork`。
 - 文件名固定约定：`registry.json`（声明）+ `run.js`（实现）；入口 `index.js`；测试 `*.test.js`。
@@ -562,3 +510,16 @@ user-job-update
 provider 目前不是插槽——差异未归一为代码契约，而是压成配置字段：`providers.json` 是数据数组，`findProvider` / `resolveProvider` 按 name / base_url 查表；`reasoningParamFor(baseUrl)` 按 base_url 取 `reasoning_param` 字段；`buildPayload` 用同一套 OpenAI 兼容格式给所有 provider 构造请求，无 provider 专属代码模块或目录扫描。因此放入一个 provider 文件不会被加载。
 
 成为文件型插槽的前提是先归一契约（如 payload 构造 / 响应解析 / 能力映射 / effort 翻译各自的接口），这属于新规范设计，不在当前固化范围；此处记录其非插槽状态，为后续扩展留定位。
+
+### 5.4 status: 状态插槽
+注册一个状态位槽位，描述该状态位可能的状态空间。
+不同状态将会影响和说明智能及程序相关的执行逻辑。
+such as: activity
+1. schema
+- name: xxx 名称
+- description: xxx 描述
+- value:enum [xxx,xxx,xxx] 取值范围
+2. interface
+- manul(statusName) 描述该状态位的功能逻辑
+- print(statusName) 获取该状态位取值
+- write(statusName,statusValue) 更改该状态位取值

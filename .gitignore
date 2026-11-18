@@ -60,6 +60,9 @@ log/
 log/network/track/data/
 harness-trace/
 
+# ===== 生成物（由脚本产出，不入库） =====
+ui/web/graph-data.json
+
 # ===== 临时目录 =====
 tmp/
 test/

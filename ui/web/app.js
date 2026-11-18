@@ -31,6 +31,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.initArtifactPreview();// modals.js：产物预览 DOM 缓存
   App.initSidebar();        // sidebar.js：工作区/会话树/回收站/搜索 绑定
   App.initTrajectory();     // trajectory.js：轨迹面板 DOM 缓存
+  App.initGraph();          // graph-ui.js：本体模态框入口（meta-btn）与代码图页
   App.initPresence();       // context-panel.js：presence/autonomy/activity 绑定
   App.initRefs();           // composer.js：@ 引用
   App.initPermissionSelector();

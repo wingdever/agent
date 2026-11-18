@@ -30,20 +30,20 @@
   var IMG_EXT = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1, bmp: 1 };
 
   // 1) + 2) + 3) 标签切换、左栏折叠、右栏折叠：一次性绑定（DOMContentLoaded 内调用）。
+  // 当前标签以 viewport 的 data-active-tab 表示（chat-tab / trajectory-tab），
+  // 各面板的显隐由 CSS 按该属性决定。
   App.initTabSwitch = function initTabSwitch() {
     var tabBtns = document.querySelectorAll(".tab-icons [data-target]");
     Array.prototype.forEach.call(tabBtns, function (b) {
       b.addEventListener("click", function () {
+        var target = b.getAttribute("data-target");
         Array.prototype.forEach.call(tabBtns, function (x) { x.classList.remove("active"); });
         b.classList.add("active");
-        if (b.getAttribute("data-target") === "trajectory-tab") {
-          App.viewport.classList.add("show-trajectory");
-          App.loadTrajectory(App.currentSessionId);
-        } else {
-          App.viewport.classList.remove("show-trajectory");
-        }
+        App.viewport.setAttribute("data-active-tab", target);
+        if (target === "trajectory-tab") App.loadTrajectory(App.currentSessionId);
       });
     });
+    App.viewport.setAttribute("data-active-tab", "chat-tab");
 
     leftCollapseBtn = document.getElementById("leftCollapse");
     rightCollapseBtn = document.getElementById("rightCollapse");

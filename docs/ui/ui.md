@@ -25,6 +25,7 @@
   - [3.3 permissions-modal](#33-permissions-modal)
   - [3.4 user-job（运行期交互）](#34-user-job运行期交互)
   - [3.5 loops-modal](#35-loops-modal)
+  - [3.6 meta-modal](#36-meta-modal)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
 - [6. 前端文件构成与调用关系（M0 拆分）](#6-前端文件构成与调用关系m0-拆分)
@@ -64,6 +65,7 @@
 | **purge-session-btn** | 回收站内：彻底删除（hard 删，不可恢复） |
 | **permissions-btn** | 权限配置按钮 → permissions-modal |
 | **loops-btn** | 循环编排按钮 → loops-modal |
+| **meta-btn** | 本体按钮 → meta-modal（项目本体的内省窗口入口） |
 | **settings-btn** | 设置按钮 → settings-modal |
 | **chat-viewport** | 中间聊天主视口 |
 | **chat-header** | 聊天头部；两段式布局：左组贴左（left-collapse-button + session-name，普通布局包裹、无 data-name），右组 `header-controls-group` 由 `margin-left:auto` 靠右；中间为弹性空白 |
@@ -192,6 +194,23 @@
 | **hook-remove-btn** | 删除 hook 行 |
 | **loops-panel** | 循环弹窗右侧常驻操作栏 |
 | **close-loops-btn** | 关闭循环弹窗按钮 |
+| **meta-modal** | 本体模态框（项目本体内省窗口；左侧页导航 + 中间视口 + 右侧详情栏） |
+| **meta-sidebar** | 本体弹窗左侧页导航栏 |
+| **meta-codegraph-btn** | 代码图页入口（→ meta-codegraph-tab） |
+| **meta-viewport** | 本体弹窗中间视口，承载各内省页 |
+| **meta-codegraph-tab** | 代码图页：文件级依赖图谱 |
+| **meta-codegraph-opbar** | 代码图操作条（搜索 / 适应窗口 / 重新加载 / 状态） |
+| **meta-graph-search** | 文件路径过滤输入框（不匹配的节点淡出） |
+| **meta-graph-fit-btn** | 适应窗口按钮（缩放到全图可见） |
+| **meta-graph-reload-btn** | 重新加载按钮（重新读取 graph-data.json） |
+| **meta-status** | 数据状态（文件数 / 边数 / 生成时间；失败时显示原因） |
+| **meta-codegraph-view** | 代码图视图区（画布 + 图例） |
+| **meta-codegraph-canvas** | 依赖图画布（Cytoscape，dagre 左→右分层；节点按层级着色，运行时规则边为虚线） |
+| **meta-codegraph-legend** | 图例（层级颜色、虚线语义、入边/出边颜色） |
+| **meta-panel** | 本体弹窗右侧详情栏 |
+| **meta-codegraph-detail** | 选中节点的明细（路径、层级、行数；入边列表「谁依赖我」与出边列表「我依赖谁」，可点击跳转）；选中边时显示类型与命中的运行时规则 |
+| **meta-side-item*** | 明细中的文件项按钮（点击选中并居中对应节点） |
+| **close-meta-btn** | 关闭本体弹窗按钮 |
 | **settings-modal** | 设置弹窗（运行时设置：流式开关 + 供应者/模型选择） |
 | **tools-modal** | 工具查看弹窗（只读浏览当前可用工具：按 type 分组，展示 name / description / parameters / prompt；对应 `AgentClient.call("listFunctions")` 返回的工具清单） |
 | **settings-sidebar** | 设置弹窗左侧栏 |
@@ -283,6 +302,7 @@ shell
 │  ├─ skills-btn
 │  ├─ permissions-btn
 │  ├─ loops-btn
+│  ├─ meta-btn
 │  └─ settings-btn
 ├─ chat-viewport
 │  ├─ chat-header
@@ -584,6 +604,23 @@ settings-modal
 ├─ provider-selector
 └─ model-selector
 
+meta-modal
+├─ meta-sidebar
+│  └─ meta-codegraph-btn
+├─ meta-viewport
+│  └─ meta-codegraph-tab
+│     ├─ meta-codegraph-opbar
+│     │  ├─ meta-graph-search
+│     │  ├─ meta-graph-fit-btn
+│     │  ├─ meta-graph-reload-btn
+│     │  └─ meta-status
+│     └─ meta-codegraph-view
+│        ├─ meta-codegraph-canvas
+│        └─ meta-codegraph-legend
+└─ meta-panel
+   ├─ meta-codegraph-detail
+   └─ close-meta-btn
+
 skill-ref-selector
 ├─ skill-search-input
 └─ skill-list
@@ -635,6 +672,19 @@ reset-btn -> 放弃未保存编辑，重新 loops.list 拉取
 reset-defaults-btn -> AgentClient.call("loops", {op:"upsert", payload:{hooks:<仓库默认两条 translate hook: builtin.translate-input / builtin.translate-output>}}) -> 恢复出厂（需 uiConfirm）
 close-loops-btn -> 关闭
 
+### 3.6 meta-modal
+
+meta-btn -> meta-modal（打开；首次打开时 fetch "graph-data.json" 渲染依赖图）
+meta-codegraph-btn -> meta-codegraph-tab（页切换；当前仅代码图一页）
+meta-graph-search(input) -> 按文件路径过滤，不匹配节点淡出
+meta-graph-fit-btn -> 缩放到全图可见
+meta-graph-reload-btn -> 重新 fetch "graph-data.json" 并重建图
+点击 meta-codegraph-canvas 节点 -> 高亮入边（谁依赖我）/ 出边（我依赖谁），其余淡出；选中节点缩放到可读级别并居中；meta-codegraph-detail 列出入边与出边清单
+点击 meta-codegraph-canvas 边 -> meta-codegraph-detail 显示 from / to / 类型（require | import | dynamic）与命中的运行时规则
+meta-side-item(click) -> 选中并居中对应节点
+close-meta-btn -> 关闭
+数据来源：node scripts/graph/scan.js 生成 ui/web/graph-data.json（静态 require/import + runtime-edges.json 规则表）
+
 ---
 
 ## 4. 布局关系
@@ -644,7 +694,7 @@ shell
    arrange: horizontal
 
 thread-sidebar
-   children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, models-btn, permissions-btn, loops-btn, settings-btn
+   children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, models-btn, permissions-btn, loops-btn, meta-btn, settings-btn
    arrange: vertical
 
 sidebar-header
@@ -712,6 +762,15 @@ loops-modal
    three-part: loops-sidebar | loops-viewport | loops-panel
    loops-viewport: loop-topology (left, read-only) + loop-nodes-table (right, editable)
    note: current-engine-label 只读（展示 AGENT_LOOP_ENGINE，重启生效，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→auto-compact 回环 + 实时 hooks 虚线
+
+meta-modal
+   three-part: meta-sidebar | meta-viewport | meta-panel
+   meta-sidebar: meta-codegraph-btn（页导航，可扩展为多页）
+   meta-viewport: meta-codegraph-tab
+      meta-codegraph-opbar: meta-graph-search, meta-graph-fit-btn, meta-graph-reload-btn, meta-status
+      meta-codegraph-view: meta-codegraph-canvas（上）, meta-codegraph-legend（下）
+   meta-panel: meta-codegraph-detail（上，选中节点/边的明细）, close-meta-btn（下）
+   note: 图数据来自 graph-data.json（scripts/graph/scan.js 生成）；节点按层级着色，运行时规则边画虚线；点击节点同时高亮入边与出边
 
 ---
 

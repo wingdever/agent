@@ -1,0 +1,45 @@
+{
+  "$comment": "Runtime-resolved edges that static scanning cannot see. Each rule names the source file and how to resolve its target. Rules are data, not code.",
+  "rules": [
+    {
+      "id": "electron-ui-entry",
+      "from": "launcher.js",
+      "code": "UIS[AGENT_UI]",
+      "kind": "dynamic",
+      "reason": "launcher selects the UI module from the UIS registry by AGENT_UI; default is electron",
+      "targets": ["ui/electron/main.js"]
+    },
+    {
+      "id": "loop-engine",
+      "from": "core/loops/index.js",
+      "code": "require(modPath)",
+      "kind": "dynamic",
+      "reason": "loadEngine() probes core/loops/<name>/index.js then core/loops/<name>.js; default engine is node-graph, linear is the frozen reference engine",
+      "targets": ["core/loops/node-graph.js", "core/loops/linear.js"]
+    },
+    {
+      "id": "loop-nodes",
+      "from": "core/loops/registry.js",
+      "code": "require(runPath)",
+      "kind": "dynamic",
+      "reason": "loadNodes() scans core/loops/nodes/*/registry.json and requires each node entry",
+      "targets": ["core/loops/nodes/*/run.js"]
+    },
+    {
+      "id": "loop-builtins",
+      "from": "core/loops/registry.js",
+      "code": "require(runPath)",
+      "kind": "dynamic",
+      "reason": "loadNodes() also scans core/loops/builtins/*/registry.json as builtin nodes",
+      "targets": ["core/loops/builtins/*/run.js"]
+    },
+    {
+      "id": "tool-entries",
+      "from": "core/tools/registry.js",
+      "code": "require(resolved)",
+      "kind": "dynamic",
+      "reason": "loadTools() scans tools/*/registry.json and requires each declared entry (default run.js)",
+      "targets": ["tools/*/run.js"]
+    }
+  ]
+}
