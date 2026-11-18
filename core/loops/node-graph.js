@@ -107,6 +107,7 @@ class NodeGraphEngine {
 
   async runLoop(core, ctx) {
     const persist = !!(ctx.sessionId && core.store);
+    const onEvent = ctx.onEvent || (() => {});
     const nctx = {
       core,
       runtime: core.agent,
@@ -121,8 +122,7 @@ class NodeGraphEngine {
         store: core.store,
         goals: core.goals,
       },
-      emit: ctx.onEvent || (() => {}),
-      onEvent: ctx.onEvent || (() => {}),
+      emit: onEvent,
       session: { id: ctx.sessionId, persist },
       input: {
         messages: ctx.messages,
@@ -132,17 +132,26 @@ class NodeGraphEngine {
         contextMessages: ctx.contextMessages,
       },
       toolNames: ctx.toolNames,
-      model: ctx.model,
-      stream: ctx.stream,
       autonomy: ctx.autonomy,
-      effort: ctx.effort,
       activity: ctx.activity,
-      target: {},
-      tools: { selected: [], defs: [], permissions: null, fsPolicy: null },
+      request: {
+        header: null,
+        messages: null,
+        planActive: false,
+        model: ctx.model,
+        baseUrl: null,
+        apiKey: null,
+        effort: ctx.effort,
+        stream: ctx.stream,
+        selected: [],
+        toolDefs: [],
+        permissions: null,
+        fsPolicy: null,
+        sessionId: ctx.sessionId,
+        onEvent,
+      },
       turn: { row: null, startedAt: Date.now(), stepSeq: 0, steps: 0, toolsUsed: 0 },
       step: null,
-      plan: { active: false, requestSystem: null },
-      conv: null,
       translatedUser: null,
       translateCfg: null,
     };
@@ -159,7 +168,7 @@ class NodeGraphEngine {
       errorText = String((err && err.message) || err);
       if (persist && nctx.turn.row) {
         try {
-          if (nctx.step) await core.store.run("step.update", { id: nctx.step.id, status: "failed" });
+          if (nctx.step && nctx.step.row) await core.store.run("step.update", { id: nctx.step.row.id, status: "failed" });
         } catch (_) {}
         try {
           await core.store.run("turn.update", { id: nctx.turn.row.id, status: "failed" });

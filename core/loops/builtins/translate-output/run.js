@@ -9,7 +9,7 @@ const translation = require("../../../translation");
 
 module.exports = async function run(input, ctx) {
   const onEvent = ctx.emit;
-  const message = ctx.message;
+  const message = ctx.step.response;
   // 仅最终回答（无 tool_calls、且非截断）才翻译；带工具调用的模型响应与截断响应不翻译，
   // history 保持英文。tool_calls 为 undefined 表示无调用，应翻译；仅当为「非空数组」时跳过。
   if (!message) return { output: input };

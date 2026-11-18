@@ -11,15 +11,15 @@ const planMode = require("../../../plan-mode");
 
 module.exports = async function run(input, ctx) {
   const { services, session } = ctx;
-  const message = ctx.message;
+  const response = ctx.step.response;
   const persist = session.persist;
 
-  if (!message.tool_calls || !message.tool_calls.length) {
-    return { output: message, next: "decide-next" };
+  if (!response.tool_calls || !response.tool_calls.length) {
+    return { output: response, next: "decide-next" };
   }
 
-  for (let i = 0; i < message.tool_calls.length; i++) {
-    const call = message.tool_calls[i];
+  for (let i = 0; i < response.tool_calls.length; i++) {
+    const call = response.tool_calls[i];
     const name = (call.function && call.function.name) || "unknown";
     const callId = call.id || "call_" + ctx.turn.stepSeq + "_" + i;
     ctx.turn.toolsUsed += 1;
@@ -51,18 +51,18 @@ module.exports = async function run(input, ctx) {
         isError: result.isError === true,
         meta: result.meta,
       });
-      ctx.conv.push({ role: "tool", tool_call_id: callId, content: result.text });
-      if (persist && ctx.callIds[i] != null) {
+      ctx.request.messages.push({ role: "tool", tool_call_id: callId, content: result.text });
+      if (persist && ctx.step.callIds[i] != null) {
         try {
           await services.store.run("call.update", {
-            id: ctx.callIds[i],
+            id: ctx.step.callIds[i],
             status,
             result: { text: result.text, meta: result.meta, isError: result.isError === true },
           });
         } catch (e) { ctx.emit({ type: "error", error: "call.update failed: " + (e.message || e) }); }
         try {
           await services.store.run("message.add", {
-            step_id: ctx.step.id,
+            step_id: ctx.step.row.id,
             seq: ctx.nextSeq(),
             role: "tool",
             content: result.text,
@@ -77,10 +77,10 @@ module.exports = async function run(input, ctx) {
       continue;
     }
 
-    let permission = permissionFor(ctx.tools.permissions, name);
-    if (name === "write" || name === "edit") {
-      permission = resolveFsPermission(ctx.tools.permissions, ctx.tools.fsPolicy, name, args && args.file_path, ctx.cwd);
-    }
+      let permission = permissionFor(ctx.request.permissions, name);
+      if (name === "write" || name === "edit") {
+        permission = resolveFsPermission(ctx.request.permissions, ctx.request.fsPolicy, name, args && args.file_path, ctx.cwd);
+      }
     let decision;
     if (permission === "ask") {
       decision = await services.interactions.requestApproval({ callId, name, args, permission });
@@ -96,9 +96,9 @@ module.exports = async function run(input, ctx) {
     ctx.emit({ type: "tool_call", id: callId, name, arguments: args });
     const parentChatCtx = {
       toolNames: ctx.toolNames,
-      model: ctx.target.model,
-      effort: ctx.target.effort,
-      stream: ctx.target.stream,
+      model: ctx.request.model,
+      effort: ctx.request.effort,
+      stream: ctx.request.stream,
       activity: ctx.runtime.activity,
       autonomy: ctx.runtime.autonomy,
     };
@@ -141,8 +141,8 @@ module.exports = async function run(input, ctx) {
   }
 
   if (persist) {
-    try { await services.store.run("step.update", { id: ctx.step.id, status: "succeeded" }); }
+    try { await services.store.run("step.update", { id: ctx.step.row.id, status: "succeeded" }); }
     catch (e) { ctx.emit({ type: "error", error: "step.update failed: " + (e.message || e) }); }
   }
-  return { output: message, next: "decide-next" };
+  return { output: response, next: "decide-next" };
 };

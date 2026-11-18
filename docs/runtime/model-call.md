@@ -46,7 +46,7 @@ graph TD
 
 ```mermaid
 flowchart LR
-    A["stream(core, opts)"] --> B["issueRequest<br/>(model-request)"]
+    A["stream(service, opts)"] --> B["issueRequest<br/>(model-request)"]
     B --> C{"opts.stream?"}
     C -->|false| D["readNonStreaming<br/>整段 JSON → 单次 feed"]
     C -->|true| E["readStreaming<br/>逐片 SSE → 多次 feed(live)"]
@@ -82,7 +82,7 @@ flowchart LR
 
 ## 5. 响应读取层 response-process.js
 
-### 5.1 stream(core, opts) 入参
+### 5.1 stream(service, opts) 入参
 
 | 字段 | 说明 |
 |---|---|
@@ -123,7 +123,7 @@ flowchart LR
 }
 ```
 
-`tool_calls` 为空数组时输出 `undefined`；`usage` 缺失时为 `null`。该对象直接被 `model-request` 节点落库（`message.add` / `call.add`）与 `compaction-runner` 摘要消费。
+`tool_calls` 为空数组时输出 `undefined`；`usage` 缺失时为 `null`。该对象即 `ModelResponse`，由 `model-call` 节点落库（`message.add` / `call.add`）；`finish_reason` 与 `usage` 不进落库消息，只用于终止判定、token anchor 与事件上报。
 
 ### 5.4 两个 read 分支
 
@@ -134,19 +134,19 @@ flowchart LR
 
 | 调用方 | 入口 | stream 值 | 用途 |
 |---|---|---|---|
-| `index.js` `_stream` | 转发壳 → `streamMod.stream` | 由 loop 决定 | 主对话 |
-| `loops/nodes/model-request/run.js` | `core._stream` | `ctx.effStream` | 主循环模型请求节点 |
-| `loops/linear.js` | `core._stream` | `st.stream` | 线性主循环 |
-| `bare-chat.js` | `core._stream` | 会话设置 | 无持久化对话 |
+| `core/model/index.js` `ModelService.stream` | 转发壳 → `responseProcess.stream` | 由本轮请求目标决定 | 主对话 |
+| `loops/nodes/model-call/run.js` | `services.model.stream` | 目标配置的 `stream` | 节点化主循环的模型请求节点 |
+| `loops/linear.js` | `core.model.stream` | 目标配置的 `stream` | 线性主循环 |
+| `bare-chat.js` | `core.model.stream` | 会话设置 | 无持久化对话 |
 | `compaction-runner.js` `summarizeMessages` | 直接 `stream(...)` | `false` | 上下文压缩摘要生成 |
 
-所有路径最终经 `core._stream` 或 `stream()` 走同一 `finalize`，行为一致。
+所有路径最终经 `ModelService.stream` 与 `response-process.stream` 走同一 `finalize`，行为一致。
 
 ## 7. 数据流（一次流式对话）
 
 ```mermaid
 sequenceDiagram
-    participant Loop as model-request 节点
+    participant Loop as model-call 节点
     participant RP as response-process.stream
     participant MR as model-request.issueRequest
     participant HTTP as http/client

@@ -92,16 +92,28 @@ async function runLoop(core, ctx) {
       }
     }
   }
-  const effStream = stream !== undefined ? !!stream : (st.stream === true);
   const target = core.config.resolveTarget({ provider: st.provider, model: model || st.model });
-  const effModel = target.model;
-  const effBaseUrl = target.baseUrl;
-  const effApiKey = target.apiKey;
   // Deterministic schema/guidance order: registration order is a filesystem artifact.
   const tools = core.tools.select(toolNames);
   const toolDefs = core.tools.defs(tools);
   const permissions = readPermissions();
   const fsPolicy = readFsPolicy();
+  const request = {
+    header: null,
+    messages: null,
+    planActive: false,
+    model: target.model,
+    baseUrl: target.baseUrl,
+    apiKey: target.apiKey,
+    effort: core.agent.effort,
+    stream: stream !== undefined ? !!stream : (st.stream === true),
+    selected: tools,
+    toolDefs,
+    permissions,
+    fsPolicy,
+    sessionId,
+    onEvent,
+  };
 
   // The system prompt belongs to the session's first turn only: it is
   // assembled once, stored once, and displayed once. Later turns reuse the
@@ -125,7 +137,7 @@ async function runLoop(core, ctx) {
       persona: typeof st.persona === "string" ? st.persona : "",
       tools,
       cwd,
-      model: effModel,
+      model: request.model,
       skills,
       catalogDescriptionMaxLength: st.skills ? st.skills.catalogDescriptionMaxLength : undefined,
     });
@@ -149,27 +161,26 @@ async function runLoop(core, ctx) {
     sessionId,
     persist
   });
-  let conv;
   if (persist) {
-    conv = await core.context.requestMessages(sessionId, system, [...pendingRefs, pendingUser]);
+    request.messages = await core.context.requestMessages(sessionId, system, [...pendingRefs, pendingUser]);
   } else {
-    conv = [{ role: "system", content: system }, ...messages];
+    request.messages = [{ role: "system", content: system }, ...messages];
     // 非持久会话也注入 skill 目录消息（system 之后、用户消息之前），保证模型可见。
-    if (catalogMsg) conv.splice(1, 0, catalogMsg);
+    if (catalogMsg) request.messages.splice(1, 0, catalogMsg);
     // Replace only the last user turn with its English translation. Earlier
     // turns are already English in the persisted history.
-    if (translatedUser != null && conv.length > 1) {
-      conv[conv.length - 1] = Object.assign({}, conv[conv.length - 1], { content: translatedUser });
+    if (translatedUser != null && request.messages.length > 1) {
+      request.messages[request.messages.length - 1] = Object.assign({}, request.messages[request.messages.length - 1], { content: translatedUser });
     }
   }
-  // runtime-context（子 Agent 权限声明等）：作为独立的 user 消息注入 conv，
+  // runtime-context（子 Agent 权限声明等）：作为独立的 user 消息注入请求消息，
   // 只影响本次请求的模型上下文、不落库（父子 system prompt 保持一致）。
   // 插在最后一条 user（本次输入）之前，而不是 system 之后：fork 的继承段必须与
   // 父会话的前缀逐字相同才能命中前缀缓存，插在头部会让整段继承历史失去缓存。
   if (Array.isArray(ctx.contextMessages) && ctx.contextMessages.length) {
-    const last = conv.length - 1;
-    const at = last > 0 && conv[last] && conv[last].role === "user" ? last : 1;
-    conv.splice(at, 0, ...ctx.contextMessages);
+    const last = request.messages.length - 1;
+    const at = last > 0 && request.messages[last] && request.messages[last].role === "user" ? last : 1;
+    request.messages.splice(at, 0, ...ctx.contextMessages);
   }
   // r=0 落库前的尾部消息：自动压缩重建历史时追加，落库后不再追加。
   const pendingTurnMessages = () => [...pendingRefs, pendingUser];
@@ -178,7 +189,7 @@ async function runLoop(core, ctx) {
   // 每个 step = 一次模型请求 + 其响应（agent-request? + model-response(thought?/answer?/tool-call-card*)）
   // request-time：完成上一步全部 tool-call 后，才在下一轮 step 再次请求模型
   let stepSeq = 0;
-  let userPersisted = false;
+  let stepState = null;
   if (persist) {
     const turns = await store.run("turn.list", { session_id: sessionId });
     turn = await store.run("turn.create", { session_id: sessionId, seq: turns.length, status: "running" });
@@ -189,21 +200,22 @@ async function runLoop(core, ctx) {
   for (let r = 0; ; r++) {
     // Apply a pending plan-mode exit from a prior approved exit_plan_mode at the
     // top of this step (DSH's next in-turn pre-step): the rest of that tool
-    // batch stayed under plan guidance; this step's requestSystem is the first
+    // batch stayed under plan guidance; this step's request header is the first
     // without the policy. Broadcast so the UI indicator settles in lockstep.
     if (r > 0 && planMode.applyPendingExit(sessionId)) {
       onEvent({ type: "plan-mode", active: false });
     }
     // Record the plan-active value this request header will observe, then flush
     // any deferred switch notices decided at setActive (DSH's activeAtLastHeader
-    // de-dup). The notices are appended to conv and persisted so the model is
+    // de-dup). The notices are appended to the request messages and persisted so the model is
     // told exactly when its context changed and never redundantly.
     planMode.recordHeader(sessionId, planMode.isActive(sessionId));
     const switchNotices = planMode.takeNotices(sessionId);
     // Plan-mode guidance is request-scoped: the stored system prompt stays
     // stable, while every step in plan mode carries the policy. exit_plan_mode
     // defers the flip to the next step, so the policy disappears then.
-    let requestSystem = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
+    request.planActive = planMode.isActive(sessionId);
+    request.header = system + (request.planActive ? "\n\n" + planMode.POLICY : "");
 
     // 自动压缩（DSH agent/pre-step）：每个 step 请求前按窗口压力检查。
     // 先做模型无关的 tool-result pruning，仍超阈值再写 checkpoint。
@@ -212,15 +224,15 @@ async function runLoop(core, ctx) {
       try {
         const auto = await core.context.maybeCompactStep({
           sessionId,
-          conv,
-          system: requestSystem,
-          toolDefs,
-          model: effModel,
+          conv: request.messages,
+          system: request.header,
+          toolDefs: request.toolDefs,
+          model: request.model,
           trigger: "pressure",
-          pending: () => (r === 0 && !userPersisted ? pendingTurnMessages() : []),
+          pending: () => (r === 0 && !(stepState && stepState.userPersisted) ? pendingTurnMessages() : []),
           onEvent,
         });
-        conv = auto.conv;
+        request.messages = auto.conv;
       } catch (error) {
         console.warn("[compaction] automatic pressure pass failed:", (error && error.message) || error);
       }
@@ -228,13 +240,13 @@ async function runLoop(core, ctx) {
 
     // 上一轮的 step 不能背锅：step.create 失败时 catch 只应把 turn 标失败。
     currentStep = null;
-    const step = persist ? await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "running" }) : null;
-    currentStep = step;
+    const row = persist ? await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "running" }) : null;
+    stepState = { row, messageSeq: 0, userPersisted: false, response: null, assistantMsg: null, callIds: [] };
+    currentStep = stepState;
     steps = r + 1;
     // Per-step message sequence counter: system/catalog/user/notices/assistant/tool
     // all share one monotonically increasing seq (UNIQUE(step_id, seq)).
-    let messageSeq = 0;
-    const nextSeq = () => messageSeq++;
+    const nextSeq = () => stepState.messageSeq++;
     // 新一轮 step 开始（r=0 由前端 onSend 预建 UI；r>0 由本事件驱动 UI 建立新 step）
     if (r > 0) onEvent({ type: "step-start", seq: r });
 
@@ -244,30 +256,30 @@ async function runLoop(core, ctx) {
     if (persist && r === 0) {
       try {
         if (systemIsNew) {
-          await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "system", content: system });
+          await store.run("message.add", { step_id: stepState.row.id, seq: nextSeq(), role: "system", content: system });
           if (catalogMsg) {
-            await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "user", content: catalogMsg.content });
+            await store.run("message.add", { step_id: stepState.row.id, seq: nextSeq(), role: "user", content: catalogMsg.content });
           }
         }
         // 真实用户请求（pendingUser）。即使后面追加了 /name 手势，也要以真实
-        // 用户输入落库，不能因为 conv 里最后一条 user 是手势而把它吞掉。
+        // 用户输入落库，不能因为请求消息里最后一条 user 是手势而把它吞掉。
         const userContent = typeof pendingUser.content === "string" ? pendingUser.content : JSON.stringify(pendingUser.content);
-        await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "user", content: userContent, source: ctx.inputSource });
+        await store.run("message.add", { step_id: stepState.row.id, seq: nextSeq(), role: "user", content: userContent, source: ctx.inputSource });
       } catch (e) {
         onEvent({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
       }
-      userPersisted = true;
+      stepState.userPersisted = true;
     }
 
-    // Flush deferred plan-mode switch notices: append to conv (after the user
+    // Flush deferred plan-mode switch notices: append to request messages (after the user
     // prefix, matching DSH's "after the reusable request prefix") and persist as
     // role:user messages so they survive replay. Empty unless setActive crossed
     // the boundary the previous header observed, so no redundant narration.
     for (const notice of switchNotices) {
-      conv.push({ role: "user", content: notice });
-      if (persist && step) {
+      request.messages.push({ role: "user", content: notice });
+      if (persist && stepState.row) {
         try {
-          await store.run("message.add", { step_id: step.id, seq: nextSeq(), role: "user", content: notice });
+          await store.run("message.add", { step_id: stepState.row.id, seq: nextSeq(), role: "user", content: notice });
         } catch (e) {
           onEvent({ type: "error", error: "persist plan-mode notice failed: " + (e.message || e) });
         }
@@ -277,21 +289,20 @@ async function runLoop(core, ctx) {
     // 请求模型（request-time：上一步工具已全部执行完才到这里）
     // 错误边界：context-overflow 先尝试 prune/摘要恢复并重试一次；其余失败
     // 转成 TurnError，由外层统一记录 reason=model-request-error。
-    conv[0].content = requestSystem;
-    let a;
+    request.messages[0].content = request.header;
     let overflowRetried = false;
     for (;;) {
       try {
-        a = await core.model.stream({
-          messages: conv,
-          toolDefs,
-          model: effModel,
-          baseUrl: effBaseUrl,
-          apiKey: effApiKey,
-          effort: core.agent.effort,
+        stepState.response = await core.model.stream({
+          messages: request.messages,
+          toolDefs: request.toolDefs,
+          model: request.model,
+          baseUrl: request.baseUrl,
+          apiKey: request.apiKey,
+          effort: request.effort,
           onEvent,
-          sessionId,
-          stream: effStream,
+          sessionId: request.sessionId,
+          stream: request.stream,
         });
         break;
       } catch (err) {
@@ -303,21 +314,21 @@ async function runLoop(core, ctx) {
           try {
             recovered = await core.context.maybeCompactStep({
               sessionId,
-              conv,
-              system: requestSystem,
-              toolDefs,
-              model: effModel,
+              conv: request.messages,
+              system: request.header,
+              toolDefs: request.toolDefs,
+              model: request.model,
               trigger: "context-overflow",
-              pending: () => (r === 0 && !userPersisted ? pendingTurnMessages() : []),
+              pending: () => (r === 0 && !(stepState && stepState.userPersisted) ? pendingTurnMessages() : []),
               onEvent,
             });
           } catch (recoveryError) {
             console.warn("[compaction] overflow recovery failed:", (recoveryError && recoveryError.message) || recoveryError);
           }
           if (recovered.changed) {
-            conv = recovered.conv;
-            requestSystem = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
-            conv[0].content = requestSystem;
+            request.messages = recovered.conv;
+            request.header = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
+            request.messages[0].content = request.header;
             continue;
           }
         }
@@ -325,37 +336,35 @@ async function runLoop(core, ctx) {
       }
     }
     // finish_reason 属于传输层元数据，不能混进后续请求的 messages
-    const message = { role: "assistant", content: a.content, reasoning_content: a.reasoning_content, tool_calls: a.tool_calls };
+    const message = { role: "assistant", content: stepState.response.content, reasoning_content: stepState.response.reasoning_content, tool_calls: stepState.response.tool_calls };
     // DSH usage anchor: remember this request's header/surface price plus the
     // provider usage so the next pressure measurement reuses it.
     if (persist) {
       await core.context.recordTokenAnchor({
         sessionId,
-        model: effModel,
-        system: requestSystem,
-        tools: toolDefs,
-        messages: conv.slice(1),
+        model: request.model,
+        system: request.header,
+        tools: request.toolDefs,
+        messages: request.messages.slice(1),
         assistant: core.context.cleanMessage(message),
-        usage: a.usage,
+        usage: stepState.response.usage,
       });
     }
-    conv.push(message);
+    request.messages.push(message);
 
     // 记录本轮助手回复与（可能的）工具调用（首轮有 system 时整体后移一位）
     const assistantSeq = nextSeq();
-    let assistantMsg = null;
-    const callIds = [];
     if (persist) {
       // 持久化隔离：写库失败只告警，不能让已经拿到的模型回复丢掉
       try {
-        assistantMsg = await store.run("message.add", { step_id: step.id, seq: assistantSeq, role: "assistant", content: message.content || "", thought: message.reasoning_content || "" });
+        stepState.assistantMsg = await store.run("message.add", { step_id: stepState.row.id, seq: assistantSeq, role: "assistant", content: message.content || "", thought: message.reasoning_content || "" });
         if (message.tool_calls) {
           for (let i = 0; i < message.tool_calls.length; i++) {
             const tc = message.tool_calls[i];
             let args = {};
             try { args = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { args = {}; }
             const call = await store.run("call.add", {
-              reply_id: assistantMsg.id,
+              reply_id: stepState.assistantMsg.id,
               seq: i,
               name: (tc.function && tc.function.name) || "unknown",
               category: (core.tools.get(tc.function && tc.function.name) || {}).type || "unknown",
@@ -363,7 +372,7 @@ async function runLoop(core, ctx) {
               arguments: (tc.function && tc.function.arguments) || "{}",
               status: "pending",
             });
-            callIds.push(call.id);
+            stepState.callIds.push(call.id);
           }
         }
       } catch (e) {
@@ -372,7 +381,7 @@ async function runLoop(core, ctx) {
     }
 
     // 结束判定，顺序很关键：先截断、再空回复，最后才是正常收尾。
-    if (a.finish_reason === "length") {
+    if (stepState.response.finish_reason === "length") {
       throw new TurnError("truncated", "model response truncated (finish_reason=length)");
     }
     if (!message.tool_calls) {
@@ -401,7 +410,7 @@ async function runLoop(core, ctx) {
       }
       onEvent({ type: "done", message });
       if (persist) {
-        try { await store.run("step.update", { id: step.id, status: "succeeded" }); }
+        try { await store.run("step.update", { id: stepState.row.id, status: "succeeded" }); }
         catch (e) { onEvent({ type: "error", error: "step.update failed: " + (e.message || e) }); }
         try { await store.run("turn.update", { id: turn.id, status: "succeeded" }); }
         catch (e) { onEvent({ type: "error", error: "turn.update failed: " + (e.message || e) }); }
@@ -444,18 +453,18 @@ async function runLoop(core, ctx) {
           isError: result.isError === true,
           meta: result.meta,
         });
-        conv.push({ role: "tool", tool_call_id: callId, content: result.text });
-        if (persist && callIds[i] != null) {
+        request.messages.push({ role: "tool", tool_call_id: callId, content: result.text });
+        if (persist && stepState.callIds[i] != null) {
           try {
             await store.run("call.update", {
-              id: callIds[i],
+              id: stepState.callIds[i],
               status,
               result: { text: result.text, meta: result.meta, isError: result.isError === true },
             });
           } catch (e) { onEvent({ type: "error", error: "call.update failed: " + (e.message || e) }); }
           try {
             await store.run("message.add", {
-              step_id: step.id,
+              step_id: stepState.row.id,
               seq: nextSeq(),
               role: "tool",
               content: result.text,
@@ -474,9 +483,9 @@ async function runLoop(core, ctx) {
       // deny refuses without asking, ask waits for the user. File-writing
       // tools (write/edit) are additionally narrowed/widened by path rules in
       // user/fs-policy.json (deny wins, then first match, else tool-level).
-      let permission = permissionFor(permissions, name);
+      let permission = permissionFor(request.permissions, name);
       if (name === "write" || name === "edit") {
-        permission = resolveFsPermission(permissions, fsPolicy, name, args && args.file_path, cwd);
+        permission = resolveFsPermission(request.permissions, request.fsPolicy, name, args && args.file_path, cwd);
       }
       let decision;
       if (permission === "ask") {
@@ -508,7 +517,7 @@ async function runLoop(core, ctx) {
       });
       await finish(result, result.isError === true ? "failed" : "succeeded");
     }
-    if (persist) { try { await store.run("step.update", { id: step.id, status: "succeeded" }); }
+    if (persist) { try { await store.run("step.update", { id: stepState.row.id, status: "succeeded" }); }
     catch (e) { onEvent({ type: "error", error: "step.update failed: " + (e.message || e) }); } }
   }
   // 循环只能从内部 return / throw 退出，这里不需要（也不应该）再有兜底分支。
@@ -519,7 +528,7 @@ async function runLoop(core, ctx) {
     reason = err instanceof TurnError ? err.reason : "unexpected-exception";
     errorText = String((err && err.message) || err);
     if (persist && turn) {
-      try { if (currentStep) await store.run("step.update", { id: currentStep.id, status: "failed" }); } catch (_) {}
+      try { if (currentStep && currentStep.row) await store.run("step.update", { id: currentStep.row.id, status: "failed" }); } catch (_) {}
       try { await store.run("turn.update", { id: turn.id, status: "failed" }); } catch (_) {}
     }
     return { role: "assistant", content: "", error: errorText, stopReason: reason };

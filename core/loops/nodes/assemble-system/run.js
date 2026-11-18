@@ -6,7 +6,7 @@ const { DEFAULT_IDENTITY } = require("../../../system-prompt");
 const { isModelInvocable } = require("../../../skills");
 
 module.exports = async function run(input, ctx) {
-  const { services, session, target } = ctx;
+  const { services, session, request } = ctx;
   const settings = services.config.readSettings();
   const persist = session.persist;
 
@@ -21,9 +21,9 @@ module.exports = async function run(input, ctx) {
     const assembled = services.context.assembleSystem({
       identity: typeof settings.identity === "string" ? settings.identity : DEFAULT_IDENTITY,
       persona: typeof settings.persona === "string" ? settings.persona : "",
-      tools: ctx.tools.selected,
+      tools: request.selected,
       cwd: ctx.cwd,
-      model: target.model,
+      model: request.model,
       skills,
       catalogDescriptionMaxLength: settings.skills ? settings.skills.catalogDescriptionMaxLength : undefined,
     });

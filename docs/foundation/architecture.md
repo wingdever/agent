@@ -25,7 +25,7 @@ graph TD
         SYSP["system-prompt.js"]
         PERM["permissions.js / fs-policy.js"]
         LOOPS["loops/loops-config.js"]
-        LINEAR["loops/linear.js<br/>loops/resolve-input"]
+        LINEAR["loops/linear.js<br/>loops/assemble-input"]
     end
 
     IDX -->|require + 转发| STREAM

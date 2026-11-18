@@ -84,22 +84,37 @@ async function runBareChat(core, ctx) {
     if (translatedUser != null) {
       translatedMessages[translatedMessages.length - 1] = Object.assign({}, last, { content: translatedUser });
     }
-    const requestMessages = [{ role: "system", content: system }, ...translatedMessages];
+    const request = {
+      header: system,
+      messages: [{ role: "system", content: system }, ...translatedMessages],
+      planActive: false,
+      model: target.model,
+      baseUrl: target.baseUrl,
+      apiKey: target.apiKey,
+      effort: core.agent.effort,
+      stream,
+      selected: [],
+      toolDefs: [],
+      permissions: null,
+      fsPolicy: null,
+      sessionId: undefined,
+      onEvent,
+    };
 
     // Single model request, no step loop, no tool calls. tools are hard-forced
     // to empty here regardless of what the UI passes.
-    let a;
+    let response;
     try {
-      a = await core.model.stream({
-        messages: requestMessages,
-        toolDefs: [],
-        model: target.model,
-        baseUrl: target.baseUrl,
-        apiKey: target.apiKey,
+      response = await core.model.stream({
+        messages: request.messages,
+        toolDefs: request.toolDefs,
+        model: request.model,
+        baseUrl: request.baseUrl,
+        apiKey: request.apiKey,
         onEvent,
-        sessionId: undefined,
-        stream,
-        effort,
+        sessionId: request.sessionId,
+        stream: request.stream,
+        effort: request.effort,
       });
     } catch (e) {
       throw new TurnError("model-request-error", String((e && e.message) || e));
@@ -107,14 +122,14 @@ async function runBareChat(core, ctx) {
 
     const message = {
       role: "assistant",
-      content: a.content,
-      reasoning_content: a.reasoning_content,
-      tool_calls: a.tool_calls,
-      finish_reason: a.finish_reason,
+      content: response.content,
+      reasoning_content: response.reasoning_content,
+      tool_calls: response.tool_calls,
+      finish_reason: response.finish_reason,
     };
 
     // Termination order (mirror linear): truncated -> empty-response -> done.
-    if (a.finish_reason === "length") {
+    if (response.finish_reason === "length") {
       throw new TurnError("truncated", "model response truncated (finish_reason=length)");
     }
     if (!message.tool_calls && !String(message.content || "").trim()) {

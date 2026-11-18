@@ -11,7 +11,7 @@ const { reset: resetTodos } = require("../../../../lib/todo-state");
 module.exports = async function run(input, ctx) {
   const { runtime, services, session, turn } = ctx;
   runtime.beginTurn({ emit: ctx.emit, autonomy: ctx.autonomy });
-  runtime.effort = ctx.effort && ctx.effort !== "undefined" ? ctx.effort : null;
+  runtime.effort = ctx.request.effort && ctx.request.effort !== "undefined" ? ctx.request.effort : null;
   runtime.activity = ctx.activity === "plan-mode" ? "plan-mode" : (ctx.activity || "bare-chat");
   if (session.id) planMode.setActive(session.id, runtime.activity === "plan-mode");
 
@@ -25,10 +25,10 @@ module.exports = async function run(input, ctx) {
   const settings = services.config.readSettings();
   ctx.translateCfg = services.context.resolveTranslateConfig(settings);
 
-  ctx.tools.selected = services.tools.select(ctx.toolNames);
-  ctx.tools.defs = services.tools.defs(ctx.tools.selected);
-  ctx.tools.permissions = readPermissions();
-  ctx.tools.fsPolicy = readFsPolicy();
+  ctx.request.selected = services.tools.select(ctx.toolNames);
+  ctx.request.toolDefs = services.tools.defs(ctx.request.selected);
+  ctx.request.permissions = readPermissions();
+  ctx.request.fsPolicy = readFsPolicy();
 
   const baseCwd = await services.context.resolveCwd(session.persist ? session.id : null);
   ctx.cwd = ctx.input.cwd ? path.resolve(baseCwd, ctx.input.cwd) : baseCwd;

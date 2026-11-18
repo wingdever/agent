@@ -42,11 +42,10 @@ module.exports = async function run(input, ctx) {
     conv.splice(at, 0, ...turnInput.contextMessages);
   }
 
-  ctx.conv = conv;
+  ctx.request.messages = conv;
   ctx.pendingUser = pendingUser;
   ctx.pendingRefs = pendingRefs;
-  ctx.userPersisted = false;
   ctx.pendingTurnMessages = () =>
-    ctx.turn.steps === 0 && !ctx.userPersisted ? [...ctx.pendingRefs, ctx.pendingUser] : [];
+    ctx.turn.steps === 0 && !(ctx.step && ctx.step.userPersisted) ? [...ctx.pendingRefs, ctx.pendingUser] : [];
   return { output: conv, next: "pre-step" };
 };

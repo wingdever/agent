@@ -181,7 +181,7 @@
 | **loops-summary** | 循环概要区（当前引擎、节点数、loop 边数） |
 | **current-engine-label** | 当前引擎展示（只读；显示 `AGENT_LOOP_ENGINE` 值，标注「重启生效」；不提供引擎切换） |
 | **loops-viewport** | 循环弹窗中间视口 |
-| **loop-topology** | 左侧只读拓扑：静态 `next` 链 + `decide-next→auto-compact` 回环 + 实时 hooks 虚线指向 target 节点 |
+| **loop-topology** | 左侧只读拓扑：静态 `next` 链 + `decide-next→pre-step` 回环 + 实时 hooks 虚线指向 target 节点 |
 | **loop-nodes-table** | 右侧可编辑节点表 |
 | **loop-node-row*** | 单个节点行（core + builtin 均展示） |
 | **loop-node-id-label** | 节点 id（只读） |
@@ -771,7 +771,7 @@ attachment
 loops-modal
    three-part: loops-sidebar | loops-viewport | loops-panel
    loops-viewport: loop-topology (left, read-only) + loop-nodes-table (right, editable)
-   note: current-engine-label 只读（展示 AGENT_LOOP_ENGINE，重启生效，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→auto-compact 回环 + 实时 hooks 虚线
+   note: current-engine-label 只读（展示 AGENT_LOOP_ENGINE，重启生效，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→pre-step 回环 + 实时 hooks 虚线
 
 meta-modal
    three-part: meta-sidebar | meta-viewport | meta-panel

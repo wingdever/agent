@@ -1,245 +1,72 @@
-# 节点化、支持 Hook 的 Agent-Loop 引擎设计
+# 节点化 Agent-Loop 引擎（node-graph）
 
-> 状态：设计稿（grill 共识，待实现）。本文档描述第二种 agent-loop 引擎（代号
-> `node-graph`）的架构；它与现有引擎（`linear`，即当前 `core/index.js` 的 `chat()`
-> 主循环）并存，由环境变量 `AGENT_LOOP_ENGINE` 选择（实现层配置，与 `AGENT_TRANSPORT` 一致，不进入用户 `settings.json`）。
+node-graph 是默认 agent-loop 引擎，由 `AGENT_LOOP_ENGINE` 选择，不设该变量时即走此引擎。它与冻结对照引擎 linear 并存，两者共用同一批 core 服务，只差调度方式：linear 是函数式 for 循环，node-graph 是节点 `next` 链调度。
 
-## 1. 目标
-
-- 把现有 `chat()` 中隐式的、写死在主循环里的阶段（输入翻译、模型解析、system 装配、
-  上下文拼装、自动压缩、模型请求、工具审批/执行、输出翻译、plan 审批、step 循环判定）
-  **显式化为一组节点（Node）**。
-- 提供**生命周期 hook**：在节点的标准槽位（`before` / `after` / `onError`）上注册回调，
-  hook 可修改输入输出、阻止执行、改变流程走向。
-- 现有行为**不退化**：`node-graph` 的默认编排在能力上等价于 `linear`。
-
-## 2. 顶层架构：统一入口 + 引擎注册表
-
-仿照 `core/transports/` 与 `core/tools/` 的注册模式，新增 `core/loops/`：
+## 1. 组成
 
 ```
 core/loops/
-  index.js            # 引擎注册表 + getLoop(name)
-  linear.js           # 现有 chat() 主循环搬来的引擎（runLoop(ctx)）
-  node-graph.js       # 节点图引擎（调度器 + 默认节点表）
-  registry.js         # loadNodes()：扫描 core/loops/nodes/*/registry.json
-  builtins/           # 预定义但非主干的节点（如 translate-input / translate-output）
-    translate.js
-  nodes/              # 目录化节点（每个节点一个目录，含 registry.json + run.js）
-    resolve-input/
-    resolve-model/
-    assemble-system/
-    build-context/
-    auto-compact/
-    model-request/
-    tool-approve/
-    tool-run/
-    plan-review/
-    decide-next/
-    builtin.translate-input/    # type: builtin
-    builtin.translate-output/   # type: builtin
+  index.js          引擎注册表 + getLoop(name)
+  node-graph.js     调度器：hook、节点执行、终止收尾与 [turn] 日志
+  registry.js       loadNodes()：扫描 nodes/* 与 builtins/*
+  loops-config.js   user/loops.json 的 hook overlay
+  nodes/*/          主干节点（registry.json + run.js）
+  builtins/*/       二级节点，不在默认 next 链上，仅由 hook 调用
 ```
 
-`core/index.js` 的 `chat()` 改为：参数归一 → 选引擎（`process.env.AGENT_LOOP_ENGINE`，默认
-`linear` 以保向后兼容）→ 调用 `engine.runLoop(ctx)`。`linear` 与 `node-graph` 共用同一
-批 core 方法（`_stream` / `requestApproval` / `tool.run` 等），只差"调用方是函数循环
-还是节点调度器"。
+每个节点目录含 `registry.json`（`id` / `next` / `type` / `hooks` / `entry`）与 `run.js`。`run.js` 导出 `async (input, ctx) => { output, next?, done? }`；`loadNodes()` 返回 `Map<nodeId, Node>`。
 
-## 3. 节点（Node）契约
+## 2. 主干节点与 next 链
 
-### 3.1 目录与 registry.json
+| # | id | 职责 | next |
+|---|---|---|---|
+| 1 | `turn-start` | turn 初始化：会话门、工具选择与权限/路径策略、todo 重置、翻译配置、建 turn 行 | `resolve-target` |
+| 2 | `resolve-target` | 解析 provider / model / baseUrl / apiKey / effort / stream | `assemble-system` |
+| 3 | `assemble-system` | 首轮装配 system prompt 与 skill 目录消息，后续轮复用已存文本 | `assemble-input` |
+| 4 | `assemble-input` | 校验最后一条 user、解析 @引用、投影请求历史（含 runtime-context） | `pre-step` |
+| 5 | `pre-step` | plan 退出生效、记录请求头上的 plan 态、压力压缩 | `model-call` |
+| 6 | `model-call` | 建 step、落首步消息、发起模型请求（overflow 重试一次）、落 assistant/call、记 token anchor | `tool-execute` |
+| 7 | `tool-execute` | 逐 tool_call 校验、授权、执行、落 tool 结果与 call 回写 | `decide-next` |
+| 8 | `decide-next` | 截断/空回复判错；无 tool_calls 时收尾；有 tool_calls 时回到 `pre-step` | `pre-step` / done |
 
-每个节点一个目录 `core/loops/nodes/<node-id>/`，含 `registry.json` 与 `run.js`
-（`entry` 默认 `run.js`），**参照 `tools/` 的目录化注册机制**。
+前四个节点每个 turn 各跑一次；**后四个节点构成 step 循环**：`pre-step → model-call → tool-execute → decide-next → pre-step`，直到 `decide-next` 判定无工具调用。步数不设上限，是否继续由模型决定。
 
-`registry.json` 字段：
+## 3. 调度器
 
-```json
-{
-  "id": "model-request",
-  "next": "tool-approve",
-  "type": "core",
-  "hooks": { "before": [], "after": [], "onError": [] },
-  "entry": "run.js"
-}
-```
+`runLoop(core, ctx)` 构造跨节点上下文，从 `turn-start` 进入 `_dispatch`：
 
-- `next`：默认下一节点 id；可被节点 `run()` 返回值或 hook 的 `goto` 覆盖。
-- `type`：
-  - `"core"`：主干节点，参与默认编排的 `next` 链，引擎自动调度。
-  - `"builtin"`：预定义但**不在默认 `next` 链上**的二级节点（如 translate-input /
-    translate-output）。有 `run()`、有自己的 `next`（指向它要回归的主干节点），但只有被
-    hook 显式调用时才执行。
-- `hooks`：槽位声明；运行时由 `registerHook` 填充，不在此写死具体逻辑。
+- `_dispatch`：跑当前节点 → `done` 则结束 → 取 `result.next || node.next` → 用 `result.output` 作为下一次 input 继续。
+- `_runNode`：按 `before → node.run → after` 执行；`onError` 只在 `node.run` 抛错时接。节点返回 `output` / `next` / `done`，hook 返回下列指令，由调度器统一解释。
 
-### 3.2 run() 签名
+| action | 含义 |
+|---|---|
+| `continue` | 正常继续 |
+| `modify` | 替换传给下一环节的输入 |
+| `short-circuit` | 跳过本节点，直接以给定 output 结束整轮 |
+| `goto` | 跳到指定节点 id；builtin 节点同样合法，执行完按其 `next` 回归主干 |
 
-```js
-// node.run(input, ctx) -> { output, next?, done? }
-// 可抛错，由 onError 槽接；或返回 done:true 终止整轮
-```
+`goto` 目标必须在节点表中存在，否则记 turn 失败。
 
-- `input`：进入本节点的输入（来自上一节点 `output`，或引擎按 `ctx` 推导）。
-- `ctx`：跨节点可变状态（见 §5）。
-- 返回 `next` 可覆盖 `registry.json` 的 `next`（节点自身也能改走向）；返回 `done:true`
-  等价于现有循环的 break，整轮结束。
+## 4. Hook 与 translate
 
-## 4. 默认线性编排（node-graph 引擎）
+`registerHook(nodeId, slot, fn)` 把回调挂到节点的 `before` / `after` / `onError` 槽；同槽多个按注册顺序成管道执行。`user/loops.json` 的扁平数组在引擎启动时装配成 hook（`loops-config.js`）：
 
-### 4.1 主干节点清单（10 个，`type: core`）
+| on | slot | target |
+|---|---|---|
+| `assemble-input` | before | `builtin.translate-input` |
+| `model-call` | after | `builtin.translate-output` |
 
-顺序即默认 `next`：
+builtin 节点有完整的 `run()` 与 `next`，但不在默认 next 链上，只由 hook 调用。关闭翻译即不注册 hook，主干不含翻译阶段。输出翻译只发事件、不改落库文本；输入翻译写入请求历史后落库。
 
-| # | id | 职责 | 对应现有 chat() 阶段 |
-|---|----|------|----------------------|
-| 1 | `resolve-input` | 取最后一条 user、解析 references / workspace | `pendingUser` / `_resolveReferences` |
-| 2 | `resolve-model` | provider / baseUrl / apiKey / model / effort | `resolveProvider` / effort 映射 |
-| 3 | `assemble-system` | 首轮装配 system prompt | `assembleSystemPrompt` |
-| 4 | `build-context` | 拼 surface + refs + user 成请求消息；plan-mode 拼 POLICY | `_requestMessages` |
-| 5 | `auto-compact` | pre-step 压力压缩（失败只告警） | `_maybeCompactStep` |
-| 6 | `model-request` | 一次模型请求（stream / tool_calls 解析） | `_stream` |
-| 7 | `tool-approve` | 逐 tool_call 走权限门 ask/deny | `requestApproval` |
-| 8 | `tool-run` | 链路薄透传（实际执行已统一在 tool-approve 内，见 §4.3） | — |
-| 9 | `plan-review` | exit_plan_mode 触发时挂起等审批 | `requestPlanReview` |
-| 10 | `decide-next` | 还有 tool_calls？`next: model-request`（构成 step 循环）；否则 `done:true` | 现有 `for(;;r++)` 终止判定 |
+## 5. turn 与 step 生命周期
 
-step 循环 = `decide-next` 返回 `{ next: 'auto-compact' }`（无步数上限，与现有一致）。
-说明：`auto-compact` 在每个 step 请求前都执行（对应 linear 主循环内 `for(;;r++)` 每轮都跑
-`_maybeCompactStep`），因此 step 循环回到 `auto-compact` 而非 `model-request`，保证自动压缩
-覆盖每一次模型请求（首轮亦包含）。文档 §4.1 表中 `decide-next` 的「next: model-request」属
-简写，实际落地以本段为准。
+- `turn-start`：建 turn 行（running）并占用当前会话，阻止并发压缩。
+- `model-call`：每次请求建一条 step 行（running），递增 step 序号；r>0 发 `step-start`；首步另落 system / 目录 / 用户输入。
+- `tool-execute`：工具批次结束后把当前 step 标 succeeded。
+- `decide-next`：正常收尾发 `done`，把 step 与 turn 标 succeeded；有工具调用则回到 `pre-step`。
+- 异常统一由 `runLoop` 的 catch 标记当前 step 与 turn 为 failed，以 `TurnError.reason` 区分终止原因。
+- turn 结束打一行 `[turn] session=… turn=… status=… reason=… steps=… tools=… duration=…ms`，并发 `turn-end` 事件；失败轮次不发 `done`。
 
-### 4.3 节点细化说明（落地修订）
+## 6. 测试
 
-- **`tool-approve` 统一执行**：linear 主循环对每个 tool-call 是「校验 → 授权 → 立即执行 →
-  推结果」顺序交织（见 `core/loops/linear.js`），保证 `tool_call` / `approval-request` /
-  `tool_result` 事件按调用顺序逐条产出。为保持 node-graph 与 linear 事件流完全一致，本引擎
-  把「授权 + 执行」统一在 `tool-approve` 内完成；`tool-run` 节点作为链路上的薄透传
-  （`next: plan-review`），维持 §4.1 的 10 节点拓扑而不破坏事件顺序。
-- **`plan-review` 薄透传**：linear 中 `exit_plan_mode` 触发的计划审批是由 plan-mode 工具在
-  执行期间通过 `core.requestPlanReview` 回调挂起等待用户批准的（非独立顺序阶段），因此本节点
-  不单独处理审批，只把控制流转给 `decide-next`。
-- **输出翻译仅由 hook 注入**：`decide-next` 不再做输出翻译；最终回答的英→中翻译由挂在
-  `model-request.after` 的 `builtin.translate-output` hook 完成（见 §7）。该 hook 仅在
-  `finish_reason !== "length"` 且无 tool_calls 时翻译，避免对截断/工具响应误翻译。
-
-### 4.2 二级预定义节点（2 个，`type: builtin`）
-
-| id | 职责 | `next` 指向 |
-|----|------|-------------|
-| `builtin.translate-input` | 中文→英文（失败阻断整轮） | `resolve-input`（回归主干继续点） |
-| `builtin.translate-output` | 英文→中文（仅最终回答） | `model-request` |
-
-它们**不是**默认 `next` 链的一员；只在 hook 被注册（且 `settings.translate.enabled`）
-时才被调用。详见 §7。
-
-## 5. ctx 契约
-
-引擎每跑一次 `node-graph.runLoop` 维护一个 `ctx` 对象，跨节点可变传递。
-
-- 起点：`chat()` 把入参与 core 句柄塞进 `ctx` 作为初始值：
-  - 入参：`ctx.messages` / `ctx.model` / `ctx.onEvent` / `ctx.sessionId` /
-    `ctx.stream` / `ctx.autonomy` / `ctx.activity` / `ctx.references` / `ctx.effort`
-  - core 句柄：`ctx.store` / `ctx.tools` / `ctx.permissions` / `ctx.fsPolicy` /
-    `ctx.planMode` / `ctx.translateCfg`（来自 `readSettings()`）
-- 节点 `run(input, ctx)` 读写 `ctx`。现有 `chat()` 局部变量映射：
-  - `conv` → `ctx.conv`
-  - `effModel` → `ctx.model`
-  - `system` → `ctx.system`
-  - `translatedUser` → `ctx.translatedUser`
-  - `toolDefs` → `ctx.toolDefs`
-  - `turn` / `step` → `ctx.turn` / `ctx.currentStep`
-- 第一个节点 `resolve-input` 的 `input` 取 `ctx.messages`。
-
-## 6. Hook 协议
-
-### 6.1 注册 API（仅普通 hook）
-
-```js
-engine.registerHook(nodeId, slot, fn)
-// fn(input, ctx) => instruction
-```
-
-- `slot` ∈ `before` | `after` | `onError`。
-- **只用普通 hook**，不引入"节点式 hook"概念。hook 是挂在节点槽上的回调（编排胶水）；
-  节点是流程单元。二级预定义节点通过普通 hook 内部调用（见 §7）。
-- 同槽多个 hook **顺序执行成管道**：按注册顺序（或显式 `priority`，默认 0，越大越先）。
-  前一个 `modify` 改后的 `input` 传给下一个；`short-circuit`/`goto` 立即终止本槽链。
-
-### 6.2 指令协议（hook 与节点 run 共用）
-
-```js
-{ action: "continue" }                                  // 正常继续
-{ action: "modify", input }                              // 替换传给节点的输入
-{ action: "short-circuit", output? }                     // 跳过本节点，直接出结果
-{ action: "goto", next: "<nodeId>" }                     // 改变流程走向，跳到指定节点
-```
-
-- `onError` 槽也返回同款协议：默认（无 onError 或 `continue`）错误向上抛，由 loop 全局
-  try 统一记 `[turn]` 日志并终止（沿用 `TurnError`）；`short-circuit` 可用兜底值替代、
-  `goto` 可跳到错误处理节点。
-
-### 6.3 调度器（内置）
-
-- 引擎维护"当前节点"指针，跑完一个节点读其 `next`（或被 hook/goto 覆盖），跳下一个。
-- `goto` 目标必须是节点表里存在的 id；`builtin` 节点 id 同样合法（执行完按其 `next`
-  回归主干）。
-- control-flow（goto / step 循环 / 终止）由调度器统一解释，节点与 hook 只产出指令，
-  不构成语法特例。
-
-## 7. translate 作为 hook 注入
-
-对应需求"translate 以 hooks 注入的方式在 node-graph 中实现"。
-
-- `core/loops/builtins/translate.js` 导出 `translateInputNode` / `translateOutputNode`
-  （完整 Node，有 `run()`，`type: builtin`）。
-- 挂载用**普通 hook**：
-
-```js
-// 仅当 settings.translate.enabled 时注册
-if (translateCfg.enabled) {
-  engine.registerHook('resolve-input', 'before', async (input, ctx) => {
-    const out = await loadNode('builtin.translate-input').run(input, ctx);
-    return { action: 'modify', input: out.output };
-  });
-  engine.registerHook('model-request', 'after', async (input, ctx) => {
-    const out = await loadNode('builtin.translate-output').run(input, ctx);
-    return { action: 'modify', input: out.output };
-  });
-}
-```
-
-- 关闭时完全不注册 → 主干不含翻译，模型直接看中文/原文。translate 因此成为"可插拔、
-  非主干"的能力，与 §4.2 的 `builtin` 语义一致。
-
-## 8. 迁移与落地步骤
-
-1. **先抽 `linear` 引擎（最小搬家，行为零改动）**：把 `core/index.js` 的 `chat()` 主循环
-   体搬进 `core/loops/linear.js` 的 `runLoop(ctx)`；`chat()` 改为参数归一 + 选引擎 +
-   转发。现有测试/行为不变。此步验证注册表机制可用。**（已完成）**
-2. **建节点注册表** `core/loops/registry.js` 的 `loadNodes()`：扫描 `nodes/*/registry.json`
-   返回 `Map<nodeId, Node>`（Node = registry 字段 + 从 `entry` 加载的 `run`）。**（已完成）**
-3. **写 `node-graph.js`**：调度器 + §4 的 10 个主干节点目录（`run()` 薄壳，复用现有
-   core 方法，不重写）+ `builtins/translate.js`。**（已完成）**
-4. **接线 translate hook**：`settings.translate.enabled` 控制是否注册 §7 的两个普通 hook。
-   **（已完成）**
-5. **双引擎对照测试**（见 §9）。**（已完成：`test/loop-node-graph.test.js`，8 用例全过；
-   全量 `npm test` 69/71 通过，剩余 2 个为既有的 stale plan-mode 用例，与本次改动无关）**
-
-## 9. 测试策略
-
-- 现有 `test/tools.test.js` 等继续覆盖 `linear`。
-- 新增 `test/loop-node-graph.test.js`：用同一组输入分别跑 `linear` 与 `node-graph`
-  （设置 `AGENT_LOOP_ENGINE=node-graph`），断言两者产出的消息序列 / 事件流一致，重点覆盖：
-  - tool-call 的 step 循环（多次 model 请求直到无 tool_calls）
-  - `settings.translate.enabled` 开/关对输出的影响
-  - plan-mode（`exit_plan_mode` 审批通过/拒绝）
-  - 自动压缩触发
-- 目标：证明 `node-graph` 不是"另一个实现"，而是"同一能力的另一种调度"。
-
-## 10. 开放项 / 后续
-
-- `settings.loopGraph` 是否支持浅合并覆盖默认编排（实验性重排），本稿默认"编排隐式定义
-  在节点 `next` 中"，不另设编排常量表；若需运行时改编排再引入。
-- `builtin` 节点的 `next` 回归点如有歧义，以 registry.json 声明的 `next` 为准。
-- `linear` 引擎是否未来也受益于节点化，不在本稿范围（保持传统函数实现）。
+`test/loop-node-graph.test.js` 用同一组输入分别跑 linear 与 node-graph，断言消息序列与事件流一致，覆盖工具调用的 step 循环、翻译开/关、plan-mode、自动压缩。目标是证明 node-graph 是同一能力的另一种调度，不是另一套实现。

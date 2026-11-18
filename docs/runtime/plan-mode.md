@@ -100,7 +100,7 @@ DSH 在模式真正跨边界时向模型注入一条插件来源的 user/message
 POLICY 以 request-scoped 方式拼接进每步请求的 system：
 
 - linear 循环：`requestSystem = system + (planMode.isActive(sessionId) ? "\n\n" + POLICY : "")`，每步请求前重新计算（含自动压缩后的重算）。
-- node-graph：`core/loops/nodes/model-request/run.js` 与 `core/loops/nodes/auto-compact/run.js` 同理写入 `ctx.requestSystem`。
+- node-graph：`core/loops/nodes/pre-step/run.js` 计算 `ctx.plan.requestSystem`，`core/loops/nodes/model-call/run.js` 将其写入请求头并在 overflow 重试时重算。
 
 `exit_plan_mode` 批准后会翻转状态，下一轮该政策自动消失。
 
@@ -172,7 +172,7 @@ UI 侧的 `answerPlanReview(id, payload)`：
 ### pre-step 落点（真正翻转点）
 
 - linear：在 `for (let r...)` 循环顶部、`r > 0` 时（即非首轮）调用 `applyPendingExit`，随后重算 `requestSystem`。本批（批准所在的那一轮）所有工具已在翻转前执行完，故仍受约束；下一轮 `requestSystem` 已无 POLICY。
-- node-graph：在 `auto-compact` 节点（每个 step 请求前的 pre-step）调用 `applyPendingExit`，再据此重算 `ctx.requestSystem`，与 DSH 的 next in-turn pre-step 对应。
+- node-graph：在 `pre-step` 节点（每个 step 请求前）调用 `applyPendingExit`，再据此重算 `ctx.plan.requestSystem`，与 DSH 的 next in-turn pre-step 对应。
 
 ### UI 即时性
 
@@ -207,7 +207,7 @@ DSH 的 `exit_plan_mode` 模型通信契约（来源：`reference/deepseek-harne
 | 审批通道缺失/审查中断：抛错而非静默退出 | `reviewPlan` 不可用即抛错 | 一致 |
 | keep-planning = 失败调用带反馈，模型修订再提交 | 抛 `Error(feedback)` 回灌 | 一致 |
 | 批准返回 `{approved:true}` | `meta:{approved:true}` + 同文案 | 一致 |
-| 批准不立即退出，本批仍受约束，下一轮 pre-step 才翻转（pending exit） | `requestExit` + 内存 `pendingExits`，下一轮 pre-step（`linear` 顶部 / `auto-compact`）`applyPendingExit` | 一致 |
+| 批准不立即退出，本批仍受约束，下一轮 pre-step 才翻转（pending exit） | `requestExit` + 内存 `pendingExits`，下一轮 pre-step（`linear` 顶部 / node-graph 的 `pre-step`）`applyPendingExit` | 一致 |
 | 用户主动切模式注入 user/message 通知，仅当上一轮 header 描述另一态时发一次 | `lastHeaderActive` 快照 + `setActive` 决定 + `takeNotices` 落库推送 | 一致 |
 
 ### 仍存在的偏离
