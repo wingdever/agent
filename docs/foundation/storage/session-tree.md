@@ -76,8 +76,8 @@ fork 时校验：`parent_session_id` 不能是子会话自己，也不能是自�
 
 ## 5. 删除
 
-- 软删（`deleted_at`）：不动 `session_forks`，历史仍可回放。
-- 硬删：沿 `session_forks` 级联删除全部后代会话，后代的 turn / step / message 一并删除。
+- 软删（`deleted_at`）：只标记自身，不动 `session_forks` 与后代，历史仍可回放；运行中的轮次被中止。
+- 硬删：沿 `session_forks` 与 `subagents` 两条边递归删除全部后代会话，后代的 turn / step / message 一并删除。两条边都要走：`session_forks` 覆盖 fork 出来的子会话，`subagents` 覆盖 spawn 出来的子会话；只走一条会留下孤儿会话——它的父行已被删，名称与树根都无从解析。
 
 ## 6. 多层树
 

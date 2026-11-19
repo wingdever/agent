@@ -22,7 +22,8 @@ foundation 基础与接入
   electron-ui                 Electron 外壳与 preload 桥
 
 runtime 运行时
-  agent-runtime               turn 状态与模式分派
+  agent-instance              会话级运行时实例与注册表
+  inbox                       轮次 / step 边界输入队列
   bare-chat                   无持久化连续对话
   agent-mode                  presence / autonomy / activity 三轴
   loop-registry               引擎与节点注册表
@@ -45,6 +46,7 @@ model 模型通信
 
 context 上下文
   system-prompt               system prompt 组装与节排序
+  runtime-context             运行时上下文快照与替换
   text-assemble               有序文本管线拼装器（DSL 驱动、操作可插拔）
   context-service             上下文门面（压缩 / 锚点 / 输入 / cwd / 翻译）
   compaction-core             压缩纯函数（边界 / 检查点 / 溢出判定 / 估算）
@@ -58,6 +60,7 @@ context 上下文
 tools-core 工具内核
   directory-tool-registry     目录扫描加载 registry.json
   tool-execution-pipeline     参数校验 / 执行 / 结果整形
+  capability-surface          能力标签登记与 exec 装配
   tool-schema                 工具参数 JSON Schema 校验
   tool-result                 结果文本化 / 截尾 / spill
   tool-service                工具选择 / 定义 / 目录投影
@@ -74,12 +77,13 @@ skills 技能
   tool-skill                  技能调用工具
 
 subagent 子代理
-  subagent-runtime            派生 / 寻址 / 投递 / 收割
+  subagent-runtime            派生 / 寻址 / 投递 / 结算
   tool-subagent               委派子任务
   tool-subagent-fork          从会话边界派生子代理
   tool-send-message           向子代理发消息
   tool-interrupt-agent        中断子代理
-  tool-list-agents            列出会话子代理
+  tool-list-agents            列出 subagent 树
+  tool-wait-agent             等待下一个 step 的输入
 
 storage 存储
   store                       事件溯源存储与 store.run 操作面
@@ -96,8 +100,8 @@ storage 存储
 
 **layered-architecture**
 - 职责：负责组合根与分层边界——`createCore()` 装配各服务并暴露 `core` 对象；launcher 选择 UI、启动 transport。不负责任何业务逻辑。
-- 接口：`createCore(): Core`；`Core.chat(ctx): Promise<void>`；`Core.handleCall(name, params, meta): any`；`launcher` 按 `AGENT_UI` / `AGENT_TRANSPORT` 选择实现。
-- 命名：组合根函数 `createCore`；运行时类 `AgentRuntime`；环境变量 `AGENT_*`。
+- 接口：`createCore(): Core`；`Core.agents` 为 agent 实例注册表，轮次入口是 `Core.agents.getOrCreate(sessionId).startTurn()`；`Core.handleCall(name, params, meta): any`；`launcher` 按 `AGENT_UI` / `AGENT_TRANSPORT` 选择实现。
+- 命名：组合根函数 `createCore`；实例类 `Agent`、注册表 `AgentRegistry`；环境变量 `AGENT_*`。
 
 **transport-registry**
 - 职责：负责 core 与 UI 的通信抽象——注册并按 `AGENT_TRANSPORT` 启动一个传输实现。不负责消息内容。
@@ -142,14 +146,19 @@ storage 存储
 
 ### 2.2 runtime 运行时
 
-**agent-runtime**
-- 职责：负责进程级 turn 状态与模式分派——`chat` 按 `ctx.mode==="bare"` 分到 bare-chat，否则选 loop 引擎。不读配置、不暴露 RPC、不持有审批表。
-- 接口：`AgentRuntime` 构造 `({ config, model, context, tools, skills, interactions, store, goals })`；`setCore(core)`；`setSubagents(factory)`；`services(): Services`；`beginTurn({ emit, autonomy })`；`chat(ctx): Promise<void>`；`compactSession(opts)`。
-- 命名：类 `AgentRuntime`；turn 字段 `autonomy` / `effort` / `activity` / `bootId`。
+**agent-instance**
+- 职责：负责会话级运行时实例——跨轮次持有一个会话的运行态（相位、abort、inbox、本会话计划态与 todo 投影），按 `ctx.mode==="bare"` 分到 bare-chat，否则选 loop 引擎。不读配置、不暴露 RPC、不持有会话事实（消息落在 store）。
+- 接口：`AgentRegistry` 构造 `({ shared })`；`get(sessionId)`；`getOrCreate(sessionId, opts)`；`dispose(sessionId)`；`list()`。`Agent` 字段：身份（`sessionId` / `kind` / `parentSessionId` / `agentName` / `persist`）、共享服务引用、运行态（`phase` / `inbox` / `planMode` / `todos`）、每轮投递态 `turn`。方法：`send(message, target)`；`startTurn()`；`interrupt()`；`whenIdle()`。
+- 命名：类 `Agent` / `AgentRegistry`；相位 `idle` / `running`；队列目标 `next-turn` / `next-step`；投递态字段 `emit` / `autonomy` / `effort` / `activity`；注册表方法 `get` / `getOrCreate` / `dispose` / `list`。
+
+**inbox**
+- 职责：负责进程内输入队列——按轮次与 step 两个边界领取消息，领取后由轮次写入会话日志。不负责唤醒策略，唤醒由实例在入队时决定；不负责投递内容（结算与树内消息由调用方构造）。
+- 接口：`push(message, target)`；`claimNextTurn()`；`claimNextStep()`；`hasPending`；入队事件 `inbox-inserted`。
+- 命名：队列字段 `nextTurn` / `nextStep`；目标字面量 `next-turn` / `next-step`。
 
 **bare-chat**
 - 职责：负责无持久化对话——内存历史、强制空工具集、不落库，但保留翻译与 turn 事件契约。不负责会话模式。
-- 接口：`runBareChat(core, ctx): Promise<void>`。
+- 接口：`runBareChat(agent, ctx): Promise<void>`。
 - 命名：函数 `runBareChat`；模式信号 `ctx.mode === "bare"`。
 
 **agent-mode**
@@ -163,28 +172,28 @@ storage 存储
 - 命名：节点目录 kebab-case（如 `assemble-system/`）；引擎名 `node-graph` / `linear`。
 
 **loop-node-graph**
-- 职责：负责图执行——按节点 `next` 指针驱动 turn/step，维护 `ctx` 传递。不负责单节点逻辑。
-- 接口：`runLoop(core, ctx): Promise<void>`；`NodeGraphEngine`。
+- 职责：负责图执行——按节点 `next` 指针驱动 turn/step，维护 `ctx` 传递。不负责单节点逻辑，不持有会话状态（由 `ctx.agent` 携带）。
+- 接口：`runLoop(agent, ctx): Promise<void>`；`NodeGraphEngine`。
 - 命名：类 `<Name>Engine`；执行入口统一 `runLoop`。
 
 **loop-linear**
 - 职责：线性执行引擎，冻结为参考实现，不随默认路径演进。
-- 接口：`runLoop(core, ctx): Promise<void>`。
+- 接口：`runLoop(agent, ctx): Promise<void>`。
 - 命名：与图引擎共用 `runLoop` 入口，靠注册表区分。
 
 **loop-nodes**
-- 职责：八个步骤节点各自封装单一职责：turn-start（turn 初始化）、assemble-system（system prompt）、assemble-input（输入投影）、resolve-target（provider/model 解析）、pre-step（plan/todo/压缩门）、model-call（请求与落 step）、tool-execute（审批与执行）、decide-next（终止判定）。节点不跨职责。
-- 接口：`run(input, ctx) → { output, next?, done? }`；每节点含 `registry.json`（id / next / prompt 等）+ `run.js`。
+- 职责：八个步骤节点各自封装单一职责：turn-start（turn 初始化与相位占用）、assemble-system（system prompt）、assemble-input（输入投影与运行时上下文快照）、resolve-target（provider/model 解析）、pre-step（plan/todo/压缩门）、model-call（请求与落 step）、tool-execute（审批与执行）、decide-next（终止判定）。节点不跨职责。
+- 接口：`run(input, ctx) → { output, next?, done? }`；每节点含 `registry.json`（id / next / prompt 等）+ `run.js`；节点从 `ctx.agent` 读实例状态、从 `ctx.services` 读共享服务。
 - 命名：节点 id kebab-case；文件固定 `registry.json` + `run.js`。
 
 **plan-mode**
-- 职责：负责计划态——请求级 POLICY 注入，不改已存 system prompt、不写库；批准经 `applyPendingExit` 在下一步移除。不负责审批 UI。
-- 接口：`POLICY`；`isActive(sessionId)`；`setActive(sessionId, active)`；`recordHeader(sessionId, active)`；`requestExit(sessionId)`；`applyPendingExit(sessionId)`；`hasPendingExit(sessionId)`；`getLastHeaderActive(sessionId)`。
+- 职责：负责计划态语义——请求级 POLICY 注入，不改已存 system prompt、不写库；批准经 `applyPendingExit` 在下一步移除。计划态状态位由 agent 实例持有，模块不保存会话级状态。不负责审批 UI。
+- 接口：`POLICY`；`isActive(agent)`；`setActive(agent, active)`；`recordHeader(agent, active)`；`requestExit(agent)`；`applyPendingExit(agent)`；`hasPendingExit(agent)`；`getLastHeaderActive(agent)`。
 - 命名：策略常量 `POLICY`；pending 退出用 `requestExit` / `applyPendingExit` 成对。
 
 **goals-and-todos**
-- 职责：负责会话级目标状态机（CAS 由 revision 控制）与 turn 内 todo 投影。不负责自动续轮驱动。
-- 接口：`createGoalService()` → `{ create, get, update }`；`goalValue()`；`DEFAULT_MAX_ROUNDS`；todo：`reset()` / `get()` / `set(todos)`。
+- 职责：负责会话级目标状态机（CAS 由 revision 控制）与 turn 内 todo 投影；投影落在 agent 实例上，轮次开始时重置。不负责自动续轮驱动。
+- 接口：`createGoalService()` → `{ create, get, update }`；`goalValue()`；`DEFAULT_MAX_ROUNDS`；todo 为实例方法 `reset()` / `get()` / `set(todos)`。
 - 命名：目标动作字面量 `edit` / `pause` / `resume` / `complete` / `blocked`；并发字段 `revision`。
 
 ### 2.3 model 模型通信
@@ -227,9 +236,14 @@ storage 存储
 ### 2.4 context 上下文
 
 **system-prompt**
-- 职责：负责按固定节序组装 system prompt，按可见工具注入对应 prompt 段。不负责会话持久化。
-- 接口：`assembleSystemPrompt(opts): string`；`SystemPrompt`；`renderSkillCatalog(opts)`；`buildRuntimeContext(opts)`；`SECTION_ORDERS`；`DEFAULT_IDENTITY`；`ENGLISH_ONLY_INSTRUCTION`；`localIso()`。
+- 职责：负责按固定节序组装 system prompt，按可见工具注入对应 prompt 段。只承载部署级静态内容（身份开篇、persona、工具指引），不承载随会话或随进程变化的事实，也不负责会话持久化。
+- 接口：`assembleSystemPrompt(opts): string`；`SystemPrompt`；`renderSkillCatalog(opts)`；`SECTION_ORDERS`；`DEFAULT_IDENTITY`；`ENGLISH_ONLY_INSTRUCTION`；`localIso()`。
 - 命名：节序表 `SECTION_ORDERS`；组装函数 `assemble*`。
+
+**runtime-context**
+- 职责：负责每轮运行时上下文快照——按 order 收集命名来源，渲染为一条 `<system-reminder>` user 消息；内容全等时不生成，变化时整份重发。不负责 system prompt 组装，不进 inbox。
+- 接口：`RuntimeContext` 构造 `({ sources })`；`registerSource({ name, order, text })`；`project(agent): Message | undefined`；`CONTEXT_ORDERS`；`renderSnapshot(sections)`。
+- 命名：order 表 `CONTEXT_ORDERS`；来源字段 `name` / `order` / `text`；消息来源 `runtime-context`。
 
 **text-assemble**
 - 职责：通用有序文本管线——把文本列表按受限 DSL 描述的操作序列依次变换，输出拼装后的文本。SystemPrompt 是其消费方之一，负责 prompt 特有的 section 与变量；本模块只做管线执行，不执行任意代码、不持有可变状态、不负责 prompt 语义。
@@ -238,8 +252,8 @@ storage 存储
 - 命名：函数 camelCase（`assemble`）；DSL 操作名小写、以 `|` 分隔，与第 3 章命名一致；白名单常量 SCREAMING_SNAKE（`OPERATIONS`）。
 
 **context-service**
-- 职责：上下文门面，聚合压缩、锚点、输入准备、消息清洗与 cwd 解析供节点调用。不持有 turn 状态。
-- 接口：`ContextService` 构造 `({ config, model, tools, skills, store })`；`setRuntime(runtime)`；`assembleSystem(opts)`；`prepareInput(opts)`；`surfaceNodes(sessionId)`；`requestMessages(sessionId, system, pending)`；`summarizeMessages(opts)`；`pruneToolResults(sessionId)`；`runCompaction(opts)`；`compactSession(opts)`；`maybeCompactStep(opts)`；`recordTokenAnchor(opts)`；`resolveContextWindow(opts)`；`cleanMessage(msg)`；`resolveCwd(sessionId)`；translate 转发四方法。
+- 职责：上下文门面，聚合压缩、锚点、输入准备、消息清洗、cwd 解析与运行时上下文快照供节点调用。不持有 turn 状态，压缩闸门按 sessionId 查询进程级闸门。
+- 接口：`ContextService` 构造 `({ config, model, tools, skills, store, gates })`；`assembleSystem(opts)`；`assembleRuntimeContext(agent)`；`prepareInput(opts)`；`surfaceNodes(sessionId)`；`requestMessages(sessionId, system, pending)`；`summarizeMessages(opts)`；`pruneToolResults(sessionId)`；`runCompaction(opts)`；`compactSession(opts)`；`maybeCompactStep(opts)`；`recordTokenAnchor(opts)`；`resolveContextWindow(opts)`；`cleanMessage(msg)`；`resolveCwd(sessionId)`；translate 转发四方法。
 - 命名：门面方法名与被聚合模块同名，便于定位。
 
 **compaction-core**
@@ -280,14 +294,19 @@ storage 存储
 ### 2.5 tools-core 工具内核
 
 **directory-tool-registry**
-- 职责：负责扫描 `tools/*/registry.json` 并加载 `run`，收集 name / description / parameters / type / prompt / timeoutMs / defaultVisible。不负责执行。
+- 职责：负责扫描 `tools/*/registry.json` 并加载 `run`，收集 name / description / parameters / requires / type / prompt / promptSection / timeoutMs / concurrencySafe / defaultVisible。不负责执行。
 - 接口：`loadTools(): Map<name, ToolDef>`；`TOOLS_DIR`。
 - 命名：目录名即工具名 snake_case；清单文件固定 `registry.json`。
 
 **tool-execution-pipeline**
-- 职责：负责工具调用的参数校验、审批前错误返回、执行与错误归一。不负责结果渲染。
-- 接口：`validateToolArgs(def, args)`；`runTool(def, args, ctx): Promise<Result>`。
-- 命名：校验 `validateToolArgs`；执行 `runTool`。
+- 职责：负责工具调用的参数校验、审批前错误返回、执行与错误归一。`exec` 按工具声明的 `requires` 从能力表装配，新工具不改装配点。不负责结果渲染。
+- 接口：`validateToolArgs(def, args)`；`runTool(def, args, ctx): Promise<Result>`；`buildExec({ ... })`。
+- 命名：校验 `validateToolArgs`；执行 `runTool`；装配 `buildExec`。
+
+**capability-surface**
+- 职责：负责把各服务自报的能力合并成一张只读标签表，并按 `requires` 取出子集。不负责能力实现，不扫描 tools 目录。
+- 接口：`registerCapabilities(source)`；`resolve(requires): Record<tag, fn>`；`listCapabilities()`；标签形如 `<domain>.<verb>`。
+- 命名：标签 `<domain>.<verb>`；字段 `capabilities`。
 
 **tool-schema**
 - 职责：负责工具参数的 JSON Schema 校验，错误文案对齐既有格式。不负责业务参数语义。
@@ -351,15 +370,16 @@ storage 存储
 ### 2.11 subagent 子代理
 
 **subagent-runtime**
-- 职责：负责子代理派生、命名分配、寻址、消息投递、中断与收割结算；生命周期从属于调用它的 agent，不构成团队。不负责界面树呈现。
-- 接口：`SubagentRuntime` 构造 `(core, deps)`；`spawn(spec)` / `spawnFork(spec)`；`resolveAgent(callerSessionId, agent)`；`sendMessage({ senderSessionId, agent, message })`；`interruptAgent({ callerSessionId, agent })`；`listAgents({ callerSessionId })`；`isRunning(sessionId)`；`pathOf` / `rootOf`；`drain()`；`takeSteering(sessionId)`；结算辅助 `settlementSummary` / `buildSettlementText` / `limitDiagnostic` / `mapStopReason`；常量 `SUBAGENT_DELEGATION_CONTEXT` / `ROOT_AGENT_NAME` / `AGENT_NAME_PATTERN`。
+- 职责：负责子代理派生、命名分配、寻址、消息投递、中断与结算；生命周期从属于调用它的 agent，不构成团队。不负责界面树呈现，不持有轮次状态（轮次归 agent 实例）。
+- 接口：`SubagentRuntime` 构造 `(core, deps)`；`spawn(spec)` / `spawnFork(spec)`；`resolveAgent(callerSessionId, agent)`；`sendMessage({ senderSessionId, agent, message })`；`interruptAgent({ callerSessionId, agent })`；`listAgents({ callerSessionId })`；`waitAgent({ callerSessionId, timeoutMs })`；`isRunning(sessionId)`；`pathOf` / `rootOf`；`drain()`；结算辅助 `settlementSummary` / `buildSettlementText` / `limitDiagnostic` / `mapStopReason`；常量 `SUBAGENT_DELEGATION_CONTEXT` / `ROOT_AGENT_NAME` / `AGENT_NAME_PATTERN`。
 - 命名：类 `<Name>Runtime`；派生 `spawn*`；结算 `settlement*` / `buildSettlementText`。
 
-- **tool-subagent**：`run(args, ctx)`；委派独立上下文子任务，单轮完成即终止。
-- **tool-subagent-fork**：`run(args, ctx)`；从会话边界派生子代理。
-- **tool-send-message**：`run(args, ctx)`；向子代理投递消息。
-- **tool-interrupt-agent**：`run(args, ctx)`；中断子代理。
-- **tool-list-agents**：`run(args, ctx)`；列出会话内子代理。
+- **tool-subagent**：`run(args, ctx)`；委派零上下文子任务，可从 `send_message` 继续。
+- **tool-subagent-fork**：`run(args, ctx)`；从会话边界派生子代理，继承已完成轮次。
+- **tool-send-message**：`run(args, ctx)`；向树内 agent 投递消息。
+- **tool-interrupt-agent**：`run(args, ctx)`；中断后代当前轮次。
+- **tool-list-agents**：`run(args, ctx)`；列出整棵 subagent 树。
+- **tool-wait-agent**：`run(args, ctx)`；等待下一个 step 的输入到达。
 
 ### 2.12 storage 存储
 
@@ -433,10 +453,10 @@ storage 存储
 
 ```
 approval-request   ask-user-question   compaction    core          done
-error              model-http-status   plan-mode     plan-review   result
-session            skill               step-start    system-prompt tool_call
-tool_result        translation         turn-end      usage         user-job-request
-user-job-update
+error              inbox-claimed       inbox-inserted  model-http-status  plan-mode
+plan-review        result              session       skill         step-start
+system-prompt      tool_call           tool_result   translation   turn-end
+usage              user-job-request    user-job-update
 ```
 
 - 请求 / 响应语义：`*-request` 表示挂起等待，`*-update` 表示状态刷新。
@@ -468,9 +488,9 @@ user-job-update
 ### 5.1 完全插槽
 
 **tools**
-- 契约：目录 `tools/<name>/`；`registry.json` 声明 `name / description / parameters / type / prompt / promptSection / timeoutMs / concurrencySafe / defaultVisible / result / entry`；入口 `run.js` 导出 `run(args, ctx) → { text, meta }`（或 `default.run`）。
+- 契约：目录 `tools/<name>/`；`registry.json` 声明 `name / description / parameters / requires / type / prompt / promptSection / timeoutMs / concurrencySafe / defaultVisible / result / entry`；入口 `run.js` 导出 `run(args, ctx) → { text, meta }`（或 `default.run`）。`requires` 列出所需能力标签，`exec` 按标签装配 `{ cwd, sessionId, callId, toolName, agent, capabilities }`。
 - 扫描：`loadTools()` 扫 `tools/*/registry.json`，无 registry 的目录（如 `tools/lib/`）跳过；校验 name 非空、entry 不越界、run 为函数；失败逐个跳过并记录，不影响其他工具。
-- 扩展：新建 `tools/<name>/` 放入上述两文件即被加载，无需改动扫描器或调用方。
+- 扩展：新建 `tools/<name>/` 放入上述两文件即被加载，无需改动扫描器或调用方，也无需改动 tool-execute 节点。
 
 **loop nodes**
 - 契约：目录 `core/loops/nodes/<node-id>/`；`registry.json` + `run.js` 导出 `run(input, ctx) → { output, next?, done? }`。
@@ -483,7 +503,7 @@ user-job-update
 - 扩展：新建 builtin 目录即生效。
 
 **loop engines**
-- 契约：目录型 `core/loops/<name>/index.js` 或文件型 `core/loops/<name>.js`，导出 `runLoop(core, ctx)`。
+- 契约：目录型 `core/loops/<name>/index.js` 或文件型 `core/loops/<name>.js`，导出 `runLoop(agent, ctx)`。
 - 扫描：`listEngineNames()` 扫目录与 `.js` 文件，排除 `nodes` / `builtins` / `registry` / `shared` / `loops-config`；`getLoop(name)` 加载，未知或非默认失败回落 `DEFAULT_ENGINE`（`node-graph`）。
 - 扩展：放入一个导出 `runLoop` 的目录或文件即被列举与加载，经 `AGENT_LOOP_ENGINE` 选中。
 

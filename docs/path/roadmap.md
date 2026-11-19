@@ -169,8 +169,8 @@ goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连
 
 #### subagent-delegate
 
-实现agent单元，可派生 subagent 作为其内含的委派能力；
-受 agent 调用的委派 agent，独立上下文执行子任务、结果汇回主 agent，仅 1 个轮次会话周期、完成即终止。
+实现 agent 单元，可派生 subagent 作为其内含的委派能力；
+受 agent 调用的委派 agent，独立上下文执行子任务、结果汇回主 agent。两种委派模式：spawn 从零开始，fork 继承父会话已完成的轮次；子会话是持久会话，可经 `send_message` 再次唤醒，可经 `interrupt_agent` 中止当前轮次。
 subagent 是 agent 的内含委派能力而非独立构成层（subagent ⊂ agent）。
 **边界**：生命周期从属于调用它的 agent，不构成团队；与 agent-team 成员的区别 = 被单个 agent 直接调用 vs 按角色分工协作。
 
@@ -399,6 +399,7 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 - agent-loop：bare-chat / stream-output / turn-step / plan-mode / prompt-assemble。
 - context-compress：DSH 式上下文压缩 —— 手动 `/compact` + 自动压力触发 + context-overflow 恢复 + tool-result pruner。
 - auto-translate MVP：中文输入译英发模型、英文回答译中显示、中英对照、设置开关；翻译不落库。
+- subagent-delegate：spawn / fork 委派与结算回灌、树内消息与中断、subagent 树列举。
 
 ## strategic-direction
 

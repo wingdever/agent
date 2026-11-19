@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const { InteractionService } = require("./interactions");
 const { ContextService } = require("./context");
 
-// One-shot subagent runtime (docs/subagent/subagent.md # 第一步实现).
+// One-shot subagent runtime (docs/agents/subagent.md).
 //
 // This harness has no resident agent loop / inbox / sendWaking like DSH. The
 // DSH-equivalent behaviors are mapped onto the request/response loop as:
@@ -27,14 +27,14 @@ const SUBAGENT_DELEGATION_CONTEXT = "You are a delegated subagent: your permissi
 const MAX_DIAGNOSTIC_BYTES = 4096;
 const DIAGNOSTIC_TRUNCATION_SUFFIX = "\n[diagnostic truncated]";
 
-// 模型侧名称（docs/subagent/subagent.md §12）。
+// 模型侧名称（docs/agents/subagent.md）。
 const ROOT_AGENT_NAME = "lead";
 const AGENT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
 function settlementSummary(childName, stopReason) {
   const subject = `Background subagent ${childName}`;
   switch (stopReason) {
-    // 本地子会话可继续（docs/subagent/subagent.md §14）：completed 用可续文案。
+    // 本地子会话可继续（docs/agents/subagent.md）：completed 用可续文案。
     case "completed": return `${subject} finished and will do no further work unless you send it more.`;
     case "aborted": return `${subject} was stopped before it finished.`;
     case "max-tokens": return `${subject} ran out of room before it finished.`;
@@ -172,7 +172,7 @@ class SubagentRuntime {
     return parent;
   }
 
-  // 名称规则（docs/subagent/subagent.md §12）：1–32 位小写字母/数字/连字符，字母
+  // 名称规则（docs/agents/subagent.md）：1–32 位小写字母/数字/连字符，字母
   // 开头，不能是 lead；省略时取第一个空闲的 agent-N。同父唯一由
   // subagents 表的 UNIQUE (par_sess_id, agent_name) 承担。
   async _allocateAgentName(parentSessionId, requested) {
@@ -207,7 +207,7 @@ class SubagentRuntime {
     return parts.length ? parts.join("/") : ROOT_AGENT_NAME;
   }
 
-  // 控制面（docs/subagent/subagent.md §14-§17）。
+  // 控制面（docs/agents/subagent.md）。
 
   // 会话所在 subagent 树的根：沿 subagents 边向上走到没有父行的会话。
   async rootOf(sessionId) {

@@ -35,8 +35,8 @@ flowchart LR
 | 层 | 职责 | 可以依赖 | 禁止依赖 |
 |---|---|---|---|
 | `lib/` | 与宿主无关的公共设施：纯函数、无状态工具、进程内共享访问器 | 仅 Node 内置与第三方包 | `core/`、`tools/`、`ui/`、`providers/`、`scripts/` |
-| `core/` | 业务核心：会话、循环、上下文、模型通信、存储、RPC | `lib/`、Node 内置与第三方包；经 registry 扫描加载 `tools/` | `ui/`、`providers/`；除 `core/tools/registry.js` 外不直接依赖 `tools/` |
-| `tools/` | 可替换的工具插槽实现，通过 `registry.json` + `run.js` 被扫描加载 | `lib/`、Node 内置与第三方包 | `core/`、`ui/`、`providers/`、`scripts/` |
+| `core/` | 业务核心：会话、agent 实例与输入队列、循环、上下文、模型通信、存储、RPC | `lib/`、Node 内置与第三方包；经 registry 扫描加载 `tools/` | `ui/`、`providers/`；除 `core/tools/registry.js` 外不直接依赖 `tools/` |
+| `tools/` | 可替换的工具插槽实现，通过 `registry.json` + `run.js` 被扫描加载 | `lib/`、Node 内置与第三方包；运行期经 `exec.capabilities` 拿到 core 声明的能力实现 | `core/`（源码级）、`ui/`、`providers/`、`scripts/` |
 | `launcher.js` | 组装入口：选 UI、起 transport | `core/`、`ui/electron`（经 `UIS` 注册表） | `tools/`、`providers/` |
 | `ui/electron` · `ui/web` | 客户端外壳与渲染；只呈现，不承载业务 | 客户端内部、浏览器 API、`ui/web/vendor` | `core/`、`tools/`；与 core 的通信只走 transport |
 | `providers/` | 供应商适配叶子 | Node 内置与第三方包 | 其余全部应用层 |
@@ -46,6 +46,7 @@ flowchart LR
 
 - **core 子域不互相窥探实现。** 跨子域只调用对方 `index.js` 的导出；不直接 `require` 对方内部文件（如不从 `core/loops` 直连 `core/context/messages.js`）。子域之间的既有耦合以 `arch-rules.json` 的 `no-static-cycles` 报告为依据，逐条收敛。
 - **唯一允许 core → tools 的位置是 `core/tools/registry.js`。** 它扫描 `tools/*/registry.json` 并按声明加载入口，是插槽契约的实现处；其他任何 core 文件依赖 `tools/` 视为违规。
+- **tools → core 的唯一通道是能力面。** 服务自报 `<domain>.<verb>` 能力标签，`core/capabilities.js` 合并成只读表；装配节点按工具 `registry.json` 的 `requires` 取出子集放进 `exec.capabilities`。工具代码只出现标签，不出现 core 服务类型名，也不 `require` core。新工具因此只需一个目录。
 - **transport 是可替换实现，不是第三层。** HTTP / IPC 位于 `core/transports/`，经 `core/transport.js` 注册表选取。客户端不得假设某个 transport 存在。
 - **client 与 core 的边界是消息，不是模块。** UI 通过 RPC 命令（`<domain>.<verb>`）与事件通道交互；渲染层不得 `require` core 模块，core 也不得引用 UI 文件或类型。
 
@@ -113,5 +114,6 @@ lib/
 - `lib-is-a-leaf`：`lib/` 不得依赖任何应用层。
 - `tools-no-core-internals`：`tools/` 不得依赖 `core/`，无文件级豁免。
 - `core-tools-only-via-registry`：`core/` 只经 `core/tools/registry.js` 加载 `tools/`。
+- `tools-only-via-capabilities`：`tools/` 只经 `exec.capabilities` 访问业务能力，不出现 core 服务类型名。
 
 当前求值结果为零违规；任何一条规则出现违规都会使 `pnpm graph` 以非零码退出。

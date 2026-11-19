@@ -179,9 +179,9 @@ system - system_prompt
 assistant - model_reply
 tool - tool_result
 
-enum source: [user_input, subagent-prompt, subagent-settle, agent-message]
+enum source: [user_input, user-steer, subagent-prompt, subagent-settle, agent-message, runtime-context]
 
-`source` 与 `role` 正交，表示消息由什么机制产生：`user_input` 是真人输入；`subagent-prompt` 是子会话首条消息（由父侧委派 tool_call 生成）；`subagent-settle` 是父会话里子代理结算产生的 user 消息；`agent-message` 是树内另一个 agent 通过 `send_message` 投递的 user 消息。
+`source` 与 `role` 正交，表示消息由什么机制产生：`user_input` 是真人输入；`user-steer` 是用户对进行中轮次的转向输入；`subagent-prompt` 是子会话首条消息（由父侧委派 tool_call 生成）；`subagent-settle` 是父会话里子代理结算产生的 user 消息；`agent-message` 是树内另一个 agent 通过 `send_message` 投递的 user 消息；`runtime-context` 是每轮现算的运行时上下文快照，内容变化时才写入，旧快照由压缩吸收。
 
 
 ## calls (工具调用)
