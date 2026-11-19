@@ -1,8 +1,8 @@
 # roadmap
 
-主线：满足个人使用的agent助手，采用dsh的模型通信格式，并兼容其插件生态。
+主线：满足个人使用的 agent 助手，采用 DSH 的模型通信格式，并兼容其插件生态。
 支线：学习harness开发以及作为求职作品，各子系统做到完整自洽、设计可讲清楚即可。
-里程：minimal → tool → workflow → role → auto → team → colony → users → eval → robus
+里程：minimal → tool → workflow → role → auto → team → colony → distributed → users → eval → robustness
 
 ## principles & collaboration rules
 
@@ -74,27 +74,34 @@ flowchart LR
         m7b["终极使命"]
         m7c["全层容器与编组"]
     end
-    subgraph M8["M8 multi-user（服务大众）"]
+    subgraph M8["M8 distributed-agents（群众合作）"]
         direction TB
-        m8a["用户接入与隔离"]
-        m8b["用户信息区"]
-        m8c["代理信息区"]
+        m8a["网络传输与寻址"]
+        m8b["身份与信任"]
+        m8c["网络化的对等通信"]
+        m8d["去中心化编排与涌现协调"]
     end
-    subgraph M9["M9 eval（效用评测）"]
+    subgraph M9["M9 multi-user（服务大众）"]
         direction TB
-        m9a["评测与基准"]
-        m9b["eval-driven 开发"]
+        m9a["用户接入与隔离"]
+        m9b["用户信息区"]
+        m9c["代理信息区"]
     end
-    subgraph M10["M10 robustness（健壮防护）"]
+    subgraph M10["M10 eval（效用评测）"]
         direction TB
-        m10a["sandbox（明确不做）"]
-        m10b["注入防御完整形态"]
-        m10c["容错与共识"]
-        m10d["durability / MAST"]
-        m10e["渐进部署"]
+        m10a["评测与基准"]
+        m10b["eval-driven 开发"]
+    end
+    subgraph M11["M11 robustness（健壮防护）"]
+        direction TB
+        m11a["sandbox（明确不做）"]
+        m11b["注入防御完整形态"]
+        m11c["容错与共识"]
+        m11d["durability / MAST"]
+        m11e["渐进部署"]
     end
 
-    M0 --> M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7 --> M8 --> M9 --> M10
+    M0 --> M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7 --> M8 --> M9 --> M10 --> M11
     m1a -.->|依赖| m3g
     m2a -.-> m3f
     m2b -.-> m3f
@@ -107,8 +114,10 @@ flowchart LR
     m6a -.->|实现范式底座| m6b
     m6b -.->|编排范式基础| m7c
     m5a -.->|预算/熔断复用| m7a
-    m7b -.->|使命按 user 隔离| m8a
-    m8a -.->|scope 虚拟地址| m8c
+    m6c -.->|协议基础| m8c
+    m8d -.->|课题对照| m11c
+    m7b -.->|使命按 user 隔离| m9a
+    m9a -.->|scope 虚拟地址| m9c
 
     EP["增强包（不进主线，随需排期）：settings / net-track / interaction-ux / session-fork / edit-undo / trajectory-standard / computer-use·voice·browser；personal-pack：auto-translate"]
 ```
@@ -191,11 +200,11 @@ subagent 是 agent 的内含委派能力而非独立构成层（subagent ⊂ age
 
 #### 模块系统（plugin-system + hooks）
 
-模块 = 运行时能力包（统一 manifest：name + 提供的能力 + config schema + 生命周期 + scope），编译时解耦（模块不静态 import 彼此）、运行时接合（registry 注册）。宿主的根 ctx 是我们自己轻量模块系统的 ctx（不重用 cordis）。宿主：registry + 模块事件总线 + 生命周期（宿主持有）+ hooks（生命周期事件订阅：PreToolUse/PostToolUse/Stop/子 agent 生命周期）+ 权限 gate。scope = 声明该模块相关数据的地址（不做代码级限制，默认共享上下文，支持为模块指定隔离域）。子模块两级制：定义级（manifest + prompt 片段 + config，无代码）/ 代码级（ESM，导出 register 函数，可信代码，宿主环境兜底）；放置双位置：项目级 + 全局级。用户可创建和切换任何模块（含默认包集合）的通用能力包；kernel（最小不可变集）= 模块系统本身（registry / 事件总线 / 生命周期 / hooks 注册面）+ 权限 gate，其余（含 turn loop 与全部默认包、第一批模块）均为可切换的默认包。默认包集合：turn loop / prompt 组装 / 会话存储接口（seam，pg-micro 为默认实现）/ self-evolution 机制；第一批模块：tools（工具实现）/ transports / providers / loops 节点 / compaction / translation；plan/goals/todo/token-meter 暂不模块化（仍属默认包，非 kernel，需要时再拆）。含开放插件规范 vs 自有格式的设计决策。
+模块 = 运行时能力包（统一 manifest：name + 提供的能力 + config schema + 生命周期 + scope），编译时解耦（模块不静态 import 彼此）、运行时接合（registry 注册）。宿主的根 ctx 是我们自己轻量模块系统的 ctx（不重用 cordis）。宿主：registry + 模块事件总线 + 生命周期（宿主持有）+ hooks（生命周期事件订阅：PreToolUse/PostToolUse/Stop/subagent 生命周期）+ 权限 gate。scope = 声明该模块相关数据的地址（不做代码级限制，默认共享上下文，支持为模块指定隔离域）。子模块两级制：定义级（manifest + prompt 片段 + config，无代码）/ 代码级（ESM，导出 register 函数，可信代码，宿主环境兜底）；放置双位置：项目级 + 全局级。用户可创建和切换任何模块（含默认包集合）的通用能力包；kernel（最小不可变集）= 模块系统本身（registry / 事件总线 / 生命周期 / hooks 注册面）+ 权限 gate，其余（含 turn loop 与全部默认包、第一批模块）均为可切换的默认包。默认包集合：turn loop / prompt 组装 / 会话存储接口（seam，pg-micro 为默认实现）/ self-evolution 机制；第一批模块：tools（工具实现）/ transports / providers / loops 节点 / compaction / translation；plan/goals/todo/token-meter 暂不模块化（仍属默认包，非 kernel，需要时再拆）。含开放插件规范 vs 自有格式的设计决策。
 
 #### dsh-compat
 
-与 DSH（cordis）生态双向兼容。格式决策：**双向适配** —— 宿主内部保持轻量模型，边界适配层物化 cordis 接口（cordis 接口是进程内 ctx 对象 API，不是协议）。适配形态：**一核两面** —— 单一「上下文桥」模块，核心是映射表（我们的服务名 ↔ ctx 键；我们的事件名 ↔ cordis 事件名 + 派发模式；config schema 映射），出向面 = 薄 cordis 插件（`apply` → 引导宿主 → provide + 事件桥 + disposer），入向面 = **真 cordis Context 子宿主**（npm `@deepseek-ai/cordis`，`new Context()` + loader，即 16 行宿主，**非 mini ctx 仿造**）+ 缝适配器（把 dsh 包要读的槽位填上、桥接到我们根 ctx 的服务）+ profile 加载器（cordis.yml 子集）。出向：注册前缀键 `ctx.microAgent`（一个服务：chat/stream/session API）+ 事件桥（turn/step/tool → cordis 事件，默认 emit，拦截点用 waterfall）+ entry config（model/provider 等），与 DSH 自带 `ctx.agents` 共存（flat 命名空间；更深接缝替换 = v2，另议），可装入 DSH 或任何 cordis host（cordis.yml profile 加一条 entry）。入向：真 cordis 子宿主 + 缝适配器 + 加载器，加载 DSH 能力包（`@deepseek-ai/dsh-*` 0.0.1-rc 段，钉版本使用）与 profile（cordis.yml include/patches）。优先级：**出向先行**（面小、真 cordis host 验证映射表），入向等出向摸清 ctx 语义后再做。依赖策略：**pnpm**（项目级决定：pnpm 是更好的包管理器、且与 dsh-* 生态（pnpm workspace）对齐；cordis + dsh-* 钉版本；本地快照只作只读参照）。npm 上的 dsh-* 包 peerDeps 为真实版本号（`workspace:^` 仅存在于本地源码快照），npm 亦可安装；选 pnpm 是项目级偏好，非 dsh-compat 必需。待定：入向试点包、具体 seam 键集 / 事件映射。见 refs/dsh.md（含「cordis 接口实态」「接入机制图解」节）、本地 `reference/deepseek-harness/`（vendor/cordis 源码 + docs/cordis-primer.md + 12 份 cordis.yml 实例）。
+与 DSH（cordis）生态双向兼容。格式决策：**双向适配** —— 宿主内部保持轻量模型，边界适配层物化 cordis 接口（cordis 接口是进程内 ctx 对象 API，不是协议）。适配形态：**一核两面** —— 单一「上下文桥」模块，核心是映射表（我们的服务名 ↔ ctx 键；我们的事件名 ↔ cordis 事件名 + 派发模式；config schema 映射），出向面 = 薄 cordis 插件（`apply` → 引导宿主 → provide + 事件桥 + disposer），入向面 = **真 cordis Context 子宿主**（npm `@deepseek-ai/cordis`，`new Context()` + loader，即 16 行宿主，**非 mini ctx 仿造**）+ 缝适配器（把 DSH 包要读的槽位填上、桥接到我们根 ctx 的服务）+ profile 加载器（cordis.yml 子集）。出向：注册前缀键 `ctx.microAgent`（一个服务：chat/stream/session API）+ 事件桥（turn/step/tool → cordis 事件，默认 emit，拦截点用 waterfall）+ entry config（model/provider 等），与 DSH 自带 `ctx.agents` 共存（flat 命名空间；更深接缝替换 = v2，另议），可装入 DSH 或任何 cordis host（cordis.yml profile 加一条 entry）。入向：真 cordis 子宿主 + 缝适配器 + 加载器，加载 DSH 能力包（`@deepseek-ai/dsh-*` 0.0.1-rc 段，钉版本使用）与 profile（cordis.yml include/patches）。优先级：**出向先行**（面小、真 cordis host 验证映射表），入向等出向摸清 ctx 语义后再做。依赖策略：**pnpm**（项目级决定：pnpm 是更好的包管理器、且与 dsh-* 生态（pnpm workspace）对齐；cordis + dsh-* 钉版本；本地快照只作只读参照）。npm 上的 dsh-* 包 peerDeps 为真实版本号（`workspace:^` 仅存在于本地源码快照），npm 亦可安装；选 pnpm 是项目级偏好，非 dsh-compat 必需。待定：入向试点包、具体 seam 键集 / 事件映射。见 refs/dsh.md（含「cordis 接口实态」「接入机制图解」节）、本地 `reference/deepseek-harness/`（vendor/cordis 源码 + docs/cordis-primer.md + 12 份 cordis.yml 实例）。
 
 #### channels
 
@@ -210,7 +219,7 @@ subagent 是 agent 的内含委派能力而非独立构成层（subagent ⊂ age
 
 ### M4 agent-role（专业角色）
 
-判据：可为主流任务类别定制专职 agent role，各 role 独立干活并互相交接（会话间可直接传话，不必等完整协议）；role 定义格式统一、可切换。
+判据：可为主流任务类别定制专职 agent-role，各 role 独立干活并互相交接（会话间可直接走跨会话消息，不必等完整协议）；role 定义格式统一、可切换。
 
 #### coding（通用码农）
 
@@ -244,7 +253,7 @@ subagent 是 agent 的内含委派能力而非独立构成层（subagent ⊂ age
 
 面向二进制 / 协议逆向的 role：反汇编 / 反编译、符号与调用关系重建、协议报文解析；可调用代码智能与检索工具。
 
-角色集按需扩展，上述为首批计划实现的 agent role。
+角色集按需扩展，上述为首批计划实现的 agent-role。
 
 目标态草图（多角色调度示意，不限于 code / research）：
 
@@ -291,7 +300,7 @@ agent 即 actor、消息驱动、独立 mailbox 与生命周期。作为本里�
 多范式可切换；角色分工（planner / critic / executor / verifier）；blackboard / shared memory；投票、self-consistency、debate、协商。
 #### 协作与通信协议（A2A / communication protocols / handoff routines / group chat / speaker selection / multi-session handoff / MAST 失败模型）
 
-A2A 协议与通用通信协议、无状态编排的 handoff & routines、群聊与 speaker selection、跨会话交接、群体失败模型（MAST / groupthink）。
+A2A 协议与通用通信协议、无状态编排的 handoff & routines、群聊与 speaker selection、跨会话消息、群体失败模型（MAST / groupthink）。
 
 ### M7 agent-colony（使命集群）
 
@@ -318,11 +327,34 @@ A2A 协议与通用通信协议、无状态编排的 handoff & routines、群聊
 colony 作为容器嵌套包含 agent（含其 subagent 委派能力）/ agent-team；以编排范式（supervisor / swarm / hierarchical / role specialization）与 actor 运行时作编组底座。
 
 
-### M8 multi-user（服务大众）
+### M8 distributed-agents（群众合作）
+
+判据：agent 可跨主机部署、经网络互联为对等节点，节点间能互相发现、寻址与通信；在无中心调度的前提下自组织形成协作网络，人类可借助该网络承载跨主体协作。
+
+**核心概念：distributed-agents** —— 由跨主机部署、经网络互联的 agent 对等节点构成的协作网络；节点经通信协议互相发现与对话，可在无中心调度下自组织协调。与 agent-colony 的区别 = colony 是单宿主内的常驻使命生态，distributed-agents 是跨主机的对等网络（单个 colony 可作为网络中的一个节点）。
+
+#### 网络传输与寻址（transport / discovery / addressing）
+
+agent 节点跨主机部署，经网络传输层通信；服务发现与寻址让节点互相找到。
+
+#### 身份与信任（identity / trust）
+
+节点身份认证与通信授权；复用权限 gate 作唯一安全边界，不引入 sandbox（AGENTS.md 规则 7）。
+
+#### 网络化的对等通信（A2A over network / peer-to-peer protocol）
+
+在 M6 的 A2A 与通信协议基础上延伸到网络传输，支持节点间对话、协商与交接。
+
+#### 去中心化编排与涌现协调（decentralized orchestration / emergent coordination）
+
+无中心调度下的自组织协作；与 M11 的 consensus / BFT / MARL 同课题，此处写工程实现侧，M11 保留健壮与研究侧。
+
+
+### M9 multi-user（服务大众）
 
 判据：在核心用户之外可接入并服务其他用户，且每个 agent 只看到它干该用户相关工作所需的信息。这是**贯穿式架构改动**（会话 / 存储 / 配置 / 权限 / UI / channels 均需按用户隔离），不是一个单点功能；开发项目旧数据可删、不做迁移。
 
-**核心概念：用户** —— 层外的授予者 / 观察者，不算作 agent；在 M8 之前系统只服务核心用户，本里程碑起可接入并服务其他用户。
+**核心概念：用户** —— 层外的授予者 / 观察者，不算作 agent；在 M9 之前系统只服务核心用户，本里程碑起可接入并服务其他用户。
 
 > **用户目录约定**：`user/`（单数）= **核心用户 / 第一个用户 / 默认用户**，为进程级全局配置（permissions / fs-policy / providers / settings / loops）；`users/`（复数）= **可接入并服务的其他用户**。两者并存。
 
@@ -341,7 +373,7 @@ colony 作为容器嵌套包含 agent（含其 subagent 委派能力）/ agent-t
 两区关系：`users/<xxx>/`（原始，真值源） →「提炼」→ `agent/users/<xxx>`（按 agent 切分的相关信息，经 scope 寻址）。「提炼」动作的机制待定（反思沉淀按 agent 切分投影，或由编排层统一提炼分发）。代理信息区复用 scope 机制，不另造隔离体系。
 
 
-### M9 eval（效用评测）
+### M10 eval（效用评测）
 
 判据：改动好不好由评测说话，而非感觉。
 
@@ -355,7 +387,7 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 把评测接进开发闭环 —— 先定成功指标再动手、以证据支撑执行计划、评测结果回流驱动特性筛选。
 
 
-### M10 robustness（健壮防护）
+### M11 robustness（健壮防护）
 
 判据：在正常功能与界面都成型之后，系统能顶住恶意输入、部分失效、群体失协调与发布风险；这是「先功能实现、再界面美观、最后恶劣条件健壮」开发优先级的落点，故排在主线最后。
 
@@ -390,7 +422,7 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 - interaction-ux：消息排队（agent 工作时可继续发）+ 运行中中断 + 编辑重发。
 - session-fork：从历史消息点派生新会话（原会话保留）。
 - edit-undo：agent 文件改动的检查点/回退（写入类工具批量前打文件快照，回退走工具 + UI 入口；见 Cline checkpoints / OpenHands selective undo / Gemini /restore）。
-- trajectory-standard：轨迹/经验格式标准化 —— 把会话归一化成可被子 agent / self-evolution / 调研消费的经验格式（基于 `harness-trace/` 雏形；见 Letta trajectory 包，refs/letta.md）。
+- trajectory-standard：轨迹/经验格式标准化 —— 把会话归一化成可被 subagent / self-evolution / 调研消费的经验格式（基于 `harness-trace/` 雏形；见 Letta trajectory 包，refs/letta.md）。
 - computer use / voice agents / browser agents：远期交互 / 执行形态 —— 操作桌面 GUI、语音对话（ASR→LLM→TTS）、浏览器代理；超出当前主线，随需排期。
 
 ## 已实现能力
@@ -403,7 +435,7 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 
 ## strategic-direction
 
-主线从单 agent 起步，经能力复用、子 agent、agent-role、自治运行时、agent-team，到 agent-colony 持续生态、多用户、评测，最终以健壮性构建收尾；可观测性作为模块设计基本准则贯穿各里程碑，健壮性课题按「先功能实现、再界面美观、最后恶劣条件健壮」的开发优先级放在最后统一收口。
+主线从单 agent 起步，经能力复用、subagent、agent-role、自治运行时、agent-team，到 agent-colony 持续生态、群众合作、多用户、评测，最终以健壮性构建收尾；可观测性作为模块设计基本准则贯穿各里程碑，健壮性课题按「先功能实现、再界面美观、最后恶劣条件健壮」的开发优先级放在最后统一收口。
 
 ## 外部参照
 
@@ -448,10 +480,11 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 | **自我进化 / 学习闭环** | Hermes（自动建技能+后台反思+GEPA 生态）、Pi（自己写扩展）、Claude Code（auto memory）、Letta（sleep-time） | 自我进化 / 学习闭环 |
 | 生命周期 hooks | Claude Code / Gemini CLI / Goose / Cline / OpenCode 插件 / Pi 扩展 | 生命周期 hooks |
 | 代码智能（LSP / repo map） | OpenCode LSP / Claude Code code intelligence / Aider repo map / DSH lsp | 代码智能（tree-sitter 还是 LSP 待定） |
-| 评测 / 可观测性 | Claude Code tracing / Langfuse / Phoenix / Opik / SWE-bench 系 | 评测（M9）/ 可观测性作为模块设计基本准则 |
+| 评测 / 可观测性 | Claude Code tracing / Langfuse / Phoenix / Opik / SWE-bench 系 | 评测（M10）/ 可观测性作为模块设计基本准则 |
 | 自治约束 / 预算 / 熔断 / 回滚 | METR / OpenHands / Cline mistake limits | 自治约束 / 预算 / 熔断 / 回滚 |
 | 通用多 agent 编排平台 | Goose meta-agent / OpenClaw team RFC / OpenHands Canvas / Codex /agents | 通用编排平台 |
 | 持续生态 / 终极使命（agent-colony） | 15 参照无「常驻生态 + 授予使命」产品形态 | 独立方向：持续生态 |
+| 群众合作（跨主机分布式 agent 网络） | 参照多为单宿主多 agent；A2A 为跨 agent 通信趋势 | 独立方向：跨主机部署 + 去中心化涌现 |
 | 多用户（用户信息区 / 代理信息区） | 15 参照均为单用户个人 agent | 独立方向：多用户 |
 | sandbox | DSH / OpenClaw (Crabbox) / Codex | 明确不做（AGENTS.md 规则 7，有意 gap） |
 
@@ -468,4 +501,4 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 - **交接是动作（工具调用），不是消息**：OpenAI SDK handoff=工具 + input_filter + 嵌套历史摘要；CrewAI Task.context（依赖声明）+ guardrail（校验门）；Codex worktree（文件级协议）；Claude Code 跨会话消息（最轻量形态）。
 - **可观测与评测成为标配**（OTel GenAI / Langfuse / SWE-bench 系 / eval-driven development）。
 - **自治运行时有共性安全骨架**（action budgets / kill switch / HITL propose-then-commit / checkpoints）。
-- **15 参照全是单用户个人 agent、且无「常驻生态 + 授予使命」产品形态**：多用户与 agent-colony 是独立方向，非对标补齐。
+- **15 参照全是单用户个人 agent、且无「常驻生态 + 授予使命」产品形态**：多用户、agent-colony 与群众合作是独立方向，非对标补齐。
