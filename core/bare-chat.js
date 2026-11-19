@@ -15,6 +15,7 @@ const {
 } = require("./translation");
 const { assembleSystemPrompt, DEFAULT_IDENTITY } = require("./system-prompt");
 const { TurnError } = require("./turn-error");
+const { RequestSpec } = require("./memory");
 
 async function runBareChat(core, ctx) {
   // ctx = { messages, model, effort, stream, onEvent }.
@@ -84,22 +85,16 @@ async function runBareChat(core, ctx) {
     if (translatedUser != null) {
       translatedMessages[translatedMessages.length - 1] = Object.assign({}, last, { content: translatedUser });
     }
-    const request = {
+    const request = new RequestSpec({
       header: system,
       messages: [{ role: "system", content: system }, ...translatedMessages],
-      planActive: false,
       model: target.model,
       baseUrl: target.baseUrl,
       apiKey: target.apiKey,
       effort: core.agent.effort,
       stream,
-      selected: [],
-      toolDefs: [],
-      permissions: null,
-      fsPolicy: null,
-      sessionId: undefined,
       onEvent,
-    };
+    });
 
     // Single model request, no step loop, no tool calls. tools are hard-forced
     // to empty here regardless of what the UI passes.

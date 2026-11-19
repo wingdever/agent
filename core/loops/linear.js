@@ -25,6 +25,7 @@ const { validateToolArgs, runTool } = require("../tools/executor");
 const { errorResult } = require("../../lib/tool-result");
 const { reset: resetTodos } = require("../../lib/todo-state");
 const planMode = require("../plan-mode");
+const { RequestSpec, StepState } = require("../memory");
 const { TurnError } = require("../turn-error");
 
 async function runLoop(core, ctx) {
@@ -98,10 +99,7 @@ async function runLoop(core, ctx) {
   const toolDefs = core.tools.defs(tools);
   const permissions = readPermissions();
   const fsPolicy = readFsPolicy();
-  const request = {
-    header: null,
-    messages: null,
-    planActive: false,
+  const request = new RequestSpec({
     model: target.model,
     baseUrl: target.baseUrl,
     apiKey: target.apiKey,
@@ -113,7 +111,7 @@ async function runLoop(core, ctx) {
     fsPolicy,
     sessionId,
     onEvent,
-  };
+  });
 
   // The system prompt belongs to the session's first turn only: it is
   // assembled once, stored once, and displayed once. Later turns reuse the
@@ -241,12 +239,12 @@ async function runLoop(core, ctx) {
     // 上一轮的 step 不能背锅：step.create 失败时 catch 只应把 turn 标失败。
     currentStep = null;
     const row = persist ? await store.run("step.create", { turn_id: turn.id, seq: stepSeq++, status: "running" }) : null;
-    stepState = { row, messageSeq: 0, userPersisted: false, response: null, assistantMsg: null, callIds: [] };
+    stepState = new StepState({ row });
     currentStep = stepState;
     steps = r + 1;
     // Per-step message sequence counter: system/catalog/user/notices/assistant/tool
     // all share one monotonically increasing seq (UNIQUE(step_id, seq)).
-    const nextSeq = () => stepState.messageSeq++;
+    const nextSeq = () => stepState.nextSeq();
     // 新一轮 step 开始（r=0 由前端 onSend 预建 UI；r>0 由本事件驱动 UI 建立新 step）
     if (r > 0) onEvent({ type: "step-start", seq: r });
 

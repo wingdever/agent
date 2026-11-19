@@ -5,7 +5,8 @@
 树状关系:
 
 ```
-runtime{ services, emit, agents[ agent{ lifecycle, steering, turn{ input, pending, system, plan, request{ header, messages, config }, step{ response } } } ] }
+runtime{ services, agents[ agent{ phase, inbox, planMode, todos, turn{ emit, autonomy, effort, activity, interactions, steps, toolsUsed, startedAt } } ] }
+agent-loop{ request{ header, messages, config }, step{ response } }
 ```
 
 ## RuntimeState（进程）
@@ -13,54 +14,30 @@ runtime{ services, emit, agents[ agent{ lifecycle, steering, turn{ input, pendin
 | 字段 | 含义 | 归属 |
 |---|---|---|
 | `services` | config / model / context / tools / skills / interactions / subagents / store / goals | 注入 |
-| `agent` | 进程内运行时句柄：autonomy / effort / activity、turn 占用表、压缩门 | 注入 |
-| `emit` | 本 turn 唯一事件出口 | 注入 |
-| `agents` | 按 sessionId 索引的 AgentState 集合；任务 / 取消 / steering / 唤醒表按同一键归位 | 容器 |
+| `agents` | 按 sessionId 索引的 Agent 实例集合；由 AgentRegistry 唯一存取 | 容器 |
 
-## AgentState（一个 agent）
+## AgentState（一个 agent 的运行态清单）
 
-每个 agent 一份，按 sessionId 索引；父子 agent 不共享数据块。
+Agent 三段式构造的第二段：实例运行态字段的显式初始值清单（docs/agents/agent-instance.md §4）。它不是独立流转的数据对象；会话事实在 store，进程级闸门（压缩）在独立 Map，二者都不在此列。
 
 | 字段 | 含义 | 归属 |
 |---|---|---|
-| `sessionId` | agent 所属会话 id，运行时索引的键 | 注入 |
-| `path` | 从根起的斜杠路径，根为 lead；由 subagent 关联边推导 | 派生 |
-| `scope` | 启动时固定的权限范围；需要审批的操作一律拒绝 | 注入 |
-| `lifecycle` | `{ task, controller, settled, waking }`：后台轮次、独立取消通道、结算是否已投递、唤醒中标记 | 运行时 |
-| `steering` | 待注入下一次模型请求的消息队列 | 运行时 |
-| `childContexts` | agent 被唤醒续跑时复用的父轮次工具清单与事件出口快照 | 运行时 |
-| `turn` | 当前 TurnState；agent 每轮各一份 | 容器 |
+| `sessionId` / `kind` / `parentSessionId` / `agentName` / `persist` | 身份，来自 store、只读 | 注入 |
+| `phase` | `{ kind: "idle" }` 或 `{ kind: "running", abort: AbortController }`，并发唯一判据 | 运行时 |
+| `inbox` | `{ nextTurn, nextStep }`，进程内输入队列，不落库 | 运行时 |
+| `planMode` / `todos` | 本会话计划态与 turn 内 todo 投影 | 运行时 |
+| `turn` | 当前 TurnState（每轮投递态）；轮内非 null，轮末置 null | 容器 |
 
-## TurnState（一轮）
+## TurnState（每轮投递态）
 
-### 输入
-
-| 字段 | 含义 |
-|---|---|
-| `session` | `{ id, persist }`；`persist = !!(sessionId && store)` |
-| `input` | `{ messages, references, cwd, source, contextMessages }`；`contextMessages` 不落库 |
-| `toolNames` | 本轮可用工具名 |
-| `autonomy` / `activity` | supervised\|autonomous；plan-mode\|bare-chat\|… |
-
-### 派生与累积
+Agent.turn 持有的每轮投递状态，描述「这一轮把事件发去哪、按什么授权策略跑」。轮与轮之间没有共享语义，轮末失效。turn 级的数据容器（request / step / system / conv）不叫 TurnState，见下文 RequestSpec 与 StepState。
 
 | 字段 | 含义 | 归属 |
 |---|---|---|
-| `cwd` | 输入 cwd 基于 resolveCwd 解析后的绝对路径 | 派生 |
-| `translateCfg` | 翻译配置 | 派生 |
-| `system` / `systemIsNew` | session 级 system prompt；首轮装配并落库，后续轮复用 | 落库投影 |
-| `catalogMsg` | skill 目录消息；首轮作为 user 消息落库 | 落库投影 |
-| `translatedUser` | 输入翻译结果，写入 `request.messages` 的 user 消息后落库；输出翻译只发事件 | 派生 |
-| `pending.user` / `pending.refs` | 本轮用户输入与 @引用消息；首步落库 | 派生 |
-| `pending.turnMessages()` | 自动压缩重建历史时追加的尾部消息；首步落库后返回空 | 派生 |
-| `plan.active` | session 级计划态，由 plan-mode 模块持有 | 外部权威 |
-| `turn.row` | turn 记录 | 落库投影 |
-| `turn.startedAt` | 本轮开始时间 | 派生 |
-| `turn.stepSeq` | step 序号分配计数器 | 权威 |
-| `turn.steps` / `turn.toolsUsed` | 已发起 step 数 / 已执行工具数 | 累积 |
-| `turn.status` / `reason` / `errorText` | 终止原因与错误信息 | 累积 |
-| `request` | 本轮 RequestSpec；请求字段的唯一所有者 | 容器 |
-| `step` | 当前 StepState；turn 开始时为 null | 容器 |
+| `emit` | 本轮唯一事件出口 | 注入 |
+| `autonomy` / `effort` / `activity` | 本轮授权档位、推理档位、活动枚举 | 注入 |
+| `interactions` | 本轮交互服务句柄 | 注入 |
+| `steps` / `toolsUsed` / `startedAt` | 本轮计数与开始时间 | 累积 |
 
 ## StepState（一步）
 
@@ -112,12 +89,12 @@ turn 内唯一的请求数据条目，由 turn-start 与 resolve-target 的结�
 - `RequestSpec.header` 与 `messages[0].content` 是同一事实的两个视角：pre-step 产出前者并写入后者；overflow 重试同时改写二者。权威在 `RequestSpec.header`。
 - `RequestSpec` 的模型与工具配置在 turn 内固定，由 turn-start 与 resolve-target 的结果注入；`plan.active` 由 plan-mode 模块持有，`RequestSpec.planActive` 是它在某一步的投影。
 - `ModelResponse` 是本步响应的唯一权威；assistant message 是它的落库投影，只含 content 与 thought。`tool_calls` 与 `callIds` 按下标对齐，`callIds` 由落库 call 记录生成，工具执行阶段用它回写结果。
-- 每个 agent 持有独立的 `AgentState`，按 sessionId 索引；父子之间不共享数据块，子 agent 结算以 user 消息回灌父会话，steering 在下次模型请求前注入 `RequestSpec.messages`。
-- `turn.stepSeq` 分配 step 序号，`StepState.seq` 取自它；`turn.steps` 统计已发起的请求数。
+- 每个 agent 持有独立的运行态清单（`createAgentState` 的返回值），按 sessionId 索引；父子之间不共享。子 agent 结算经父的 `inbox.nextStep`（父忙）或 `inbox.nextTurn`（父闲）投递，领取后以 user 消息落库。
+- `TurnState` 只描述投递态；请求与步骤数据分别由 `RequestSpec` 与 `StepState` 持有，三者不互相嵌套。
 - `contextMessages` 只进 `RequestSpec.messages`，不落库；输出翻译只发事件，不进 `messages`、不落库。
 
 ## 介质边界
 
-- 落库：turn / step / message / call 记录，session 级 system prompt，assistant message（content / thought）。
-- 仅内存：`RequestSpec` 与 `ModelResponse` 整体（含其中未落库段与 `header` / `planActive`）、`AgentState` 整体、`translatedUser`、`plan.active` 及 pending 退出态、`translateCfg`、`emit`。
-- 派生视图：`callIds` 与 `tool_calls` 的对齐关系、`turn.steps` / `toolsUsed` 计数、`RequestSpec.planActive`、agent 的 `path`。
+- 落库：turn / step / message / call 记录、session 级 system prompt、assistant message（content / thought）、inbox 领取后的 user 消息。
+- 仅内存：`RequestSpec` 与 `ModelResponse` 整体（含其中未落库段与 `header` / `planActive`）、`AgentState` 运行态清单与 `inbox` 队列、`TurnState` 投递态、`translatedUser`、pending 退出态。
+- 派生视图：`callIds` 与 `tool_calls` 的对齐关系、`TurnState.steps` / `toolsUsed` 计数、`RequestSpec.planActive`、agent 的 `agentName`。

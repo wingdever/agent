@@ -5,6 +5,7 @@
 const compaction = require("../../../compaction");
 const planMode = require("../../../plan-mode");
 const { TurnError } = require("../../../turn-error");
+const { StepState } = require("../../../memory");
 
 module.exports = async function run(input, ctx) {
   const { services, session, request } = ctx;
@@ -15,8 +16,8 @@ module.exports = async function run(input, ctx) {
   const step = persist
     ? await services.store.run("step.create", { turn_id: ctx.turn.row.id, seq: ctx.turn.stepSeq++, status: "running" })
     : null;
-  ctx.step = { row: step, messageSeq: 0, userPersisted: false, response: null, assistantMsg: null, callIds: [] };
-  const nextSeq = () => ctx.step.messageSeq++;
+  ctx.step = new StepState({ row: step });
+  const nextSeq = () => ctx.step.nextSeq();
   ctx.nextSeq = nextSeq;
   if (r > 0) ctx.emit({ type: "step-start", seq: r });
 

@@ -2,6 +2,7 @@
 const tokenMeter = require("./token-meter");
 const { issueRequest } = require("./model-request");
 const { renderDelta } = require("./stream-render");
+const { ModelResponse } = require("./memory");
 
 // 把底层模型的 usage 对象标准化后上报（兼容字段缺失 / 不同厂商命名）。
 // cached_tokens 可能嵌在 prompt_tokens_details 内，也可能直接给顶层。
@@ -63,11 +64,13 @@ function finalize(acc) {
         function: { name: acc.toolCalls[k].name, arguments: acc.toolCalls[k].args },
       }))
     : undefined;
-  return {
-    role: "assistant", content: acc.content, reasoning_content: acc.reasoning_content, tool_calls,
+  return new ModelResponse({
+    content: acc.content,
+    reasoning_content: acc.reasoning_content,
+    tool_calls,
     finish_reason: acc.finishReason,
     usage: acc.lastUsage ? tokenMeter.normalizeUsage(acc.lastUsage) : null,
-  };
+  });
 }
 
 // 非流式：整段读 JSON，把整段 content / reasoning 当成单个 delta 喂给 feed（无 live 层），

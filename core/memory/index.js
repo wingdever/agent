@@ -1,0 +1,11 @@
+"use strict";
+
+// In-memory runtime data structures. Other core subdomains reach these only
+// through this index (arch.md: 层内边界).
+const { RequestSpec } = require("./request-spec");
+const { StepState } = require("./step-state");
+const { ModelResponse } = require("./model-response");
+const { createAgentState } = require("./agent-state");
+const { createTurnState } = require("./turn-state");
+
+module.exports = { RequestSpec, StepState, ModelResponse, createAgentState, createTurnState };

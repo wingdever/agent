@@ -4,9 +4,10 @@
 // (input, ctx) and reaches services through ctx.services. The engine only owns
 // scheduling, hooks, turn finalization and the [turn] log.
 
-const { loadNodes } = require("./registry");
-const { readLoops } = require("./loops-config");
-const { TurnError } = require("../turn-error");
+  const { loadNodes } = require("./registry");
+  const { readLoops } = require("./loops-config");
+  const { TurnError } = require("../turn-error");
+  const { RequestSpec } = require("../memory");
 
 const ENTRY_NODE = "turn-start";
 
@@ -134,22 +135,13 @@ class NodeGraphEngine {
       toolNames: ctx.toolNames,
       autonomy: ctx.autonomy,
       activity: ctx.activity,
-      request: {
-        header: null,
-        messages: null,
-        planActive: false,
+      request: new RequestSpec({
         model: ctx.model,
-        baseUrl: null,
-        apiKey: null,
         effort: ctx.effort,
         stream: ctx.stream,
-        selected: [],
-        toolDefs: [],
-        permissions: null,
-        fsPolicy: null,
         sessionId: ctx.sessionId,
         onEvent,
-      },
+      }),
       turn: { row: null, startedAt: Date.now(), stepSeq: 0, steps: 0, toolsUsed: 0 },
       step: null,
       translatedUser: null,
