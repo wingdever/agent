@@ -11,6 +11,7 @@ const { InteractionService } = require("./interactions");
 const { ToolService } = require("./tools");
 const { AgentRuntime } = require("./agent");
 const { SubagentRuntime } = require("./subagent-runtime");
+const { createWorkflowService } = require("./workflow");
 const { createRpc } = require("./rpc");
 const { loadTools } = require("./tools/registry");
 const { createGoalService } = require("./goals");
@@ -52,6 +53,7 @@ async function createCore(overrides = {}) {
     interactions,
     agent,
     subagents: null,
+    workflow: null,
     store,
     goals,
     rpc: null,
@@ -60,6 +62,9 @@ async function createCore(overrides = {}) {
   agent.setSubagents(() => core.subagents);
   context.setRuntime(agent);
   core.subagents = new SubagentRuntime(core);
+  // Workflow runs read limits from user/settings.json's `workflow` block lazily,
+  // so a settings edit applies to the next run without a restart.
+  core.workflow = createWorkflowService({ config, getSubagents: () => core.subagents });
   interactions.setRegistry(agent.registry);
   core.rpc = createRpc(core);
   return core;

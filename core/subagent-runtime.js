@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const { parseStructured } = require("../lib/workflow-runtime");
 
 // One-shot subagent runtime (docs/agents/subagent.md).
 //
@@ -79,6 +80,20 @@ function mapStopReason(result, signal) {
   return "completed";
 }
 
+// workflow 的 schema 子代理（docs/runtime/workflow.md §6）：把 JSON Schema 作为
+// 输出要求注入子代理上下文，落定后对最终文本做严格解析与最小字段校验。
+function structuredOutputInstruction(schema) {
+  return "Your final answer must be a single JSON value that satisfies this JSON Schema, with no prose before or after it:\n" + JSON.stringify(schema, null, 2);
+}
+
+function parseDetachedStructured(text, schema) {
+  try {
+    return parseStructured(text, schema);
+  } catch (e) {
+    return { error: (e && e.message) || String(e) };
+  }
+}
+
 class SubagentRuntime {
   constructor(core, deps = {}) {
     this.core = core;
@@ -126,7 +141,7 @@ class SubagentRuntime {
     if (parent.kind === "subagent") {
       throw new Error("subagent is only available in a main session; use subagent_fork to delegate from a subagent session");
     }
-    return this._launch(spec, await this._createChild(spec, parent));
+    return this._launch({ ...spec, delivery: "parent" }, await this._createChild({ ...spec, delivery: "parent" }, parent));
   }
 
   // fork 委派：子会话继承父会话到最后一个已完成轮次为止的历史。
@@ -134,13 +149,147 @@ class SubagentRuntime {
   async spawnFork(spec) {
     const parent = await this._loadParent(spec.parentSessionId);
     const boundary = await this.store.run("sessionFork.boundary", { session_id: spec.parentSessionId });
-    const created = await this._createChild(spec, parent);
+    const created = await this._createChild({ ...spec, delivery: "parent" }, parent);
     await this.store.run("sessionFork.add", {
       child_session_id: created.childId,
       parent_session_id: spec.parentSessionId,
       parent_boundary_seq: boundary,
     });
-    return this._launch(spec, created);
+    return this._launch({ ...spec, delivery: "parent" }, created);
+  }
+
+  // 统一入口（docs/runtime/workflow.md §2）：与 spawn/spawnFork 共用子会话创建、
+  // 命名、实例隔离、权限与工具面，但交付策略由请求给出：
+  //   delivery='parent' 轮末照常投递结算（对应 spawn），结果与结算一致；
+  //   delivery='caller' 不投递结算，结果只落在返回的 Promise 上，由调用方自取
+  //                     （workflow 引擎正在等它，父轮次也正被工具调用占着）。
+  // 失败不抛，压平为停止原因，与 spawn 的「异常不外抛」一致。
+  async startChild(spec) {
+    const delivery = spec.delivery === "caller" ? "caller" : "parent";
+    const parent = await this._loadParent(spec.parentSessionId);
+    const created = await this._createChild({ ...spec, delivery }, parent);
+    const exec = this._childExec(spec);
+    const controller = new AbortController();
+    const key = String(created.childId);
+    this.controllers.set(key, controller);
+    const task = this._runChildTurn(spec, created.childId, exec, controller.signal)
+      .finally(() => {
+        this.controllers.delete(key);
+        this.tasks.delete(key);
+        this._releaseChild(created.childId);
+      });
+    this.tasks.set(key, task);
+    return {
+      childId: created.childId,
+      name: created.name,
+      result: task,
+      dispose: async () => {
+        controller.abort();
+        try { await task; } catch (_) { /* the settlement is the result, never a throw */ }
+      },
+    };
+  }
+
+  // 实例释放（docs/runtime/workflow.md §4.4）：一个子代理一轮跑完、且没有待领取
+  // 输入时，把它的实例移出注册表——会话事实早已在库里，实例只是运行时态。
+  // 之后被唤醒时按规则重建（_wakeChild）。释放推到下一拍执行：一轮刚结束时
+  // 紧接着到达的输入（inbox 里已有或正在入队）必须先于释放被看见，否则消息会丢。
+  _releaseChild(childId) {
+    const key = String(childId);
+    setImmediate(() => {
+      if (this.tasks.has(key)) return; // another run of this child started
+      const agent = this.core.agent.get(childId);
+      if (!agent) return;
+      if (agent.running() || agent.hasPending()) return;
+      this.core.agent.agents().dispose(childId);
+    });
+  }
+
+  // 重建一次子轮次的上下文（docs/agents/subagent.md §3）。上下文不是快照：
+  // 工具面按「所有会话相同」的规则取默认可见集，模型与传输参数取当前配置，
+  // 子代理一律自主模式（ask -> deny）。这样释放过实例的子代理被唤醒时，
+  // 与首次启动走同一条规则，且不需要为它持久化父轮次的瞬时状态。
+  _childExec(spec) {
+    const parentChatCtx = spec.parentChatCtx || {};
+    const settings = this.core.config.readSettings();
+    // The parent turn's tool list is name-for-name the one every session shares;
+    // an explicit list (tests, restricted callers) is kept, otherwise the
+    // default visible set is selected by the same rule turn-start uses.
+    const selected = this.core.tools.select(
+      Array.isArray(parentChatCtx.toolNames) ? parentChatCtx.toolNames : undefined,
+    );
+    let model = parentChatCtx.model;
+    // resolveTarget picks the provider/model pair; it reports no effort, so the
+    // settings value (or the caller's) supplies that part of the route.
+    try {
+      const target = this.core.config.resolveTarget({
+        provider: parentChatCtx.provider,
+        model: parentChatCtx.model,
+      });
+      model = target.model || model;
+    } catch (_) {
+      // A config that cannot resolve falls back to the caller's fields; the
+      // child turn reports the model failure itself.
+    }
+    const effort = parentChatCtx.effort || settings.effort;
+    return {
+      messages: [{ role: "user", content: spec.prompt }],
+      sessionId: null,
+      onEvent: () => {},
+      toolNames: selected.map((tool) => tool.name),
+      model,
+      effort,
+      stream: settings.stream,
+      activity: parentChatCtx.activity,
+      autonomy: "autonomous",
+      references: [],
+      inputSource: "subagent-prompt",
+      contextMessages: [{ role: "user", content: SUBAGENT_DELEGATION_CONTEXT }],
+      cwd: spec.cwd,
+    };
+  }
+
+  async _runChildTurn(spec, childId, template, signal) {
+    const exec = Object.assign({}, template, { sessionId: childId, signal });
+    if (spec.schema) exec.contextMessages = exec.contextMessages.concat([{ role: "user", content: structuredOutputInstruction(spec.schema) }]);
+    let stopReason = "completed";
+    let text = "";
+    let diagnostic;
+    try {
+      const result = await this._deps.runChild(this.core, exec);
+      stopReason = mapStopReason(result, signal);
+      text = result && typeof result.content === "string" ? result.content : "";
+      if (stopReason === "error" || stopReason === "max-tokens") {
+        diagnostic = (result && (result.error || result.stopReason)) || "subagent loop failed";
+      }
+    } catch (e) {
+      stopReason = signal.aborted ? "aborted" : "error";
+      diagnostic = (e && e.message) || String(e);
+    }
+    const settled = { childId, stopReason, text };
+    if (spec.schema !== undefined) {
+      if (stopReason === "completed") {
+        const parsed = parseDetachedStructured(text, spec.schema);
+        if (parsed.error !== undefined) {
+          settled.stopReason = "error";
+          settled.text = text;
+          settled.diagnostic = parsed.error;
+        } else {
+          settled.structured = parsed.value;
+        }
+      }
+    }
+    if (diagnostic !== undefined) settled.diagnostic = diagnostic;
+    // parent delivery notifies the model exactly like spawn's child turn does:
+    // one settlement message into the parent conversation, after the turn.
+    if (spec.delivery !== "caller") {
+      const outputId = await this._lastMessageId(childId, "assistant", null);
+      await this._linkPrompt(spec, childId);
+      const childName = await this.pathOf(childId);
+      const settleText = buildSettlementText(childName, settled.stopReason, text, settled.diagnostic);
+      await this._deliverSettlement(spec, childId, settleText, outputId);
+    }
+    return settled;
   }
 
   async _loadParent(parentSessionId) {
@@ -317,13 +466,23 @@ class SubagentRuntime {
     const key = String(childId);
     this._waking.add(key);
     try {
+      // A child's instance is released once its turn settles; waking it means
+      // rebuilding that instance from the session facts. A rebuild failure is
+      // surfaced to the sender instead of silently dropping the message.
+      try {
+        await this.core.agent.getOrCreate(childId);
+      } catch (e) {
+        throw new Error(`agent ${childId} cannot be woken: ${(e && e.message) || e}`);
+      }
       const stored = this.childContexts.get(key) || {};
+      const link = await this.store.run("subagent.get", { sub_sess_id: Number(childId) });
       const created = { childId, name: await this.pathOf(childId) };
       return this._launch({
         prompt: content,
         parentSessionId,
         parentChatCtx: stored.parentChatCtx || {},
         parentOnEvent: stored.parentOnEvent,
+        delivery: link && link.delivery === "caller" ? "caller" : "parent",
         inputSource: "agent-message",
       }, created);
     } finally {
@@ -368,6 +527,7 @@ class SubagentRuntime {
     });
     await this.store.run("subagent.add", {
       sub_sess_id: child.id, par_sess_id: spec.parentSessionId, agent_name: agentName,
+      delivery: spec.delivery === "caller" ? "caller" : "parent",
     });
     return { childId: child.id, name: await this.pathOf(child.id) };
   }
@@ -438,14 +598,25 @@ class SubagentRuntime {
     const outputId = await this._lastMessageId(childId, "assistant", null);
     await this._linkPrompt(spec, childId);
 
-    const childName = await this.pathOf(childId);
-    const settleText = buildSettlementText(childName, stopReason, closingText, diagnostic);
-    await this._deliver(spec, childId, settleText, outputId);
+    // caller delivery leaves the result to whoever started the child: no
+    // parent notice, ever (docs/runtime/workflow.md §2).
+    if (spec.delivery !== "caller") {
+      const childName = await this.pathOf(childId);
+      const settleText = buildSettlementText(childName, stopReason, closingText, diagnostic);
+      await this._deliver(spec, childId, settleText, outputId);
+    }
+    this._releaseChild(childId);
   }
 
   // Deliver exactly one settlement; drop with a warning when the parent is gone
   // (§6.4). Never throws, never retries, never stages for later (DSH).
   async _deliver(spec, childId, settleText, outputId) {
+    if (spec.delivery === "caller") return;
+    return this._deliverSettlement(spec, childId, settleText, outputId);
+  }
+
+  // Deliver exactly one settlement; drop with a warning when the parent is gone.
+  async _deliverSettlement(spec, childId, settleText, outputId) {
     if (this.announced.has(childId)) return;
     const parentSessionId = spec.parentSessionId;
 

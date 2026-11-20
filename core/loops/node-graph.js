@@ -133,6 +133,7 @@ class NodeGraphEngine {
         skills: core.skills,
         interactions: core.interactions,
         subagents: core.subagents,
+        workflow: core.workflow,
         store: core.store,
         goals: core.goals,
       },

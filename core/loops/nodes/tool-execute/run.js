@@ -119,7 +119,22 @@ module.exports = async function run(input, ctx) {
       sendMessage: (a) => services.subagents.sendMessage(a),
       interruptAgent: (a) => services.subagents.interruptAgent(a),
       listAgents: (a) => services.subagents.listAgents(a),
+      subagentStartChild: (a) => services.subagents.startChild(a),
     } : {};
+
+    const workflowEngine = services.workflow ? {
+      // The workflow tool owns the run's lifecycle; here it only gets the
+      // ability to start one attributed to the calling agent and session.
+      start: (request) => services.workflow.start({
+        ...request,
+        parent: {
+          sessionId: session.id,
+          parentChatCtx,
+          onEvent: ctx.emit,
+        },
+        signal: ctx.signal,
+      }),
+    } : null;
 
     const result = await runTool(tool, args, {
       cwd: ctx.cwd,
@@ -137,6 +152,7 @@ module.exports = async function run(input, ctx) {
       killUserJob: (jobId) => services.interactions.killUserJob(jobId),
       store: services.store,
       ...delegation,
+      workflowEngine,
     });
     await finish(result, result.isError === true ? "failed" : "succeeded");
   }

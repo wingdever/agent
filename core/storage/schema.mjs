@@ -233,10 +233,15 @@ export const SCHEMA_STATEMENTS = [
   // Subagent delegation: parent/sub session link; agent_name is the model-side
   // name, unique among siblings; discarded_at marks an undeliverable settlement
   // (see docs/subagent/subagent.md §6.4).
+  // delivery is the result policy fixed at creation: 'parent' posts a settlement
+  // notice to the parent conversation, 'caller' leaves the result to whoever
+  // started the child. It is persisted so a released-then-woken child keeps the
+  // same policy, independent of whether its instance is resident.
   `CREATE TABLE IF NOT EXISTS subagents (
     sub_sess_id  integer NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
     par_sess_id  integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     agent_name   text    NOT NULL,
+    delivery     text    NOT NULL DEFAULT 'parent',
     discarded_at TIMESTAMP
   )`,
   `CREATE INDEX IF NOT EXISTS idx_subagents_name ON subagents (par_sess_id, agent_name)`,

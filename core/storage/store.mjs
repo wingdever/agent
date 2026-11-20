@@ -753,8 +753,12 @@ class Store {
 
   // ================= 子代理关联表（无 id 列，走裸 SQL / _insertRow）=================
   // 一次委派一行。agent_name 是模型侧名称，同父唯一（schema 上的 UNIQUE 索引承担）。
-  async addSubagent({ sub_sess_id, par_sess_id, agent_name }) {
-    await this._insertRow("subagents", ["sub_sess_id", "par_sess_id", "agent_name"], [sub_sess_id, par_sess_id, agent_name]);
+  async addSubagent({ sub_sess_id, par_sess_id, agent_name, delivery }) {
+    await this._insertRow(
+      "subagents",
+      ["sub_sess_id", "par_sess_id", "agent_name", "delivery"],
+      [sub_sess_id, par_sess_id, agent_name, delivery === "caller" ? "caller" : "parent"],
+    );
     return this.getSubagent({ sub_sess_id });
   }
   getSubagent({ sub_sess_id }) {
