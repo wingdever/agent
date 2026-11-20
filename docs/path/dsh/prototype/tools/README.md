@@ -162,7 +162,7 @@ flowchart LR
 | [`list_agents`](list_agents.md) | `@deepseek-ai/dsh-tool-subagent-control` | - | `tool-subagent-control` 挂载时注册 |
 | [`interrupt_agent`](interrupt_agent.md) | `@deepseek-ai/dsh-tool-subagent-control` | - | `tool-subagent-control` 的 `interrupt: true` 时注册（shipped Web 预设为 `false`） |
 | [`wait_agent`](wait_agent.md) | `@deepseek-ai/dsh-tool-subagent-control` | - | `tool-subagent-control` 挂载时注册 |
-| [`workflow`](workflow.md) | `@deepseek-ai/dsh-tool-workflow` | `tool:<toolName>`（组内共用） | 组合挂载 `tool-workflow` 与 PTC 工作流引擎时注册；工具名可配置 |
+| [`workflow`](workflow.md) | `@deepseek-ai/dsh-tool-workflow` | `tool:<toolName>`（组内共用） | 组合挂载 `tool-workflow` 与 PTC 工作流引擎时注册；工具名可配置；机制见 [`prototype/workflow.md`](../workflow.md) |
 
 ### 设备操作
 

@@ -85,6 +85,7 @@ lib/
 ├── skill-content/     技能内容渲染与转义
 ├── skill-policy/      名称校验（names.js）与可调用性判定（policy.js）
 ├── skill-instance/    活跃技能注册表访问器
+├── workflow-runtime/  workflow 脚本机制：meta 校验、钩子、并发槽、返回值物化（子代理以 childPort 注入）
 └── todo-state/        turn 内 todo 投影的存取原语
 ```
 
@@ -102,6 +103,7 @@ lib/
 **机制在 lib、策略在 core**：
 
 - `todo-state` 只提供按 `sessionId` 的存取与重置原语。重置时机由 core 的 turn-start 节点调用 `reset()` 决定，`todo_write` 工具调用 `set()`。lib 不承载「何时重置」的语义。
+- `workflow-runtime` 只提供脚本机制：`meta` 校验、脚本编译与执行、六个钩子、并发槽、返回值物化。子代理经注入的 `childPort` 交给它；`core/workflow` 负责把子代理委派适配成 `childPort`、管理 run 与取消、发领域事件，`tools/workflow` 负责模型侧参数与渲染。
 
 ### 2.3 绝对路径
 

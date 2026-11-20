@@ -28,6 +28,7 @@
 |---|---|---|
 | [`system-prompt.md`](system-prompt.md) | `prototype/system-prompt.md`、`prototype/runtime-context.md` | 已编写 |
 | [`tools.md`](tools.md) | `prototype/tools/` | 已编写 |
+| [`workflow.md`](workflow.md) | `prototype/workflow.md`、`prototype/tools/workflow.md` | 已编写 |
 
 实现层按需编写，不预先覆盖全部原型文档。每份文档固定三节：
 

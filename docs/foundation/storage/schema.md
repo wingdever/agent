@@ -319,13 +319,14 @@ CREATE TABLE user_jobs (
 ```
 
 ## agent_subagents (子代理关联表)
-一次委派一行。`agent_name` 是模型侧名称，在同父的子级之间唯一；根会话的名称固定为 `lead`，不落库。Session id 仍是持久身份，名称只用于 `send_message` / `interrupt_agent` / `list_agents` 的寻址。名称规则与路径解析见 `docs/dev/subagent.md` 第三步。
+一次委派一行。`agent_name` 是模型侧名称，在同父的子级之间唯一；根会话的名称固定为 `lead`，不落库。Session id 仍是持久身份，名称只用于 `send_message` / `interrupt_agent` / `list_agents` 的寻址。`delivery` 是创建时固定的结果交付策略：`parent` 轮末把结算通知投进父会话，`caller` 只把结果交给发起方。策略随行持久化，子代理实例被释放后重新唤醒时沿用同一个值。名称规则与路径解析见 `docs/agents/subagent.md` 第 6 节。
 
 ```sql
 create table subagents (
   sub_sess_id  integer NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
   par_sess_id  integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   agent_name   text    NOT NULL,              -- 模型侧名称，同父唯一
+  delivery     text    NOT NULL DEFAULT 'parent',  -- parent | caller
   discarded_at TIMESTAMP,
   UNIQUE (par_sess_id, agent_name)
 );

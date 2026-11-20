@@ -54,7 +54,10 @@ agent/
 │   ├── network/          provider HTTP client and tracker
 │   ├── transport.js      transport registry
 │   ├── transports/       http / ipc
+│   ├── workflow/         workflow runs: subagent port, lifecycle, domain events
 │   └── subagent-runtime.js
+├── lib/                  host-agnostic facilities (shared by core and tools)
+│   └── workflow-runtime/ workflow script mechanism: hooks, caps, value materialization
 ├── tools/                pluggable tools
 ├── ui/
 │   ├── electron/         electron client (main.js / preload.js)

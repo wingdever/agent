@@ -4,6 +4,8 @@
 
 `workflow`
 
+工具背后的完整机制（服务定义、PTC 引擎、脚本契约、持久记录与展示）见上一级 [`workflow.md`](../workflow.md)；本页只记模型可见契约。
+
 ## description
 
 模型收到的工具说明原文：
