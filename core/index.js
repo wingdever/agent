@@ -12,6 +12,8 @@ const { ToolService } = require("./tools");
 const { AgentRuntime } = require("./agent");
 const { SubagentRuntime } = require("./subagent-runtime");
 const { createWorkflowService } = require("./workflow");
+const { createFlowService } = require("./flow");
+const { runTool } = require("./tools/executor");
 const { createRpc } = require("./rpc");
 const { loadTools } = require("./tools/registry");
 const { createGoalService } = require("./goals");
@@ -54,6 +56,7 @@ async function createCore(overrides = {}) {
     agent,
     subagents: null,
     workflow: null,
+    flow: null,
     store,
     goals,
     rpc: null,
@@ -65,6 +68,9 @@ async function createCore(overrides = {}) {
   // Workflow runs read limits from user/settings.json's `workflow` block lazily,
   // so a settings edit applies to the next run without a restart.
   core.workflow = createWorkflowService({ config, getSubagents: () => core.subagents });
+  // Flows are user-edited graphs run by the local backend; they never touch an
+  // Agent instance (docs/flow/flow.md).
+  core.flow = createFlowService({ store, model, config, tools, runTool });
   interactions.setRegistry(agent.registry);
   core.rpc = createRpc(core);
   return core;

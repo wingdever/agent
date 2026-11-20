@@ -55,6 +55,7 @@ agent/
 │   ├── transport.js      transport registry
 │   ├── transports/       http / ipc
 │   ├── workflow/         workflow runs: subagent port, lifecycle, domain events
+│   ├── flow/             user-edited node graphs: validation, executor, node types
 │   └── subagent-runtime.js
 ├── lib/                  host-agnostic facilities (shared by core and tools)
 │   └── workflow-runtime/ workflow script mechanism: hooks, caps, value materialization

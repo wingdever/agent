@@ -35,7 +35,7 @@ flowchart LR
 | 层 | 职责 | 可以依赖 | 禁止依赖 |
 |---|---|---|---|
 | `lib/` | 与宿主无关的公共设施：纯函数、无状态工具、进程内共享访问器 | 仅 Node 内置与第三方包 | `core/`、`tools/`、`ui/`、`providers/`、`scripts/` |
-| `core/` | 业务核心：会话、agent 实例与输入队列、循环、上下文、模型通信、存储、RPC | `lib/`、Node 内置与第三方包；经 registry 扫描加载 `tools/` | `ui/`、`providers/`；除 `core/tools/registry.js` 外不直接依赖 `tools/` |
+| `core/` | 业务核心：会话、agent 实例与输入队列、循环、上下文、模型通信、存储、RPC、节点图执行 | `lib/`、Node 内置与第三方包；经 registry 扫描加载 `tools/` | `ui/`、`providers/`；除 `core/tools/registry.js` 外不直接依赖 `tools/` |
 | `tools/` | 可替换的工具插槽实现，通过 `registry.json` + `run.js` 被扫描加载 | `lib/`、Node 内置与第三方包；运行期经 `exec.capabilities` 拿到 core 声明的能力实现 | `core/`（源码级）、`ui/`、`providers/`、`scripts/` |
 | `launcher.js` | 组装入口：选 UI、起 transport | `core/`、`ui/electron`（经 `UIS` 注册表） | `tools/`、`providers/` |
 | `ui/electron` · `ui/web` | 客户端外壳与渲染；只呈现，不承载业务 | 客户端内部、浏览器 API、`ui/web/vendor` | `core/`、`tools/`；与 core 的通信只走 transport |

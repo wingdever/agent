@@ -773,6 +773,51 @@ class Store {
   markSubagentDiscarded({ sub_sess_id }) {
     return this.db.prepare("UPDATE subagents SET discarded_at=now() WHERE sub_sess_id=$1").run(sub_sess_id);
   }
+
+  // ---- flows: user-edited node graphs and their executions ----
+  // `definition` is a JSON document stored verbatim; the runtime validates it on
+  // save and walks it on run (docs/flow/flow.md).
+
+  listFlows() {
+    return this.db.prepare("SELECT id, name, description, created_at, updated_at FROM flows ORDER BY updated_at DESC").all();
+  }
+  getFlow({ id }) {
+    return this._get("flows", id);
+  }
+  createFlow(data) {
+    return this._create("flows", data, ["name", "description", "definition"]);
+  }
+  updateFlow({ id, ...d }) {
+    return this._update("flows", id, d, ["name", "description", "definition"]);
+  }
+  deleteFlow({ id }) {
+    return this._delete("flows", id);
+  }
+
+  createFlowRun({ flow_id, input }) {
+    return this._create("flow_runs", { flow_id, input, status: "running" }, ["flow_id", "input", "status"]);
+  }
+  finishFlowRun({ id, status, output, error }) {
+    return this._update("flow_runs", id, { status, output, error }, ["status", "output", "error"]);
+  }
+  listFlowRuns({ flow_id }) {
+    return this.db.prepare("SELECT * FROM flow_runs WHERE flow_id=$1 ORDER BY created_at DESC, id DESC").all(flow_id);
+  }
+  getFlowRun({ id }) {
+    return this._get("flow_runs", id);
+  }
+
+  async addFlowNodeRun(data) {
+    const row = await this._create(
+      "flow_node_runs",
+      data,
+      ["run_id", "node_id", "node_type", "seq", "status", "input", "output", "error"],
+    );
+    return row;
+  }
+  listFlowNodeRuns({ run_id }) {
+    return this.db.prepare("SELECT * FROM flow_node_runs WHERE run_id=$1 ORDER BY id ASC").all(run_id);
+  }
   async addSubagentPrompt({ call_id, prompt_id }) {
     await this._insertRow("subagent_prompts", ["call_id", "prompt_id"], [call_id, prompt_id]);
     return { call_id, prompt_id };
@@ -875,6 +920,20 @@ const OPS = {
   "subagentPrompt.get": (s, p) => s.getSubagentPrompt(p),
   "subagentSettle.add": (s, p) => s.addSubagentSettle(p),
   "subagentSettle.get": (s, p) => s.getSubagentSettle(p),
+
+  "flow.list": (s) => s.listFlows(),
+  "flow.get": (s, p) => s.getFlow(p),
+  "flow.create": (s, p) => s.createFlow(p),
+  "flow.update": (s, p) => s.updateFlow(p),
+  "flow.delete": (s, p) => s.deleteFlow(p),
+
+  "flowRun.create": (s, p) => s.createFlowRun(p),
+  "flowRun.finish": (s, p) => s.finishFlowRun(p),
+  "flowRun.list": (s, p) => s.listFlowRuns(p),
+  "flowRun.get": (s, p) => s.getFlowRun(p),
+
+  "flowNodeRun.add": (s, p) => s.addFlowNodeRun(p),
+  "flowNodeRun.list": (s, p) => s.listFlowNodeRuns(p),
 
   "turn.list": (s, p) => s.listTurns(p),
   "turn.get": (s, p) => s.getTurn(p),

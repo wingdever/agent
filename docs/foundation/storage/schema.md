@@ -361,3 +361,54 @@ create table session_forks (
   created_at           timestamp not null default now()
 )
 ```
+## flows (节点图定义)
+用户手工编辑的流程图，一份 JSON 文档原样存 `definition`。执行语义见 `docs/flow/flow.md`。
+
+```sql
+create table flows (
+  id          integer PRIMARY KEY,
+  name        text    NOT NULL,
+  description text,
+  definition  text    NOT NULL,   -- { nodes, edges, workdir? } 的 JSON 文本
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## flow_runs (图执行)
+一次执行一行；`status` 取 `running` / `succeeded` / `failed` / `cancelled`。
+
+```sql
+create table flow_runs (
+  id         integer PRIMARY KEY,
+  flow_id    integer NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+  status     text    NOT NULL DEFAULT 'running',
+  input      text,                -- 运行输入 JSON
+  output     text,                -- 最终输出 JSON
+  error      text,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ended_at   TIMESTAMP
+);
+CREATE INDEX idx_flow_runs_flow ON flow_runs (flow_id, created_at DESC);
+```
+
+## flow_node_runs (节点执行)
+一次执行里的每次节点执行一行；同一节点被重复执行时以 `seq` 区分。
+
+```sql
+create table flow_node_runs (
+  id         integer PRIMARY KEY,
+  run_id     integer NOT NULL REFERENCES flow_runs(id) ON DELETE CASCADE,
+  node_id    text    NOT NULL,
+  node_type  text    NOT NULL,
+  seq        integer NOT NULL,
+  status     text    NOT NULL,    -- succeeded | failed | skipped
+  input      text,
+  output     text,
+  error      text,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_flow_node_runs_run ON flow_node_runs (run_id, id);
+```

@@ -257,4 +257,47 @@ export const SCHEMA_STATEMENTS = [
     output_id integer REFERENCES messages(id),
     settle_id integer REFERENCES messages(id)
   )`,
+
+  // ---- Flows: user-edited node graphs and their executions ----
+  // A flow is data: nodes, edges and layout in one JSON document. The runtime
+  // never reads it back into code; it walks it as a graph (docs/flow/flow.md).
+
+  `CREATE TABLE IF NOT EXISTS flows (
+    id          integer PRIMARY KEY,
+    name        text    NOT NULL,
+    description text,
+    definition  text    NOT NULL,
+    created_at  TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+
+  // One row per execution. `status` is running | succeeded | failed | cancelled.
+  `CREATE TABLE IF NOT EXISTS flow_runs (
+    id         integer PRIMARY KEY,
+    flow_id    integer NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+    status     text    NOT NULL DEFAULT 'running',
+    input      text,
+    output     text,
+    error      text,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    ended_at   TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_flow_runs_flow ON flow_runs (flow_id, created_at DESC)`,
+
+  // One row per node execution within a run; `seq` orders a node's revisit.
+  `CREATE TABLE IF NOT EXISTS flow_node_runs (
+    id        integer PRIMARY KEY,
+    run_id    integer NOT NULL REFERENCES flow_runs(id) ON DELETE CASCADE,
+    node_id   text    NOT NULL,
+    node_type text    NOT NULL,
+    seq       integer NOT NULL,
+    status    text    NOT NULL,
+    input     text,
+    output    text,
+    error     text,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_flow_node_runs_run ON flow_node_runs (run_id, id)`,
 ];
