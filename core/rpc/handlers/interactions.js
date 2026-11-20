@@ -1,6 +1,5 @@
 "use strict";
 
-const planMode = require("../../plan-mode");
 
 const anyId = { oneOf: [{ type: "string" }, { type: "number" }] };
 const payload = {
@@ -44,7 +43,10 @@ module.exports = function defineInteractionCommands(rpc) {
   rpc.define({
     name: "plan.get",
     params: bySession,
-    handler: (core, params) => ({ active: planMode.isActive(params.session_id) }),
+    handler: async (core, params) => {
+      const agent = await core.agent.getOrCreate(params.session_id);
+      return { active: agent.planPolicyActive() };
+    },
   });
 
   rpc.define({
@@ -61,8 +63,13 @@ module.exports = function defineInteractionCommands(rpc) {
       required: ["payload"],
       additionalProperties: false,
     },
-    handler: (core, params) => ({
-      active: planMode.setActive(params.payload.session_id, params.payload.active === true),
-    }),
+    handler: async (core, params) => {
+      const agent = await core.agent.getOrCreate(params.payload.session_id);
+      const active = agent.setPlanMode(params.payload.active === true);
+      // The UI indicator settles when the switch is accepted; the header keeps
+      // the old policy until the next step's pre-step reads the new value.
+      agent.turn && agent.turn.emit({ type: "plan-mode", active });
+      return { active };
+    },
   });
 };

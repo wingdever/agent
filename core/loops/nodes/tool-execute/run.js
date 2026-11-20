@@ -7,10 +7,9 @@ const { permissionFor } = require("../../../permissions");
 const { resolveFsPermission } = require("../../../fs-policy");
 const { validateToolArgs, runTool } = require("../../../tools/executor");
 const { errorResult } = require("../../../../lib/tool-result");
-const planMode = require("../../../plan-mode");
 
 module.exports = async function run(input, ctx) {
-  const { services, session } = ctx;
+  const { agent, services, session } = ctx;
   const response = ctx.step.response;
   const persist = session.persist;
 
@@ -83,7 +82,7 @@ module.exports = async function run(input, ctx) {
       }
     let decision;
     if (permission === "ask") {
-      decision = await services.interactions.requestApproval({ callId, name, args, permission });
+      decision = await services.interactions.requestApproval({ agent, callId, name, args, permission });
     } else {
       ctx.emit({ type: "approval-request", callId, name, arguments: args, permission });
       decision = permission === "allow" ? "approve" : "deny";
@@ -99,8 +98,8 @@ module.exports = async function run(input, ctx) {
       model: ctx.request.model,
       effort: ctx.request.effort,
       stream: ctx.request.stream,
-      activity: ctx.runtime.activity,
-      autonomy: ctx.runtime.autonomy,
+      activity: agent.turn.activity,
+      autonomy: agent.turn.autonomy,
     };
     const delegation = services.subagents ? {
       subagentSpawn: (a) => services.subagents.spawn({
@@ -127,12 +126,14 @@ module.exports = async function run(input, ctx) {
       sessionId: session.id,
       callId,
       toolName: name,
+      // The calling instance, for tools that need identity (plan mode, todos).
+      agent,
       goals: services.goals,
-      isPlanMode: () => planMode.isActive(session.id),
-      reviewPlan: (plan) => services.interactions.requestPlanReview({ callId, plan, sessionId: session.id }),
-      askUserQuestion: (questions) => services.interactions.requestUserQuestion({ callId, questions }),
-      requestApproval: (payload) => services.interactions.requestApproval(payload),
-      requestUserJob: (job) => services.interactions.requestUserJob({ callId, sessionId: session.id, ...job }),
+      isPlanMode: () => agent.planPolicyActive(),
+      reviewPlan: (plan) => services.interactions.requestPlanReview({ agent, callId, plan, sessionId: session.id }),
+      askUserQuestion: (questions) => services.interactions.requestUserQuestion({ agent, callId, questions }),
+      requestApproval: (payload) => services.interactions.requestApproval(Object.assign({ agent }, payload)),
+      requestUserJob: (job) => services.interactions.requestUserJob({ agent, callId, sessionId: session.id, ...job }),
       killUserJob: (jobId) => services.interactions.killUserJob(jobId),
       store: services.store,
       ...delegation,

@@ -1,8 +1,6 @@
 "use strict";
 
 const crypto = require("crypto");
-const { InteractionService } = require("./interactions");
-const { ContextService } = require("./context");
 
 // One-shot subagent runtime (docs/agents/subagent.md).
 //
@@ -10,8 +8,8 @@ const { ContextService } = require("./context");
 // DSH-equivalent behaviors are mapped onto the request/response loop as:
 //   - spawn() is fire-and-forget: the tool returns "started subagent <id>"
 //     immediately; the child turn runs in the background.
-//   - the child runs in an independent session with an isolated core view so
-//     per-turn mutable state (event sink, autonomy, plan/todo) never leaks into
+//   - the child runs on its own agent instance from the registry, so per-turn
+//     mutable state (event sink, autonomy, plan/todo, abort) never leaks into
 //     the parent turn (DSH's separate child Agent).
 //   - the settlement is delivered as a follow-up (auto-continuation) chat() in
 //     the parent session, persisted as role=user / source=subagent-settle. This
@@ -92,48 +90,27 @@ class SubagentRuntime {
     this.childContexts = new Map(); // childId -> { parentChatCtx, parentOnEvent } 跨轮次保留，唤醒时复用
     this._waking = new Set();     // sessionId being woken: closes the check-then-launch race
     this._deps = {
-      runChild: deps.runChild || ((childCore, ctx) => childCore.agent.chat(ctx)),
-      resumeParent: deps.resumeParent || ((resumeCore, ctx) => resumeCore.agent.chat(ctx)),
+      runChild: deps.runChild || ((core, ctx) => core.agent.chat(ctx)),
+      resumeParent: deps.resumeParent || ((core, ctx) => core.agent.chat(ctx)),
       now: deps.now || (() => new Date()),
       logger: deps.logger || console,
     };
   }
 
-  // Independent core view: shares read-only config (apiKey/baseUrl/model,
-  // tools/store/skills/goals/bootId) via the prototype chain, but owns its own
-  // per-turn mutable state so it cannot disturb the parent turn in flight.
-  _isolatedCore() {
-    const p = this.core;
-    const c = Object.create(p);
-    c.agent = Object.create(p.agent);
-    c.agent.core = c;
-    c.agent.emit = () => {};
-    c.agent.autonomy = "autonomous";
-    c.agent.effort = p.agent.effort;
-    c.agent.activity = p.agent.activity;
-    c.agent.activeSessions = new Set();
-    c.agent.compacting = new Map();
-    // Permission scope fixed: ask -> deny, no approval-request event (§4.3).
-    c.interactions = new InteractionService({ store: p.store, autonomy: "autonomous" });
-    c.interactions.requestApproval = () => Promise.resolve("deny");
-    c.context = new ContextService({
-      config: p.config,
-      model: p.model,
-      tools: p.tools,
-      skills: p.skills,
-      store: p.store,
-    });
-    c.context.setRuntime(c.agent);
-    c.agent.interactions = c.interactions;
-    c.agent.context = c.context;
-    return c;
+  // The child runs on its own resident instance. State isolation is structural
+  // (separate Agent), not a prototype-chain view: phase, inbox, plan mode,
+  // todos, delivery state and abort are all per instance.
+  _childAgent(sessionId) {
+    const agent = this.core.agent.get(sessionId);
+    if (!agent) throw new Error("subagent instance missing for session " + sessionId);
+    return agent;
   }
 
   // DSH queue: a follow-up turn must wait until the parent session is idle.
   async _waitParentIdle(sessionId, maxMs = 30000) {
     const key = String(sessionId);
     const start = this._deps.now().getTime();
-    while (this.core.agent.activeSessions.has(key)) {
+    while (this.core.agent.get(sessionId) && this.core.agent.get(sessionId).running()) {
       if (this._deps.now().getTime() - start > maxMs) return false;
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -358,8 +335,7 @@ class SubagentRuntime {
   _wakeRoot(rootId, content) {
     const key = String(rootId);
     this._waking.add(key);
-    const resumeCore = this._isolatedCore();
-    const task = this._deps.resumeParent(resumeCore, {
+    const task = this._deps.resumeParent(this.core, {
       messages: [{ role: "user", content }],
       sessionId: rootId,
       onEvent: () => {},
@@ -428,7 +404,6 @@ class SubagentRuntime {
     this.controllers.set(String(childId), controller);
     const childSignal = controller.signal;
 
-    const childCore = this._isolatedCore();
     const childCtx = {
       messages: [{ role: "user", content: prompt }],
       sessionId: childId,
@@ -449,7 +424,7 @@ class SubagentRuntime {
     };
 
     try {
-      const result = await this._deps.runChild(childCore, childCtx);
+      const result = await this._deps.runChild(this.core, childCtx);
       stopReason = mapStopReason(result, childSignal);
       closingText = result && typeof result.content === "string" ? result.content : "";
       if (stopReason === "error" || stopReason === "max-tokens") {
@@ -485,11 +460,10 @@ class SubagentRuntime {
     }
     this.announced.add(childId);
 
-    const resumeCore = this._isolatedCore();
     const safeOnEvent = (e) => { try { if (spec.parentOnEvent) spec.parentOnEvent(e); } catch (_) {} };
 
     try {
-      await this._deps.resumeParent(resumeCore, {
+      await this._deps.resumeParent(this.core, {
         messages: [{ role: "user", content: settleText }],
         sessionId: parentSessionId,
         onEvent: safeOnEvent,

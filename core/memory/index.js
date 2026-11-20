@@ -5,7 +5,8 @@
 const { RequestSpec } = require("./request-spec");
 const { StepState } = require("./step-state");
 const { ModelResponse } = require("./model-response");
-const { createAgentState } = require("./agent-state");
+const { Agent } = require("./agent");
+const { AgentRegistry } = require("./registry");
 const { createTurnState } = require("./turn-state");
 
-module.exports = { RequestSpec, StepState, ModelResponse, createAgentState, createTurnState };
+module.exports = { RequestSpec, StepState, ModelResponse, Agent, AgentRegistry, createTurnState };

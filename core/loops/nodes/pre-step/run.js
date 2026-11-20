@@ -5,13 +5,13 @@
 const planMode = require("../../../plan-mode");
 
 module.exports = async function run(input, ctx) {
-  const { services, session, request } = ctx;
+  const { agent, services, session, request } = ctx;
 
-  if (ctx.turn.steps > 0 && planMode.applyPendingExit(session.id)) {
+  if (ctx.turn.steps > 0 && agent.applyPlanExit()) {
     ctx.emit({ type: "plan-mode", active: false });
   }
-  planMode.recordHeader(session.id, planMode.isActive(session.id));
-  request.planActive = planMode.isActive(session.id);
+  agent.recordHeaderPlanMode();
+  request.planActive = agent.planPolicyActive();
   request.header = ctx.system + (request.planActive ? "\n\n" + planMode.POLICY : "");
 
   if (session.persist) {

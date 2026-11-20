@@ -2,7 +2,7 @@
 
 ## 1 结构
 
-每个 agent 实例持有两个输入队列，均为进程内内存态：
+每个 agent 实例持有两个输入队列，均为进程内内存态（`Agent.inbox`，按 sessionId 在注册表中寻址）：
 
 ```
 inbox = {
@@ -19,7 +19,9 @@ inbox = {
 
 - `target = "next-turn"` 且目标空闲：入队后立即唤醒一轮。
 - `target = "next-turn"` 且目标正在跑：只入队，不唤醒——当前轮结束时会自然领取。
-- `target = "next-step"`：只入队。目标正在跑时，当前轮的下一个 step 边界领取；目标空闲时改为进 `nextTurn` 并唤醒（没有进行中的 step 可插）。
+- `target = "next-step"`：只入队。目标正在跑时，当前轮的下一个 step 边界领取；目标空闲时改为进 `nextTurn`（没有进行中的 step 可插）。
+
+入队本身不拒绝忙碌目标，入队的返回值就是最终落入的队列。
 
 唤醒只做一件事：把 `phase` 从 `idle` 置为 `running` 并开始领取输入，不并发开第二轮。
 

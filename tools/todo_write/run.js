@@ -1,7 +1,8 @@
 "use strict";
 
-// Model-facing whole-list replacement. The projection lives for one turn and
-// resets when the next turn starts (core turn-start node calls lib/todo-state reset).
+// Model-facing whole-list replacement. The projection lives on the calling
+// agent instance for one turn and resets when the next turn starts (core
+// turn-start node calls lib/todo-state reset with the instance).
 
 const { set } = require("../../lib/todo-state");
 
@@ -31,7 +32,7 @@ module.exports = {
       else counts.completed += 1;
     }
 
-    set(exec.sessionId, todos);
+    set(exec.agent, todos);
     return {
       text:
         "Updated todo list: " + counts.pending + " pending, " +

@@ -106,12 +106,25 @@ class NodeGraphEngine {
     }
   }
 
-  async runLoop(core, ctx) {
-    const persist = !!(ctx.sessionId && core.store);
+  async runLoop(core, ctx, agentArg) {
+    const agent = agentArg || core.agent.current();
+    if (!agent) throw new Error("node-graph: no agent instance for this turn");
+    const persist = !!(agent.sessionId && core.store);
     const onEvent = ctx.onEvent || (() => {});
+    // The instance owns the turn: phase, delivery state and abort all live
+    // there, so two sessions running at once never share a field.
+    const startedAt = Date.now();
+    const turnHandle = agent.beginTurn({
+      emit: onEvent,
+      autonomy: ctx.autonomy,
+      effort: ctx.effort,
+      activity: ctx.activity,
+      interactions: core.interactions,
+    });
     const nctx = {
       core,
       runtime: core.agent,
+      agent,
       services: {
         config: core.config,
         model: core.model,
@@ -124,7 +137,8 @@ class NodeGraphEngine {
         goals: core.goals,
       },
       emit: onEvent,
-      session: { id: ctx.sessionId, persist },
+      signal: turnHandle.signal,
+      session: { id: agent.sessionId, persist },
       input: {
         messages: ctx.messages,
         references: ctx.references,
@@ -139,10 +153,10 @@ class NodeGraphEngine {
         model: ctx.model,
         effort: ctx.effort,
         stream: ctx.stream,
-        sessionId: ctx.sessionId,
+        sessionId: agent.sessionId,
         onEvent,
       }),
-      turn: { row: null, startedAt: Date.now(), stepSeq: 0, steps: 0, toolsUsed: 0 },
+      turn: { row: null, startedAt, stepSeq: 0, steps: 0, toolsUsed: 0 },
       step: null,
       translatedUser: null,
       translateCfg: null,
@@ -168,10 +182,12 @@ class NodeGraphEngine {
       }
       return { role: "assistant", content: "", error: errorText, stopReason: reason };
     } finally {
-      if (persist) core.agent.activeSessions.delete(String(ctx.sessionId));
-      const durationMs = Date.now() - nctx.turn.startedAt;
+      // The turn ends exactly once, here: phase back to idle, delivery state
+      // dropped, idle waiters released.
+      turnHandle.finish();
+      const durationMs = Date.now() - startedAt;
       console.log(
-        "[turn] session=" + (ctx.sessionId || "none") +
+        "[turn] session=" + (agent.sessionId || "none") +
         " turn=" + (nctx.turn.row ? nctx.turn.row.id : "-") +
         " status=" + status + " reason=" + reason +
         " steps=" + nctx.turn.steps + " tools=" + nctx.turn.toolsUsed +
@@ -184,4 +200,4 @@ class NodeGraphEngine {
   }
 }
 
-module.exports = { runLoop: (core, ctx) => new NodeGraphEngine().runLoop(core, ctx), NodeGraphEngine };
+module.exports = { runLoop: (core, ctx, agent) => new NodeGraphEngine().runLoop(core, ctx, agent), NodeGraphEngine };

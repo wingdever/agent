@@ -41,6 +41,8 @@ module.exports = function defineChatCommands(rpc) {
     name: "chat.send",
     params: chatSendParams,
     streaming: true,
+    // The cursor: the session of this turn becomes the default for later calls
+    // that omit sessionId.
     handler: (core, params, { onEvent }) => core.agent.chat(Object.assign({}, params, { onEvent })),
   });
 

@@ -28,7 +28,7 @@ const planMode = require("../plan-mode");
 const { RequestSpec, StepState } = require("../memory");
 const { TurnError } = require("../turn-error");
 
-async function runLoop(core, ctx) {
+async function runLoop(core, ctx, agentArg) {
   const {
     messages,
     toolNames,
@@ -42,25 +42,25 @@ async function runLoop(core, ctx) {
     effort,
   } = ctx;
 
-  core.agent.beginTurn({ emit: onEvent, autonomy });
-  // 推理参数：none(或旧值 off)=关闭推理，其余非空值=分级推理(reasoning_effort，按 provider 字段映射)，空=不注入。
-  // 注意：分级推理的取值是 provider 相关的（如 radeon 的 minimal/xhigh、deepseek 的 max），不再硬编码白名单。
-  core.agent.effort = (effort && effort !== "undefined") ? effort : null;
-  core.agent.activity = activity === "plan-mode" ? "plan-mode" : (activity || "bare-chat");
+  // 实例拥有本轮：phase、投递态（emit/autonomy/effort/activity）都在 agent 上，
+  // 两个会话并发时互不覆盖。
+  const agent = agentArg || core.agent.current();
+  if (!agent) throw new Error("linear: no agent instance for this turn");
+  const handle = agent.beginTurn({ emit: onEvent, autonomy, effort, activity, interactions: core.interactions });
   // activity=plan-mode 驱动 per-session plan-mode：选 plan-mode 即进入计划态（POLICY 生效），
   // 切到其他 activity 即退出。exit_plan_mode 批准后由 UI 切到 build-code。
-  if (sessionId) planMode.setActive(sessionId, core.agent.activity === "plan-mode");
+  if (sessionId) agent.setPlanMode(agent.turn.activity === "plan-mode");
   const store = core.store;
   const persist = !!(sessionId && store);
   // A persisted turn owns the session: /compact and manual compaction must
   // wait until the loop releases it (DSH runMaintenance's idle claim).
   if (persist) {
-    const compactionGate = core.agent.compacting.get(String(sessionId));
+    const compactionGate = agent.gates.compacting.get(String(sessionId));
     if (compactionGate) await compactionGate;  // DSH queues waking input behind compaction
-    core.agent.activeSessions.add(String(sessionId));
+    agent.gates.activeSessions.add(String(sessionId));
   }
   // DSH resets the todo projection on turn/start; one chat() call is one turn.
-  resetTodos(sessionId);
+  resetTodos(agent);
   // 每一条退出路径都必须留下终止原因：循环体内只负责抛 TurnError 或返回，
   // 由下面的 catch/finally 统一落一条 [turn] 日志并发 turn-end。
   const startedAt = Date.now();
@@ -103,7 +103,7 @@ async function runLoop(core, ctx) {
     model: target.model,
     baseUrl: target.baseUrl,
     apiKey: target.apiKey,
-    effort: core.agent.effort,
+    effort: agent.turn.effort,
     stream: stream !== undefined ? !!stream : (st.stream === true),
     selected: tools,
     toolDefs,
@@ -200,19 +200,19 @@ async function runLoop(core, ctx) {
     // top of this step (DSH's next in-turn pre-step): the rest of that tool
     // batch stayed under plan guidance; this step's request header is the first
     // without the policy. Broadcast so the UI indicator settles in lockstep.
-    if (r > 0 && planMode.applyPendingExit(sessionId)) {
+    if (r > 0 && agent.applyPlanExit()) {
       onEvent({ type: "plan-mode", active: false });
     }
     // Record the plan-active value this request header will observe, then flush
     // any deferred switch notices decided at setActive (DSH's activeAtLastHeader
     // de-dup). The notices are appended to the request messages and persisted so the model is
     // told exactly when its context changed and never redundantly.
-    planMode.recordHeader(sessionId, planMode.isActive(sessionId));
-    const switchNotices = planMode.takeNotices(sessionId);
+    agent.recordHeaderPlanMode();
+    const switchNotices = agent.takePlanNotices();
     // Plan-mode guidance is request-scoped: the stored system prompt stays
     // stable, while every step in plan mode carries the policy. exit_plan_mode
     // defers the flip to the next step, so the policy disappears then.
-    request.planActive = planMode.isActive(sessionId);
+    request.planActive = agent.planPolicyActive();
     request.header = system + (request.planActive ? "\n\n" + planMode.POLICY : "");
 
     // 自动压缩（DSH agent/pre-step）：每个 step 请求前按窗口压力检查。
@@ -325,7 +325,7 @@ async function runLoop(core, ctx) {
           }
           if (recovered.changed) {
             request.messages = recovered.conv;
-            request.header = system + (planMode.isActive(sessionId) ? "\n\n" + planMode.POLICY : "");
+            request.header = system + (agent.planPolicyActive() ? "\n\n" + planMode.POLICY : "");
             request.messages[0].content = request.header;
             continue;
           }
@@ -487,7 +487,7 @@ async function runLoop(core, ctx) {
       }
       let decision;
       if (permission === "ask") {
-        decision = await core.interactions.requestApproval({ callId, name, args, permission });
+        decision = await core.interactions.requestApproval({ agent, callId, name, args, permission });
       } else {
         onEvent({ type: "approval-request", callId, name, arguments: args, permission });
         decision = permission === "allow" ? "approve" : "deny";
@@ -505,11 +505,11 @@ async function runLoop(core, ctx) {
         callId,
         toolName: name,
         goals: core.goals,
-        isPlanMode: () => planMode.isActive(sessionId),
-        reviewPlan: (plan) => core.interactions.requestPlanReview({ callId, plan, sessionId }),
-        askUserQuestion: (questions) => core.interactions.requestUserQuestion({ callId, questions }),
-        requestApproval: (payload) => core.interactions.requestApproval(payload),
-        requestUserJob: (job) => core.interactions.requestUserJob({ callId, sessionId, ...job }),
+        isPlanMode: () => agent.planPolicyActive(),
+        reviewPlan: (plan) => core.interactions.requestPlanReview({ agent, callId, plan, sessionId }),
+        askUserQuestion: (questions) => core.interactions.requestUserQuestion({ agent, callId, questions }),
+        requestApproval: (payload) => core.interactions.requestApproval(Object.assign({ agent }, payload)),
+        requestUserJob: (job) => core.interactions.requestUserJob({ agent, callId, sessionId, ...job }),
         killUserJob: (jobId) => core.interactions.killUserJob(jobId),
         store: core.store,
       });
@@ -531,7 +531,8 @@ async function runLoop(core, ctx) {
     }
     return { role: "assistant", content: "", error: errorText, stopReason: reason };
   } finally {
-    if (persist) core.agent.activeSessions.delete(String(sessionId));
+    handle.finish();
+    if (persist) agent.gates.activeSessions.delete(String(sessionId));
     const durationMs = Date.now() - startedAt;
     // 每个 turn 结束都留一行原因：正常收尾也打，才能分清"答完了"和"被掐断"。
     console.log("[turn] session=" + (sessionId || "none") + " turn=" + (turn ? turn.id : "-") +

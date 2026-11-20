@@ -60,6 +60,7 @@ async function createCore(overrides = {}) {
   agent.setSubagents(() => core.subagents);
   context.setRuntime(agent);
   core.subagents = new SubagentRuntime(core);
+  interactions.setRegistry(agent.registry);
   core.rpc = createRpc(core);
   return core;
 }

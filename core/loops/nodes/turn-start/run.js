@@ -5,22 +5,20 @@
 const path = require("path");
 const { readPermissions } = require("../../../permissions");
 const { readFsPolicy } = require("../../../fs-policy");
-const planMode = require("../../../plan-mode");
 const { reset: resetTodos } = require("../../../../lib/todo-state");
 
 module.exports = async function run(input, ctx) {
-  const { runtime, services, session, turn } = ctx;
-  runtime.beginTurn({ emit: ctx.emit, autonomy: ctx.autonomy });
-  runtime.effort = ctx.request.effort && ctx.request.effort !== "undefined" ? ctx.request.effort : null;
-  runtime.activity = ctx.activity === "plan-mode" ? "plan-mode" : (ctx.activity || "bare-chat");
-  if (session.id) planMode.setActive(session.id, runtime.activity === "plan-mode");
+  const { agent, services, session, turn } = ctx;
+  // Delivery state for this turn lives on the instance; beginTurn already
+  // installed it (node-graph owns opening and closing the turn).
+  if (session.id) agent.setPlanMode(agent.turn.activity === "plan-mode");
 
   if (session.persist) {
-    const gate = runtime.compacting.get(String(session.id));
+    const gate = agent.gates.compacting.get(String(session.id));
     if (gate) await gate;
-    runtime.activeSessions.add(String(session.id));
+    agent.gates.activeSessions.add(String(session.id));
   }
-  resetTodos(session.id);
+  resetTodos(agent);
 
   const settings = services.config.readSettings();
   ctx.translateCfg = services.context.resolveTranslateConfig(settings);

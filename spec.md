@@ -147,18 +147,18 @@ storage 存储
 ### 2.2 runtime 运行时
 
 **agent-instance**
-- 职责：负责会话级运行时实例——跨轮次持有一个会话的运行态（相位、abort、inbox、本会话计划态与 todo 投影），按 `ctx.mode==="bare"` 分到 bare-chat，否则选 loop 引擎。不读配置、不暴露 RPC、不持有会话事实（消息落在 store）。
-- 接口：`AgentRegistry` 构造 `({ shared })`；`get(sessionId)`；`getOrCreate(sessionId, opts)`；`dispose(sessionId)`；`list()`。`Agent` 字段：身份（`sessionId` / `kind` / `parentSessionId` / `agentName` / `persist`）、共享服务引用、运行态（`phase` / `inbox` / `planMode` / `todos`）、每轮投递态 `turn`。方法：`send(message, target)`；`startTurn()`；`interrupt()`；`whenIdle()`。
-- 命名：类 `Agent` / `AgentRegistry`；相位 `idle` / `running`；队列目标 `next-turn` / `next-step`；投递态字段 `emit` / `autonomy` / `effort` / `activity`；注册表方法 `get` / `getOrCreate` / `dispose` / `list`。
+- 职责：负责会话级运行时实例与实例索引——跨轮次持有一个会话的运行态（相位、abort、inbox、本会话计划态与 todo 投影），按 `ctx.mode==="bare"` 分到 bare-chat，否则选 loop 引擎。注册表派生光标 `current()`（未指定会话时的缺省实例：显式选中 → 最近活跃的普通会话 → 等待开启的 bare 会话 → 无；子代理不默认成为光标）。不读配置、不暴露 RPC、不持有会话事实（消息落在 store）。
+- 接口：`AgentRegistry` 构造 `({ shared, gates })`；`get(sessionId)`；`getOrCreate(sessionId)`；`has(sessionId)`；`list()`；`current()`；`setCurrent(agentOrSessionId)`；`touch(sessionId)`；`openBare()`；`dispose(sessionId)`；`createTransient(sessionId?)`。`Agent` 字段：身份（`sessionId` / `kind` / `parentSessionId` / `agentName` / `persist`）、共享服务引用、`gates`、运行态（`phase` / `inbox` / `planMode` / `todos`）、每轮投递态 `turn`。方法：`beginTurn(opts)`；`enqueue(message, target)`；`claimNextTurn()` / `claimNextStep()` / `hasPending()`；`interrupt()`；`whenIdle()`；plan 态与 todo 读写。
+- 命名：类 `Agent` / `AgentRegistry`；相位 `idle` / `running`；队列目标 `next-turn` / `next-step`；投递态字段 `emit` / `autonomy` / `effort` / `activity`；注册表方法 `get` / `getOrCreate` / `dispose` / `list`；光标 `current()` / `setCurrent()` / `touch()` / `openBare()`。
 
 **inbox**
 - 职责：负责进程内输入队列——按轮次与 step 两个边界领取消息，领取后由轮次写入会话日志。不负责唤醒策略，唤醒由实例在入队时决定；不负责投递内容（结算与树内消息由调用方构造）。
-- 接口：`push(message, target)`；`claimNextTurn()`；`claimNextStep()`；`hasPending`；入队事件 `inbox-inserted`。
+- 接口：`Agent.enqueue(message, target)`；`claimNextTurn()`；`claimNextStep()`；`hasPending()`。
 - 命名：队列字段 `nextTurn` / `nextStep`；目标字面量 `next-turn` / `next-step`。
 
 **bare-chat**
-- 职责：负责无持久化对话——内存历史、强制空工具集、不落库，但保留翻译与 turn 事件契约。不负责会话模式。
-- 接口：`runBareChat(agent, ctx): Promise<void>`。
+- 职责：负责无持久化对话——内存历史、强制空工具集、不落库，但保留翻译与 turn 事件契约。跑在不注册的临时实例上。不负责会话模式。
+- 接口：`runBareChat(core, ctx, agent): Promise<void>`。
 - 命名：函数 `runBareChat`；模式信号 `ctx.mode === "bare"`。
 
 **agent-mode**
@@ -187,8 +187,8 @@ storage 存储
 - 命名：节点 id kebab-case；文件固定 `registry.json` + `run.js`。
 
 **plan-mode**
-- 职责：负责计划态语义——请求级 POLICY 注入，不改已存 system prompt、不写库；批准经 `applyPendingExit` 在下一步移除。计划态状态位由 agent 实例持有，模块不保存会话级状态。不负责审批 UI。
-- 接口：`POLICY`；`isActive(agent)`；`setActive(agent, active)`；`recordHeader(agent, active)`；`requestExit(agent)`；`applyPendingExit(agent)`；`hasPendingExit(agent)`；`getLastHeaderActive(agent)`。
+- 职责：负责计划态策略文本。计划态状态位由 agent 实例持有（`Agent.planMode`），模块不保存会话级状态。不负责审批 UI。
+- 接口：`POLICY`。状态迁移在实例上：`setPlanMode(active)`；`planPolicyActive()`；`recordHeaderPlanMode()`；`requestPlanExit()`；`applyPlanExit()`；`takePlanNotices()`。
 - 命名：策略常量 `POLICY`；pending 退出用 `requestExit` / `applyPendingExit` 成对。
 
 **goals-and-todos**
@@ -337,7 +337,7 @@ storage 存储
 
 **interaction-service**
 - 职责：负责所有挂起型交互的生命周期——审批、问答、计划审阅、user job 的请求 / 应答 / 取消；自主模式下 ask 类请求自动拒绝。不负责 UI 呈现。
-- 接口：`InteractionService` 构造 `({ store, emit, autonomy })`；`beginTurn({ emit, autonomy })`；`isAutonomous()`；`requestApproval({ callId, name, args, permission })`；`approve(id, decision)`；`requestUserQuestion` / `answerQuestions`；`requestPlanReview` / `answerPlanReview`；`requestUserJob` / `answerUserJob` / `killUserJob`。
+- 接口：`InteractionService` 构造 `({ store })`；`setRegistry(registry)`；`isAutonomous(agent)`；`requestApproval({ agent, callId, name, args, permission })`；`approve(id, decision)`；`requestUserQuestion({ agent, ... })` / `answerQuestions`；`requestPlanReview({ agent, ... })` / `answerPlanReview`；`requestUserJob({ agent, ... })` / `answerUserJob` / `killUserJob`。一个实例服务所有会话；事件出口与授权档位取自调用方实例的 `turn`，pending 表按 id 记录所属会话。
 - 命名：请求 `request<X>`、应答 `answer<X>` 成对；事件 `*-request` / `*-update`。
 
 ### 2.10 skills 技能

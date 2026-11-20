@@ -66,7 +66,7 @@ exec = {
   sessionId,
   callId,
   toolName,
-  agent,                 // 调用方 agent 实例，供需要身份的工具使用
+  agent,                 // 调用方 agent 实例（光标 agent），供需要身份的工具使用
   capabilities: { <tag>: fn },
 }
 ```
@@ -78,6 +78,7 @@ exec = {
 - `tools/` 目录下的代码不得 `require` `core/` 下的任何模块。
 - 工具的 `run(args, exec)` 里不出现 core 服务的类型名，只出现能力标签。
 - 新增工具不需要修改 `core/loops/nodes/tool-execute/`。
+- 需要按会话寻址状态的工具（plan 态、todo 投影）只经 `exec.agent` 读写实例，不在模块或 `exec` 上另立按 sessionId 的状态表。
 - 能力标签的新增意味着服务侧新增实现，不是节点侧新增字段。
 
 这三条由架构扫描校验：`tools/` 对 `core/` 的依赖为零，且 `exec` 的字段集合由单一装配点决定。

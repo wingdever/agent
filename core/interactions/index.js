@@ -1,14 +1,13 @@
 "use strict";
 
-const planMode = require("../plan-mode");
-
 // Interaction state machines: approvals, questions, plan reviews and user jobs.
-// The sink and autonomy are per turn; pending maps live on this instance.
+// One instance serves every session. Sink (emit) and autonomy are read from the
+// calling agent's turn, never stored here, so concurrent sessions cannot
+// overwrite each other's delivery state. Pending maps are keyed by id; every
+// entry remembers its session for cancellation and cleanup.
 class InteractionService {
-  constructor({ store = null, emit = () => {}, autonomy = "supervised" } = {}) {
+  constructor({ store = null } = {}) {
     this.store = store;
-    this.emit = emit;
-    this.autonomy = autonomy;
     this.pendingApprovals = new Map();
     this._approvalSeq = 0;
     this.pendingQuestions = new Map();
@@ -20,48 +19,62 @@ class InteractionService {
     this.userJobs = new Map();
   }
 
-  beginTurn({ emit = () => {}, autonomy = "supervised" } = {}) {
-    this.emit = emit;
-    this.autonomy = autonomy === "autonomous" ? "autonomous" : "supervised";
+  // Instances are registered by the runtime; answer paths that did not come
+  // from a tool call look the session up here instead of holding a stale
+  // reference to a turn-bound sink.
+  setRegistry(registry) {
+    this.registry = registry;
   }
 
-  isAutonomous() {
-    return this.autonomy === "autonomous";
+  _agentFor(sessionId) {
+    if (!this.registry || sessionId == null) return null;
+    return this.registry.get(sessionId);
   }
 
-  requestApproval({ callId, name, args, permission = "ask" }) {
-    if (this.isAutonomous()) {
-      this.emit({ type: "approval-request", callId, name, arguments: args, permission, autoDenied: true });
+  // The turn's event sink; autonomous subagents emit into the void.
+  emitFor(agent) {
+    return agent && agent.turn ? agent.turn.emit : () => {};
+  }
+
+  isAutonomous(agent) {
+    return !!agent && agent.turn && agent.turn.autonomy === "autonomous";
+  }
+
+  requestApproval({ agent, callId, name, args, permission = "ask" }) {
+    const emit = this.emitFor(agent);
+    if (this.isAutonomous(agent)) {
+      emit({ type: "approval-request", callId, name, arguments: args, permission, autoDenied: true });
       return Promise.resolve("deny");
     }
     return new Promise((resolve) => {
       const id = (this._approvalSeq = (this._approvalSeq || 0) + 1);
-      this.pendingApprovals.set(id, resolve);
-      this.emit({ type: "model-http-status", state: "on-wait" });
-      this.emit({ type: "approval-request", id, callId, name, arguments: args, permission });
+      this.pendingApprovals.set(id, { resolve, sessionId: agent ? agent.sessionId : null });
+      emit({ type: "model-http-status", state: "on-wait" });
+      emit({ type: "approval-request", id, callId, name, arguments: args, permission });
     });
   }
 
   approve(id, decision) {
     const key = Number(id);
-    const fn = this.pendingApprovals.get(key);
-    if (!fn) return false;
+    const pending = this.pendingApprovals.get(key);
+    if (!pending) return false;
     this.pendingApprovals.delete(key);
-    fn(decision);
+    pending.resolve(decision);
     return true;
   }
 
-  requestUserQuestion({ callId, questions }) {
+  requestUserQuestion({ agent, callId, questions }) {
+    const emit = this.emitFor(agent);
     const list = Array.isArray(questions) ? questions : [];
-    if (this.isAutonomous()) {
+    if (this.isAutonomous(agent)) {
       const answers = list.map((q) => ({ id: q.id, selected: [] }));
       return Promise.resolve({ answers });
     }
     return new Promise((resolve) => {
       const id = (this._questionSeq = (this._questionSeq || 0) + 1);
-      this.pendingQuestions.set(id, { resolve, questions: list, callId });
-      this.emit({ type: "model-http-status", state: "on-wait" });
-      this.emit({ type: "ask-user-question", id, callId, name: "ask_user_question", questions: list });
+      this.pendingQuestions.set(id, { resolve, questions: list, callId, sessionId: agent ? agent.sessionId : null });
+      emit({ type: "model-http-status", state: "on-wait" });
+      emit({ type: "ask-user-question", id, callId, name: "ask_user_question", questions: list });
     });
   }
 
@@ -83,12 +96,13 @@ class InteractionService {
     return true;
   }
 
-  requestPlanReview({ callId, plan, sessionId }) {
+  requestPlanReview({ agent, callId, plan, sessionId }) {
+    const emit = this.emitFor(agent);
     return new Promise((resolve) => {
       const id = (this._planReviewSeq = (this._planReviewSeq || 0) + 1);
-      this.pendingPlanReviews.set(id, { resolve, sessionId });
-      this.emit({ type: "model-http-status", state: "on-wait" });
-      this.emit({
+      this.pendingPlanReviews.set(id, { resolve, sessionId, agent });
+      emit({ type: "model-http-status", state: "on-wait" });
+      emit({
         type: "plan-review",
         id,
         callId,
@@ -106,15 +120,17 @@ class InteractionService {
     const approved = payload.approved === true;
     const feedback = typeof payload.feedback === "string" ? payload.feedback : "";
     if (approved) {
-      planMode.requestExit(pending.sessionId);
-      this.emit({ type: "plan-mode", active: false });
+      const agent = pending.agent;
+      if (agent) agent.requestPlanExit();
+      this.emitFor(agent)({ type: "plan-mode", active: false });
     }
     pending.resolve({ approved, feedback });
     return true;
   }
 
-  requestUserJob({ callId, description, title, sessionId }) {
-    if (this.isAutonomous()) {
+  requestUserJob({ agent, callId, description, title, sessionId }) {
+    const emit = this.emitFor(agent);
+    if (this.isAutonomous(agent)) {
       const jobId = "ujob_" + Date.now().toString(36) + "_" + ((this._userJobSeq = (this._userJobSeq || 0) + 1)).toString(36);
       return Promise.resolve({ jobId, cancelled: true });
     }
@@ -141,17 +157,17 @@ class InteractionService {
           })
           .catch((e) => console.error("[core] userJob.create failed:", e.message));
       }
-      this.pendingUserJobs.set(jobId, resolve);
-      this.emit({ type: "model-http-status", state: "on-wait" });
-      this.emit({ type: "user-job-request", id: jobId, callId, description, title });
+      this.pendingUserJobs.set(jobId, { resolve, sessionId: sessionId || null });
+      emit({ type: "model-http-status", state: "on-wait" });
+      emit({ type: "user-job-request", id: jobId, callId, description, title });
     });
   }
 
   answerUserJob(id, payload = {}) {
     const key = String(id);
-    const resolve = this.pendingUserJobs.get(key);
+    const pending = this.pendingUserJobs.get(key);
     const record = this.userJobs.get(key);
-    if (!resolve || !record) return false;
+    if (!pending || !record) return false;
     this.pendingUserJobs.delete(key);
     const cancelled = payload.cancel === true;
     const result = typeof payload.result === "string" ? payload.result : "";
@@ -165,8 +181,9 @@ class InteractionService {
         })
         .catch((e) => console.error("[core] userJob update failed:", e.message));
     }
-    this.emit({ type: "user-job-update", id: key, status: record.status });
-    resolve({ jobId: key, cancelled, result });
+    const agent = this._agentFor(pending.sessionId);
+    this.emitFor(agent)({ type: "user-job-update", id: key, status: record.status });
+    pending.resolve({ jobId: key, cancelled, result });
     return true;
   }
 

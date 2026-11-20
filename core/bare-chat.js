@@ -17,7 +17,7 @@ const { assembleSystemPrompt, DEFAULT_IDENTITY } = require("./system-prompt");
 const { TurnError } = require("./turn-error");
 const { RequestSpec } = require("./memory");
 
-async function runBareChat(core, ctx) {
+async function runBareChat(core, ctx, agent) {
   // ctx = { messages, model, effort, stream, onEvent }.
   // Any sessionId in ctx is intentionally ignored: bare-chat never persists.
   const {
@@ -28,8 +28,11 @@ async function runBareChat(core, ctx) {
     onEvent = () => {},
   } = ctx;
 
-  core.agent.emit = onEvent;
-  core.agent.effort = effort || null;
+  // A transient unregistered instance owns this call's delivery state; it is
+  // dropped when the call returns.
+  const handle = agent
+    ? agent.beginTurn({ emit: onEvent, autonomy: "supervised", effort: effort || null, activity: "bare-chat", interactions: core.interactions })
+    : null;
 
   // Termination/log state. steps=1, tools=0, persist=false (no activeSessions,
   // no turn/step updates). The [turn] log uses session=none turn=-.
@@ -91,7 +94,7 @@ async function runBareChat(core, ctx) {
       model: target.model,
       baseUrl: target.baseUrl,
       apiKey: target.apiKey,
-      effort: core.agent.effort,
+      effort: agent && agent.turn ? agent.turn.effort : (effort || null),
       stream,
       onEvent,
     });
@@ -160,6 +163,7 @@ async function runBareChat(core, ctx) {
     errorText = String((err && err.message) || err);
     return { role: "assistant", content: "", error: errorText, stopReason: reason };
   } finally {
+    if (handle) handle.finish();
     const durationMs = Date.now() - startedAt;
     console.log("[turn] session=none turn=- status=" + status + " reason=" + reason +
       " steps=" + steps + " tools=" + toolsUsed + " duration=" + durationMs + "ms" +

@@ -8,7 +8,7 @@ const { TurnError } = require("../../../turn-error");
 const { StepState } = require("../../../memory");
 
 module.exports = async function run(input, ctx) {
-  const { services, session, request } = ctx;
+  const { agent, services, session, request } = ctx;
   const persist = session.persist;
   const r = ctx.turn.steps;
   ctx.turn.steps = r + 1;
@@ -49,7 +49,7 @@ module.exports = async function run(input, ctx) {
 
   // Deferred plan-mode switch notices are appended to the live conv and
   // persisted so replay sees the same transition.
-  for (const notice of planMode.takeNotices(session.id)) {
+  for (const notice of agent.takePlanNotices()) {
     request.messages.push({ role: "user", content: notice });
     if (persist && step) {
       try {
@@ -100,7 +100,7 @@ module.exports = async function run(input, ctx) {
         }
         if (recovered.changed) {
           request.messages = recovered.conv;
-          header = ctx.system + (planMode.isActive(session.id) ? "\n\n" + planMode.POLICY : "");
+          header = ctx.system + (agent.planPolicyActive() ? "\n\n" + planMode.POLICY : "");
           request.header = header;
           request.messages[0].content = header;
           continue;
