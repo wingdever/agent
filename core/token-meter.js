@@ -10,8 +10,8 @@
 // envelope is repriced. Route-specific image pricing is not applicable here:
 // this harness sends text-only content, which is exactly the DSH fallback.
 
-const crypto = require("crypto");
-const compaction = require("./compaction");
+import crypto from "crypto";
+import compaction from "./compaction.js";
 
 const CHARS_PER_TOKEN = 4;
 
@@ -97,4 +97,6 @@ function anchorFrom({ messages, assistant, system, tools, model, usage } = {}) {
   };
 }
 
-module.exports = { estimateHeaderTokens, headerKey, normalizeUsage, measure, anchorFrom };
+const __exports = { estimateHeaderTokens, headerKey, normalizeUsage, measure, anchorFrom };
+export { estimateHeaderTokens, headerKey, normalizeUsage, measure, anchorFrom };
+export default __exports;

@@ -5,9 +5,9 @@
 // tavily.js; this module never touches the network, so formatting and merge
 // behavior are unit-testable offline.
 
-const { DEFAULTS } = require("./config");
-const { searchWithTavily } = require("./tavily");
-const { EXTERNAL_WEB_CONTENT_NOTICE } = require("./trust");
+import { DEFAULTS } from "./config.js";
+import { searchWithTavily } from "./tavily.js";
+import { EXTERNAL_WEB_CONTENT_NOTICE } from "./trust.js";
 
 // Validate constraints the JSON schema cannot express: a non-empty query list,
 // only non-blank strings, and the deployment's query-count bound. Exact
@@ -132,10 +132,12 @@ async function runSearchQueries(queries, maxResults, options, signal) {
   return mergeSearchResults(queries, results, maxResults);
 }
 
-module.exports = {
+const __exports = {
   formatSearchOutput,
   mergeSearchResults,
   parseSearchArgs,
   runSearchQueries,
   sourceLabel,
 };
+export { formatSearchOutput, mergeSearchResults, parseSearchArgs, runSearchQueries, sourceLabel };
+export default __exports;

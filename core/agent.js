@@ -1,9 +1,9 @@
 "use strict";
 
-const crypto = require("crypto");
-const { runBareChat } = require("./bare-chat");
-const { getLoop } = require("./loops");
-const { AgentRegistry } = require("./memory");
+import crypto from "crypto";
+import { runBareChat } from "./bare-chat.js";
+import { getLoop } from "./loops/index.js";
+import { AgentRegistry } from "./memory/index.js";
 
 // Process container: the shared services, the agent registry, and the process
 // gates that outlive any one turn.
@@ -27,6 +27,8 @@ class AgentRuntime {
     this.goals = goals;
     this.core = null;
     this.getSubagents = () => null;
+    this.jobs = null;
+    this.team = null;
     this.bootId = crypto.randomUUID();
     this.activeSessions = new Set();
     this.compacting = new Map();
@@ -53,6 +55,16 @@ class AgentRuntime {
     for (const agent of this.registry.list()) agent.subagents = this.registry.shared.subagents;
   }
 
+  setJobs(jobs) {
+    this.jobs = jobs;
+    this.registry.shared.jobs = jobs;
+  }
+
+  setTeam(team) {
+    this.team = team;
+    this.registry.shared.team = team;
+  }
+
   services() {
     return {
       config: this.config,
@@ -62,6 +74,8 @@ class AgentRuntime {
       skills: this.skills,
       interactions: this.interactions,
       subagents: this.getSubagents(),
+      jobs: this.jobs,
+      team: this.team,
       store: this.store,
       goals: this.goals,
     };
@@ -137,7 +151,7 @@ class AgentRuntime {
 
   async _runLoop(agent, ctx) {
     const engineName = process.env.AGENT_LOOP_ENGINE;
-    const loop = getLoop(engineName);
+    const loop = await getLoop(engineName);
     return loop.runLoop(this.core, ctx, agent);
   }
 
@@ -151,4 +165,6 @@ class AgentRuntime {
   }
 }
 
-module.exports = { AgentRuntime };
+const __exports = { AgentRuntime };
+export { AgentRuntime };
+export default __exports;

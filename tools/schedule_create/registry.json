@@ -1,0 +1,52 @@
+{
+  "name": "schedule_create",
+  "description": "Create a Host-level scheduled task that delivers a user follow-up to this session, or to a new session, at a future time or on a recurring rule. Use this for reminders and repeated check-ins, not for background work whose result needs a Job handle.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Short human-readable title shown in schedule lists and used as the created session name for new targets."
+      },
+      "prompt": {
+        "type": "string",
+        "description": "The follow-up prompt delivered when the schedule fires. Write it as instructions to the future model turn, not as a status label."
+      },
+      "target": {
+        "type": "string",
+        "enum": ["this_session", "new_once", "new"],
+        "description": "this_session delivers into the calling session; new_once creates one session on first delivery and reuses it; new creates a fresh session on every delivery."
+      },
+      "timing": {
+        "type": "object",
+        "description": "When to fire. kind=after: positive after_seconds. kind=at: absolute RFC 3339 with offset, or {date,time,time_zone}. kind=every: every_seconds >= 60. kind=daily/weekly: local time + IANA time_zone; weekly also needs ISO weekdays. kind=cron: five-field expression + IANA time_zone. kind=rrule: two lines, DTSTART and RRULE.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["after", "at", "every", "daily", "weekly", "cron", "rrule"]
+          },
+          "after_seconds": { "type": "integer", "description": "Delay for kind=after; must be positive." },
+          "at": { "type": "string", "description": "RFC 3339 instant with an explicit offset." },
+          "every_seconds": { "type": "integer", "description": "Interval for kind=every; minimum 60." },
+          "time": { "type": "string", "description": "HH:mm or HH:mm:ss local wall time for daily/weekly." },
+          "time_zone": { "type": "string", "description": "IANA zone such as Asia/Shanghai; required for daily, weekly and cron." },
+          "weekdays": {
+            "type": "array",
+            "description": "ISO weekday numbers 1=Monday through 7=Sunday for kind=weekly.",
+            "items": { "type": "integer" }
+          },
+          "expression": { "type": "string", "description": "Five-field cron expression: minute hour day-of-month month day-of-week." },
+          "rrule": { "type": "string", "description": "Two-line RFC 5545 subset: DTSTART and RRULE." }
+        },
+        "required": ["kind"]
+      }
+    },
+    "required": ["title", "prompt", "target", "timing"]
+  },
+  "type": "control",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Host-level scheduled tasks: create, list, view, and edit a persisted rule that delivers a synthetic user follow-up at its due time. `{{tools}}` manage the rule only; the delivered turn does the work. A schedule is not a Job: use `job_*`/`workflow` when you need immediate asynchronous execution, output and cancellation.",
+  "promptSection": "schedule",
+  "result": "json"
+}

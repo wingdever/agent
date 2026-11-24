@@ -9,24 +9,21 @@
 // 这是冻结的对照基线：默认引擎是 node-graph；linear 只用于对比，
 // 不补 subagent 或后续新功能。
 
-const path = require("path");
-const { DEFAULT_IDENTITY, assembleSystemPrompt } = require("../system-prompt");
-const { isModelInvocable } = require("../skills");
-const { readPermissions, permissionFor } = require("../permissions");
-const { readFsPolicy, resolveFsPermission } = require("../fs-policy");
-const {
-  resolveConfig: resolveTranslateConfig,
-  shouldTranslateUser,
-  shouldTranslateAssistant,
-  translateText,
-} = require("../translation");
-const compaction = require("../compaction");
-const { validateToolArgs, runTool } = require("../tools/executor");
-const { errorResult } = require("../../lib/tool-result");
-const { reset: resetTodos } = require("../../lib/todo-state");
-const planMode = require("../plan-mode");
-const { RequestSpec, StepState } = require("../memory");
-const { TurnError } = require("../turn-error");
+import path from "path";
+import { DEFAULT_IDENTITY, assembleSystemPrompt } from "./../system-prompt.js";
+import _mod0 from "./../skills/index.js";
+const { isModelInvocable } = _mod0;
+import { readPermissions, permissionFor } from "./../permissions.js";
+import _mod1 from "./../fs-policy.js";
+const { readFsPolicy, resolveFsPermission } = _mod1;
+import { resolveConfig as resolveTranslateConfig, shouldTranslateUser, shouldTranslateAssistant, translateText } from "./../translation.js";
+import compaction from "./../compaction.js";
+import { validateToolArgs, runTool } from "./../tools/executor.js";
+import { errorResult } from "./../../lib/tool-result/index.js";
+import { reset as resetTodos } from "./../../lib/todo-state/index.js";
+import planMode from "./../plan-mode.js";
+import { RequestSpec, StepState } from "./../memory/index.js";
+import { TurnError } from "./../turn-error.js";
 
 async function runLoop(core, ctx, agentArg) {
   const {
@@ -512,6 +509,26 @@ async function runLoop(core, ctx, agentArg) {
         requestUserJob: (job) => core.interactions.requestUserJob({ agent, callId, sessionId, ...job }),
         killUserJob: (jobId) => core.interactions.killUserJob(jobId),
         store: core.store,
+        capabilities: core.capabilities,
+        jobs: core.jobs,
+        team: core.team,
+        schedule: core.schedule,
+        a2a: core.a2a,
+        browser: core.browser,
+        startJob: core.jobs ? (spec) => core.jobs.start({
+          ...spec,
+          sessionId,
+          chatCtx: {
+            toolNames: request.toolNames,
+            model: request.model,
+            effort: request.effort,
+            stream: request.stream,
+            activity: agent.turn.activity,
+            autonomy: agent.turn.autonomy,
+          },
+          onEvent,
+        }) : null,
+        emit: onEvent,
       });
       await finish(result, result.isError === true ? "failed" : "succeeded");
     }
@@ -544,4 +561,6 @@ async function runLoop(core, ctx, agentArg) {
   }
 }
 
-module.exports = { runLoop };
+const __exports = { runLoop };
+export { runLoop };
+export default __exports;

@@ -2,9 +2,9 @@
 
 // Node pre-step: per-step plan-mode policy + automatic pressure compaction.
 // Produces the next request's header and context on the turn's RequestSpec.
-const planMode = require("../../../plan-mode");
+import planMode from "./../../../plan-mode.js";
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const { agent, services, session, request } = ctx;
 
   if (ctx.turn.steps > 0 && agent.applyPlanExit()) {

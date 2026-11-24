@@ -1,0 +1,36 @@
+{
+  "name": "a2a_call",
+  "description": "Call a remote A2A agent: fetch its AgentCard, send one user message, follow the returned Task until it reaches a terminal state, and return the artifact text. Use for interoperability with external A2A agents, not for local subagents.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "card_url": {
+        "type": "string",
+        "description": "URL of the remote AgentCard JSON, for example http://127.0.0.1:8787/a2a/default/agent-card.json."
+      },
+      "prompt": {
+        "type": "string",
+        "description": "Text to send to the remote agent as one ROLE_USER message."
+      },
+      "skill": {
+        "type": "string",
+        "description": "Optional A2A skill id advertised by the remote card. Omit to let the remote agent choose."
+      },
+      "token_env": {
+        "type": "string",
+        "description": "Optional environment variable name holding a Bearer token for the remote endpoint. The token itself is never passed in tool arguments."
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "description": "Total polling budget in milliseconds; default 60000."
+      }
+    },
+    "required": ["card_url", "prompt"]
+  },
+  "type": "control",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Outbound A2A call: `a2a_call` fetches a remote AgentCard, sends one text message, and polls the remote task to completion. Requires the remote agent to speak A2A v1.0 JSON-RPC.",
+  "promptSection": "a2a",
+  "result": "json"
+}

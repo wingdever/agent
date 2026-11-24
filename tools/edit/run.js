@@ -3,9 +3,9 @@
 // Model-facing literal edit: unique-match by default, replace-all on request.
 // Requires a prior read of the same file in this session (fs-observation).
 
-const fs = require("fs");
-const path = require("path");
-const { record, assertVersion } = require("../../lib/fs-observe");
+import fs from "fs";
+import path from "path";
+import { record, assertVersion } from "./../../lib/fs-observe/index.js";
 
 function parseEditArgs(args, cwd) {
   const filePath = typeof args.file_path === "string" ? args.file_path : "";
@@ -47,7 +47,7 @@ async function writeFile(displayPath, content, mode) {
   }
 }
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     const input = parseEditArgs(args, exec.cwd);
 

@@ -17,8 +17,8 @@
 // bare mode (persist=false) uses an unregistered instance: sessionId=null, the
 // inbox lives only for the call, and it never takes the cursor.
 
-const crypto = require("crypto");
-const { createTurnState } = require("./turn-state");
+import crypto from "crypto";
+import { createTurnState } from "./turn-state.js";
 
 class Agent {
   constructor({ sessionId = null, kind = "normal", parentSessionId = null, agentName = "lead", persist = false, shared = {}, gates = {} } = {}) {
@@ -221,4 +221,6 @@ class Agent {
   }
 }
 
-module.exports = { Agent };
+const __exports = { Agent };
+export { Agent };
+export default __exports;

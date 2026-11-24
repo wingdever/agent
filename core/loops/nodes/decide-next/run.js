@@ -1,9 +1,9 @@
 "use strict";
 
 // Node decide-next: termination and step-loop control.
-const { TurnError } = require("../../../turn-error");
+import { TurnError } from "./../../../turn-error.js";
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const { services, session } = ctx;
   const response = ctx.step.response;
   const persist = session.persist;

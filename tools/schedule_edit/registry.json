@@ -1,0 +1,65 @@
+{
+  "name": "schedule_edit",
+  "description": "Update, pause, resume or delete one scheduled task. Use the revision from schedule_view/list; deleting is permanent. Changing timing recomputes the next occurrence.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Schedule id such as schedule-1."
+      },
+      "action": {
+        "type": "string",
+        "enum": ["update", "delete"],
+        "description": "update changes fields; delete removes the task permanently."
+      },
+      "expected_revision": {
+        "type": "integer",
+        "description": "Revision read from schedule_view/list. If the schedule changed since then, the edit is rejected instead of overwriting."
+      },
+      "title": {
+        "type": "string",
+        "description": "New title."
+      },
+      "prompt": {
+        "type": "string",
+        "description": "New follow-up prompt."
+      },
+      "target": {
+        "type": "string",
+        "enum": ["this_session", "new_once", "new"],
+        "description": "New delivery target."
+      },
+      "active": {
+        "type": "boolean",
+        "description": "false pauses; true resumes. Reactivating an ended task needs a new timing."
+      },
+      "timing": {
+        "type": "object",
+        "description": "New timing; same shape and rules as schedule_create.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["after", "at", "every", "daily", "weekly", "cron", "rrule"]
+          },
+          "after_seconds": { "type": "integer" },
+          "at": { "type": "string" },
+          "every_seconds": { "type": "integer" },
+          "time": { "type": "string" },
+          "time_zone": { "type": "string" },
+          "weekdays": { "type": "array", "items": { "type": "integer" } },
+          "expression": { "type": "string" },
+          "rrule": { "type": "string" }
+        },
+        "required": ["kind"]
+      }
+    },
+    "required": ["id"]
+  },
+  "type": "control",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Host-level scheduled tasks: create, list, view, and edit a persisted rule that delivers a synthetic user follow-up at its due time. `{{tools}}` manage the rule only; the delivered turn does the work. A schedule is not a Job: use `job_*`/`workflow` when you need immediate asynchronous execution, output and cancellation.",
+  "promptSection": "schedule",
+  "result": "json"
+}

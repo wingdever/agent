@@ -3,8 +3,12 @@
 // Tool registry: scans tools/<name>/registry.json, loads the entry module, and
 // normalizes the model-facing fields plus runtime options.
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath, pathToFileURL } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const TOOLS_DIR = path.join(__dirname, "..", "..", "tools");
 const EMPTY_SCHEMA = { type: "object", properties: {}, required: [] };
@@ -44,7 +48,8 @@ async function loadTools() {
     }
     let mod;
     try {
-      mod = require(resolved);
+      // 工具入口是 ESM，只能动态 import；命名空间里可能同时有具名 run 与 default
+      mod = await import(pathToFileURL(resolved).href);
     } catch (e) {
       console.error("[tools] load failed:", reg.name, e.message);
       continue;
@@ -74,4 +79,6 @@ async function loadTools() {
   return map;
 }
 
-module.exports = { TOOLS_DIR, loadTools };
+const __exports = { TOOLS_DIR, loadTools };
+export { TOOLS_DIR, loadTools };
+export default __exports;

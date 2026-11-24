@@ -4,8 +4,8 @@
 // mapping into DSH's normalized search result (answer + sources + truncation);
 // argument bounds, multi-query merging, and text formatting live in search.js.
 
-const { DEFAULTS, resolveTavilyConfig } = require("./config");
-const { WebToolError } = require("./errors");
+import { DEFAULTS, resolveTavilyConfig } from "./config.js";
+import { WebToolError } from "./errors.js";
 
 const SEARCH_PATH = "/search";
 const MISSING_KEY_MESSAGE =
@@ -137,9 +137,11 @@ async function searchWithTavily(query, { maxResults, config = resolveTavilyConfi
   return parseTavilyResponse(payload, maxResults);
 }
 
-module.exports = {
+const __exports = {
   MISSING_KEY_MESSAGE,
   buildSearchRequest,
   parseTavilyResponse,
   searchWithTavily,
 };
+export { MISSING_KEY_MESSAGE, buildSearchRequest, parseTavilyResponse, searchWithTavily };
+export default __exports;

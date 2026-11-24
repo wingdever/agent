@@ -1,6 +1,9 @@
 "use strict";
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
-const path = require("path");
+import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import path from "path";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
 
 const TRANSPORT = process.env.AGENT_TRANSPORT || "http";
 
@@ -31,7 +34,7 @@ function createWindow() {
     show: false,
     webPreferences:
       TRANSPORT === "ipc"
-        ? { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
+        ? { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
         : { contextIsolation: true, nodeIntegration: false },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -46,4 +49,4 @@ function createWindow() {
   return win;
 }
 
-module.exports = { createWindow };
+export default { createWindow };

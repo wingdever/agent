@@ -6,9 +6,9 @@
 // then render. The registry is reached through the startup singleton so this
 // module stays decoupled from provider wiring.
 
-const { getSkillsRegistry } = require("../../lib/skill-instance");
-const { renderSkillContent } = require("../../lib/skill-content");
-const { isModelInvocable, isSkillName } = require("../../lib/skill-policy");
+import { getSkillsRegistry } from "./../../lib/skill-instance/index.js";
+import { renderSkillContent } from "./../../lib/skill-content/index.js";
+import { isModelInvocable, isSkillName } from "./../../lib/skill-policy/index.js";
 
 async function run(args, exec = {}) {
   const name = args && args.name;
@@ -29,4 +29,6 @@ async function run(args, exec = {}) {
   return renderSkillContent(skill);
 }
 
-module.exports = { run };
+const __exports = { run };
+export { run };
+export default __exports;

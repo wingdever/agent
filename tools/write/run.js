@@ -4,9 +4,9 @@
 // The fs-observation policy requires reading an existing file first; that check
 // lives in lib/fs-observe and is shared with edit.
 
-const fs = require("fs");
-const path = require("path");
-const { record, assertVersion } = require("../../lib/fs-observe");
+import fs from "fs";
+import path from "path";
+import { record, assertVersion } from "./../../lib/fs-observe/index.js";
 
 const DIFF_BASIS_MAX_BYTES = 200 * 1024;
 
@@ -50,7 +50,7 @@ async function atomicWrite(displayPath, content, mode) {
   }
 }
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     const input = parseWriteArgs(args, exec.cwd);
     const before = await statFile(input.displayPath);

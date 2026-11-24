@@ -6,15 +6,9 @@
 // and publishes domain events. No persistence here — the tool-call row and the
 // event stream carry the run facts (docs/runtime/workflow.md §6).
 
-const crypto = require("crypto");
-const os = require("os");
-const {
-  WorkflowError,
-  WorkflowExecution,
-  DEFAULT_LIMITS,
-  validateMeta,
-  compileScript,
-} = require("../../lib/workflow-runtime");
+import crypto from "crypto";
+import os from "os";
+import { WorkflowError, WorkflowExecution, DEFAULT_LIMITS, validateMeta, compileScript } from "./../../lib/workflow-runtime/index.js";
 
 const ENGINE_VERSION = "worker-vm";
 const MAX_RESULT_CHARS = 50000;
@@ -210,4 +204,6 @@ function promptLabel(prompt) {
   return firstLine.length <= 40 ? firstLine : `${firstLine.slice(0, 39)}…`;
 }
 
-module.exports = { createWorkflowService };
+const __exports = { createWorkflowService };
+export { createWorkflowService };
+export default __exports;

@@ -1,7 +1,7 @@
 "use strict";
 
-const responseProcess = require("../response-process");
-const { fetchModels } = require("../network/http/client");
+import responseProcess from "./../response-process.js";
+import { fetchModels } from "./../network/http/client.js";
 
 // Model service: the only place that talks to a provider. All calls receive an
 // explicit target ({ model, baseUrl, apiKey, effort }).
@@ -51,4 +51,6 @@ class ModelService {
   }
 }
 
-module.exports = { ModelService };
+const __exports = { ModelService };
+export { ModelService };
+export default __exports;

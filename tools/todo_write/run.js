@@ -4,11 +4,11 @@
 // agent instance for one turn and resets when the next turn starts (core
 // turn-start node calls lib/todo-state reset with the instance).
 
-const { set } = require("../../lib/todo-state");
+import { set } from "./../../lib/todo-state/index.js";
 
 const STATUSES = new Set(["pending", "in_progress", "completed"]);
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     if (!Array.isArray(args.todos)) throw new Error("todos must be an array");
     const todos = [];

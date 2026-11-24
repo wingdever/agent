@@ -53,7 +53,7 @@ Mode = {
 
 - bare 仍做输入/输出翻译并复用 linear 的终止/`[turn]` 日志/`turn-end` 契约，但 `steps=1`、`tools=0`、不持久化。
 - UI 用 `isBare()`（由 `currentSessionId` 派生）决定交互路径，并在 bare 的 `chat` 调用里显式附 `mode:"bare"`；bare 下沿用 flat 渲染（`onChatEventFlat`）与内存历史 `bareHistory`。
-- 默认 activity 现为 `research`（schema.mjs DEFAULT 同步；开发项目不做旧 localStorage `agent.activity` 兼容）。
+- 默认 activity 现为 `research`（schema.js DEFAULT 同步；开发项目不做旧 localStorage `agent.activity` 兼容）。
 
 ## 对账（reconcile）
 - 默认**无自动对账**，offline 期间变更静默生效。

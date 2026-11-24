@@ -1,12 +1,12 @@
 "use strict";
 
-const { assembleSystemPrompt } = require("../system-prompt");
-const compactionRunner = require("../compaction-runner");
-const tokenAnchor = require("../token-anchor");
-const { prepareUserInput } = require("../user-input");
-const { resolveWorkspaceFolder } = require("./workspace");
-const { cleanMessage } = require("./messages");
-const translation = require("../translation");
+import { assembleSystemPrompt } from "./../system-prompt.js";
+import compactionRunner from "./../compaction-runner.js";
+import tokenAnchor from "./../token-anchor.js";
+import { prepareUserInput } from "./../user-input/index.js";
+import { resolveWorkspaceFolder } from "./workspace.js";
+import { cleanMessage } from "./messages.js";
+import translation from "./../translation.js";
 
 // Context service: system prompt assembly, input references, request-message
 // projection, compaction, token anchors, workspace resolution and translation.
@@ -126,4 +126,6 @@ class ContextService {
   }
 }
 
-module.exports = { ContextService };
+const __exports = { ContextService };
+export { ContextService };
+export default __exports;

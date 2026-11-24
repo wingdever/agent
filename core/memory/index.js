@@ -2,11 +2,13 @@
 
 // In-memory runtime data structures. Other core subdomains reach these only
 // through this index (arch.md: 层内边界).
-const { RequestSpec } = require("./request-spec");
-const { StepState } = require("./step-state");
-const { ModelResponse } = require("./model-response");
-const { Agent } = require("./agent");
-const { AgentRegistry } = require("./registry");
-const { createTurnState } = require("./turn-state");
+import { RequestSpec } from "./request-spec.js";
+import { StepState } from "./step-state.js";
+import { ModelResponse } from "./model-response.js";
+import { Agent } from "./agent.js";
+import { AgentRegistry } from "./registry.js";
+import { createTurnState } from "./turn-state.js";
 
-module.exports = { RequestSpec, StepState, ModelResponse, Agent, AgentRegistry, createTurnState };
+const __exports = { RequestSpec, StepState, ModelResponse, Agent, AgentRegistry, createTurnState };
+export { RequestSpec, StepState, ModelResponse, Agent, AgentRegistry, createTurnState };
+export default __exports;

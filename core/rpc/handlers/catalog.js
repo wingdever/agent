@@ -1,10 +1,11 @@
 "use strict";
 
-const fs = require("fs");
-const { isUserInvocable, isModelInvocable, isSkillName } = require("../../skills");
-const { loadNodes } = require("../../loops/registry");
-const { listEngineNames, DEFAULT_ENGINE } = require("../../loops");
-const loopsConfig = require("../../loops/loops-config");
+import fs from "fs";
+import _mod0 from "./../../skills/index.js";
+const { isUserInvocable, isModelInvocable, isSkillName } = _mod0;
+import { loadNodes } from "./../../loops/registry.js";
+import { listEngineNames, DEFAULT_ENGINE } from "./../../loops/index.js";
+import loopsConfig from "./../../loops/loops-config.js";
 
 const noParams = { type: "object", properties: {}, additionalProperties: false };
 
@@ -43,7 +44,7 @@ function skillEntry(skill) {
   };
 }
 
-module.exports = function defineCatalogCommands(rpc) {
+export default function defineCatalogCommands(rpc) {
   rpc.define({
     name: "models.fetch",
     params: {

@@ -14,7 +14,7 @@ DSH 式上下文压缩。`/compact` 按需把较早的历史压缩成一条结�
 | 概念 | 含义 | 本项目落点 |
 |---|---|---|
 | **log** | 只追加的原始记录，压缩永不改写 | `messages` / `calls` / `contents` 表 |
-| **surface** | 模型可见的投影：回放 log + 压缩 replace 后得到的消息序列 | `getSurface()`（[store.mjs](../core/storage/store.mjs)） |
+| **surface** | 模型可见的投影：回放 log + 压缩 replace 后得到的消息序列 | `getSurface()`（[store.js](../core/storage/store.js)） |
 | **transcript** | 人类阅读的投影：读 append-origin 消息，压缩区仍显示原文 | UI 的 chat 视图 |
 | **summary** | 模型写出的 8 段 Markdown 正文 | `compactions.summary_content_id` 指向的 `contents` 正文 |
 | **checkpoint** | 承载 summary 的那条 **user 消息**：preamble + 标签 + summary + 来源标记；它是 surface 节点 | surface replay 从 `compactions` 读区间，`frameCheckpoint(summary)` 现拼后插入 |
@@ -304,7 +304,7 @@ route-specific image pricing 在本项目等价于 DSH 的无图片回退（消�
 - `core/token-meter.js`：header 估价、canonical header key、usage 锚定测量；
 - `core/index.js`：`compactSession` / `_maybeCompactStep` / `_surfaceNodes` / `_requestMessages` /
   `_summarizeMessages` / `_pruneToolResults` / `_recordTokenAnchor` 的委托入口；
-- `core/storage/{schema,store}.mjs`：`compactions`、`session_forks`、`messages.surface_seq`、`tool_result_prunes`、
+- `core/storage/{schema,store}.js`：`compactions`、`session_forks`、`messages.surface_seq`、`tool_result_prunes`、
   `token_anchors`、`getSurface()` 回放（含 fork 继承段）、boot 锁判定；
 - `core/transports/http.js`：`compact` 走 SSE，末尾用 `result` 事件回传结果；
 - `ui/web/app.js`：`/compact` 拦截、checkpoint 卡、状态提示、轨迹标记、`contextWindow`；

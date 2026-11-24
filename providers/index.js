@@ -4,8 +4,12 @@
 //   2. adapt()  -> 从落盘的原始响应提取并适配为现有 providers.json schema，合并写回 user/providers.json
 // 独立于 core：自带最小 read/write providers 实现，不引入运行时模块。
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath, pathToFileURL } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const ROOT = path.join(__dirname, "..");
 const PROVIDERS_DIR = __dirname;
@@ -36,11 +40,12 @@ function writeProvidersFile(arr) {
   return arr || [];
 }
 
-function loadProviderModules() {
+async function loadProviderModules() {
   const files = fs.readdirSync(PROVIDERS_DIR).filter((f) => /\.js$/.test(f) && f !== "index.js");
   const mods = [];
   for (const f of files) {
-    const mod = require(path.join(PROVIDERS_DIR, f));
+    const ns = await import(pathToFileURL(path.join(PROVIDERS_DIR, f)).href);
+    const mod = ns.default && ns.default.name ? ns.default : ns;
     if (mod && mod.name && typeof mod.fetch === "function" && typeof mod.adapt === "function") {
       mods.push(mod);
     } else {
@@ -118,7 +123,7 @@ async function runOne(mod) {
 
 async function main() {
   const arg = process.argv[2];
-  const mods = loadProviderModules();
+  const mods = await loadProviderModules();
   const targets = arg ? mods.filter((m) => m.name === arg) : mods;
   if (arg && targets.length === 0) {
     console.error(`[providers] 未找到 provider "${arg}"。可用：${mods.map((m) => m.name).join(", ") || "（无）"}`);

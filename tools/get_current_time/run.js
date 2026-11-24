@@ -1,2 +1,2 @@
 "use strict";
-module.exports = { async run() { return { iso: new Date().toISOString() }; } };
+export default { async run() { return { iso: new Date().toISOString() }; } };

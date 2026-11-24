@@ -1,6 +1,6 @@
 "use strict";
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     if (!exec.goals) throw new Error("update_goal is not available in this context");
     const value = await exec.goals.update(exec.sessionId, args);

@@ -5,8 +5,12 @@
 // deny (refuse without asking). Anything unreadable, malformed, or invalid falls
 // back to "ask" so a broken security config never widens access.
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const PERMISSIONS_FILE = path.join(__dirname, "..", "user", "permissions.json");
 const LEVELS = new Set(["allow", "ask", "deny"]);
@@ -69,4 +73,6 @@ function permissionFor(permissions, toolName) {
   return configured || permissions.default || "ask";
 }
 
-module.exports = { PERMISSIONS_FILE, readPermissions, permissionFor };
+const __exports = { PERMISSIONS_FILE, readPermissions, permissionFor };
+export { PERMISSIONS_FILE, readPermissions, permissionFor };
+export default __exports;

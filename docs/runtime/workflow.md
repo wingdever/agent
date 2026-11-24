@@ -199,9 +199,9 @@ agent #<seq> <label> started
 agent #<seq> <completed|failed|cancelled>
 ```
 
-job 落定时 job 状态映射为：完成带返回值，取消 `killed`，失败 `failed` 并带错误信息。`job_kill` 与列表的停止按钮都取消 run。
+job 落定时 job 状态映射为：完成带返回值，取消 `killed`，失败 `failed` 并带错误信息。`job_kill` 与列表的停止按钮都取消 run；完成结果以一条 `job-settle` follow-up 消息回到父会话，不需要模型轮询。
 
-本版没有 job 注册表（`exec.startJob` 不存在），后台调用直接返回 `Error: background workflow runs require a job registry, …`，让模型改走前台而不是把轮次挂住。
+后台作业本身的数据模型、通知路径与重启语义见 `jobs.md`。`run_in_background` 依赖 `exec.startJob`；没有作业服务的执行面（例如 flow 运行）仍会返回“background workflow requires a job registry”，让模型改走前台。
 
 ### 5.5 适用判据
 
@@ -243,7 +243,7 @@ agent #<seq> <completed|failed|cancelled>
 
 **成员归属**沿用既有结构：每个子代理是一行 `subagents`（`par_sess_id` = 父会话）加一个 `kind=subagent` 的会话。工具调用与成员的对应关系记在结果 `meta.members` 里。
 
-**重启语义**：进程退出时正在跑的 run 随之消失；`calls` 行回读时，未落定的工具调用保持 `pending`，UI 按「进行到一半」展示，与既有工具调用的中断语义一致。workflow 不做检查点与续跑。
+**重启语义**：进程退出时正在跑的 run 随之消失；`calls` 行回读时，未落定的工具调用保持 `pending`，UI 按「进行到一半」展示，与既有工具调用的中断语义一致。workflow 不做检查点与续跑。后台模式额外留一行 `jobs`：下次启动由 `JobService.init()` 把失去 owner 的 `running` 行标记为 `failed / interrupted by restart`，仍被其他存活进程持有的行不动。
 
 ## 7 控制面
 
@@ -259,5 +259,5 @@ agent #<seq> <completed|failed|cancelled>
 
 ## 9 测试
 
-- `test/workflow-runtime.test.js`：直接对 `lib/workflow-runtime` 断言钩子语义——`agent()` 的选项校验与 `null` 语义、`parallel` / `pipeline` 的致命穿透与逐项 `null`、上限触发、返回值物化、`meta` 校验。
-- `test/workflow.test.js`：用假的 `childPort` 驱动 `core/workflow` 的 run，覆盖生命周期事件、取消、处置与并发上限，并端到端跑一次工具调用（参数校验、渲染、前台与后台两条路径）。
+- `core/jobs/jobs.test.js`：后台作业的落定、失败、取消、超时、重启恢复与通知去重。
+- workflow 的前台/后台路径目前由集成 smoke 覆盖：真实 `jobs` 表 + `createWorkflowService` + `tools/workflow`，验证 job 从 `running` 到 `completed`、结果与通知都到达。`lib/workflow-runtime` 的钩子语义尚无独立测试文件，属于待补项。

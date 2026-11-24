@@ -7,10 +7,10 @@
 // - stdout, a marked [stderr] section, then status markers
 // Jobs/background execution are intentionally not exposed yet.
 
-const { spawn } = require("child_process");
-const path = require("path");
-const { shellEnv } = require("../../lib/shell-env");
-const { writeSpill, tailByBytes } = require("../../lib/tool-result");
+import { spawn } from "child_process";
+import path from "path";
+import { shellEnv } from "./../../lib/shell-env/index.js";
+import { writeSpill, tailByBytes } from "./../../lib/tool-result/index.js";
 
 // Phase 2 permission gate (tools/bash/policy). ESM modules are loaded lazily once
 // and cached; CJS calls them via dynamic import. The gate runs before any shell
@@ -28,8 +28,8 @@ let _enginePromise = null;
 function loadEngine() {
   if (!_enginePromise) {
     _enginePromise = (async () => {
-      const policy = await import("./policy/index.mjs");
-      const parse = await import("./parse/index.mjs");
+      const policy = await import("./policy/index.js");
+      const parse = await import("./parse/index.js");
       return { policy, parse };
     })();
   }
@@ -134,7 +134,7 @@ function renderStream(text, callId, name) {
   };
 }
 
-module.exports = {
+export default {
   gateBashCommand,
   async run(args = {}, exec = {}) {
     const input = parseBashArgs(args, exec.cwd);

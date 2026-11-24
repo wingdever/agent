@@ -5,8 +5,12 @@
 // defaults so the model-facing descriptions ("1-4 queries", 8 sources) and the
 // rendered text keep matching the behavior the model is told about.
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const SETTINGS_FILE = path.join(__dirname, "..", "..", "..", "user", "settings.json");
 
@@ -56,4 +60,6 @@ function resolveTavilyConfig(web = readWebSettings()) {
   };
 }
 
-module.exports = { DEFAULTS, SETTINGS_FILE, readWebSettings, resolveTavilyConfig };
+const __exports = { DEFAULTS, SETTINGS_FILE, readWebSettings, resolveTavilyConfig };
+export { DEFAULTS, SETTINGS_FILE, readWebSettings, resolveTavilyConfig };
+export default __exports;

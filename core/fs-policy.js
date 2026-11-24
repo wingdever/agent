@@ -27,9 +27,13 @@
 // ignored entirely, so a broken fine-grained config never quietly widens or
 // narrows access -- the per-tool gate stays authoritative.
 
-const fs = require("fs");
-const path = require("path");
-const { permissionFor } = require("./permissions");
+import fs from "fs";
+import path from "path";
+import { permissionFor } from "./permissions.js";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const FS_POLICY_FILE = path.join(__dirname, "..", "user", "fs-policy.json");
 const LEVELS = new Set(["allow", "ask", "deny"]);
@@ -168,7 +172,7 @@ function permissionForTool(permissions, toolName) {
   return permissionFor(permissions, toolName);
 }
 
-module.exports = {
+export default {
   FS_POLICY_FILE,
   readFsPolicy,
   resolveFsPermission,

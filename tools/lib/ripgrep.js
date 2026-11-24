@@ -3,22 +3,24 @@
 // Shared ripgrep runner for glob/grep. Prefers the packaged @vscode/ripgrep
 // binary (portable inside Electron) and falls back to `rg` on PATH.
 
-const { execFile } = require("child_process");
+import { execFile } from "child_process";
 
 const RAW_OUTPUT_MAX_BYTES = 20 * 1024 * 1024;
 
-function resolveRg() {
+async function resolveRg() {
   try {
-    const pkg = require("@vscode/ripgrep");
+    const ns = await import("@vscode/ripgrep");
+    const pkg = ns.default || ns;
     if (pkg && typeof pkg.rgPath === "string" && pkg.rgPath) return pkg.rgPath;
   } catch (_) {}
   return "rg";
 }
 
-function runRg(args, { cwd, timeoutMs = 30000, maxBuffer = RAW_OUTPUT_MAX_BYTES } = {}) {
+async function runRg(args, { cwd, timeoutMs = 30000, maxBuffer = RAW_OUTPUT_MAX_BYTES } = {}) {
+  const rgPath = await resolveRg();
   return new Promise((resolve, reject) => {
     execFile(
-      resolveRg(),
+      rgPath,
       args,
       {
         cwd: cwd || process.cwd(),
@@ -52,4 +54,6 @@ function runRg(args, { cwd, timeoutMs = 30000, maxBuffer = RAW_OUTPUT_MAX_BYTES 
   });
 }
 
-module.exports = { resolveRg, runRg, RAW_OUTPUT_MAX_BYTES };
+const __exports = { resolveRg, runRg, RAW_OUTPUT_MAX_BYTES };
+export { resolveRg, runRg, RAW_OUTPUT_MAX_BYTES };
+export default __exports;

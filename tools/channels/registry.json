@@ -1,0 +1,24 @@
+{
+  "name": "channels",
+  "description": "Start or stop an external account channel (for example the Feishu bot). Channels are built at startup but never started on their own, so nothing is connected to an external platform until this tool starts it. Actions: list (all instances and their status), status (one instance), start, stop. Starting requires the user to have asked for it.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["list", "status", "start", "stop"],
+        "description": "Which channel operation to perform."
+      },
+      "channel": {
+        "type": "string",
+        "description": "Channel instance id. Optional when exactly one channel is configured."
+      }
+    },
+    "required": ["action"]
+  },
+  "type": "channels",
+  "entry": "run.js",
+  "prompt": "Use this tool only when the user asks for a channel to be connected or disconnected. Never start a channel on your own initiative: an open connection makes an external platform believe this machine is online on the user's behalf. Call list first when you do not know the instance id.",
+  "defaultVisible": true,
+  "result": "json"
+}

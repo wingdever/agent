@@ -13,11 +13,11 @@
 // scalars, lists, deep nesting) add the `yaml` package and replace parseYaml
 // with `parse`.
 
-const fs = require("fs");
-const fsp = require("fs/promises");
-const os = require("os");
-const path = require("path");
-const { isSkillName } = require("../../lib/skill-policy");
+import fs from "fs";
+import fsp from "fs/promises";
+import os from "os";
+import path from "path";
+import { isSkillName } from "./../../lib/skill-policy/index.js";
 
 const PROJECT_DSH_RANK = 100;
 const PROJECT_AGENTS_RANK = 200;
@@ -355,4 +355,4 @@ class FileSystemSkillProvider {
   }
 }
 
-module.exports = { FileSystemSkillProvider, createFileSystemProvider: (config, deps) => new FileSystemSkillProvider(config, deps) };
+export default { FileSystemSkillProvider, createFileSystemProvider: (config, deps) => new FileSystemSkillProvider(config, deps) };

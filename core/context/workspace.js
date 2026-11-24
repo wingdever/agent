@@ -4,9 +4,9 @@
 // runtime and the context service can use it without importing the composition
 // root.
 
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 function isDirectory(folder) {
   try {
@@ -34,4 +34,6 @@ function resolveWorkspaceFolder(raw) {
   return null;
 }
 
-module.exports = { isDirectory, workspaceFolderCandidates, resolveWorkspaceFolder };
+const __exports = { isDirectory, workspaceFolderCandidates, resolveWorkspaceFolder };
+export { isDirectory, workspaceFolderCandidates, resolveWorkspaceFolder };
+export default __exports;

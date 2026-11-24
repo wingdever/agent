@@ -1,8 +1,8 @@
 "use strict";
 
-const compaction = require("./compaction");
-const tokenMeter = require("./token-meter");
-const { cleanMessage } = require("./context/messages");
+import compaction from "./compaction.js";
+import tokenMeter from "./token-meter.js";
+import { cleanMessage } from "./context/messages.js";
 
 // Compaction primitives. All entry points take an explicit `deps` object:
 //   { store, bootId, activeSessions, compacting, model, config, tools }
@@ -280,7 +280,7 @@ async function maybeCompactStep(deps, { sessionId, conv, system, toolDefs, model
   return { conv: current, changed };
 }
 
-module.exports = {
+const __exports = {
   surfaceNodes,
   requestMessages,
   summarizeMessages,
@@ -289,3 +289,5 @@ module.exports = {
   compactSession,
   maybeCompactStep,
 };
+export { surfaceNodes, requestMessages, summarizeMessages, pruneToolResults, runCompaction, compactSession, maybeCompactStep };
+export default __exports;

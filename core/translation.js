@@ -19,7 +19,7 @@
 //     "timeoutMs": 30000
 //   }
 
-const { postChatCompletions, trackCapture } = require("./network/http/client");
+import { postChatCompletions, trackCapture } from "./network/http/client.js";
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -196,7 +196,7 @@ async function translateText({ text, target, config, sessionId, timeoutMs } = {}
   throw lastError || new Error("translation failed");
 }
 
-module.exports = {
+const __exports = {
   DEFAULT_CONFIG,
   buildPayload,
   cleanTranslation,
@@ -207,3 +207,5 @@ module.exports = {
   shouldTranslateUser,
   translateText,
 };
+export { DEFAULT_CONFIG, buildPayload, cleanTranslation, hasHan, hasProse, resolveConfig, shouldTranslateAssistant, shouldTranslateUser, translateText };
+export default __exports;

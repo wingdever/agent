@@ -21,7 +21,7 @@
 // exits, and are disposed only when their session is hard-deleted. Nothing here
 // caches session facts: identity is read from the store at creation time.
 
-const { Agent } = require("./agent");
+import { Agent } from "./agent.js";
 
 class AgentRegistry {
   constructor({ shared = {}, gates = {} } = {}) {
@@ -195,4 +195,6 @@ class AgentRegistry {
   }
 }
 
-module.exports = { AgentRegistry };
+const __exports = { AgentRegistry };
+export { AgentRegistry };
+export default __exports;

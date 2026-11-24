@@ -5,20 +5,14 @@
 // decodes the body to text. Presentation (markdown conversion, truncation
 // footer) lives in render.js. Requests carry no cookies or ambient credentials.
 
-const http = require("http");
-const https = require("https");
-const zlib = require("zlib");
+import http from "http";
+import https from "https";
+import zlib from "zlib";
 
-const { DEFAULTS } = require("./config");
-const { WebToolError } = require("./errors");
-const {
-  validateFetchUrl,
-  isSameOrigin,
-  classifyContentType,
-  parseCharset,
-  decoderForCharset,
-} = require("./policy");
-const { resolvePublicAddresses, pinnedLookup, stripIpv6Brackets } = require("./network");
+import { DEFAULTS } from "./config.js";
+import { WebToolError } from "./errors.js";
+import { validateFetchUrl, isSameOrigin, classifyContentType, parseCharset, decoderForCharset } from "./policy.js";
+import { resolvePublicAddresses, pinnedLookup, stripIpv6Brackets } from "./network.js";
 
 const ACCEPT_HEADER = "text/html,application/xhtml+xml,text/*;q=0.9,application/json;q=0.8";
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -227,4 +221,6 @@ async function readCapped(stream, maxBytes) {
   return { bytes, truncatedByBytes: truncated };
 }
 
-module.exports = { HttpFetcher, ACCEPT_HEADER };
+const __exports = { HttpFetcher, ACCEPT_HEADER };
+export { HttpFetcher, ACCEPT_HEADER };
+export default __exports;

@@ -108,16 +108,16 @@
 
 ```
 tools/bash/policy/
-  schema.mjs     # 策略文件加载 + 校验 + 回退（损坏/缺失 → default=ask）
-  match.mjs      # 复合键匹配、argv 前缀匹配、dynamic 具体化（env 约束）
-  evaluate.mjs   # evaluate(ir, policy) -> Decision（单条决策 + 聚合）
-  index.mjs      # 入口 export evaluate, loadPolicy
+  schema.js     # 策略文件加载 + 校验 + 回退（损坏/缺失 → default=ask）
+  match.js      # 复合键匹配、argv 前缀匹配、dynamic 具体化（env 约束）
+  evaluate.js   # evaluate(ir, policy) -> Decision（单条决策 + 聚合）
+  index.js      # 入口 export evaluate, loadPolicy
 ```
 
-- 复用 Phase 1 的 `parseCommand`（`tools/bash/parse/index.mjs`）与 IR 字段
+- 复用 Phase 1 的 `parseCommand`（`tools/bash/parse/index.js`）与 IR 字段
   （`program`, `argv`, `wrappers`, `dynamic`, `readWrite`, `raw`, `range`, `dynamicSubcommands`）。
 - 不修改 `tools/bash/run.js`（Phase 2 纯决策函数，集成留到后续阶段/Phase 3）。
-- 与 `unbash` 同为 ESM，`index.mjs` 供 CJS 侧 `await import()` 调用。
+- 与 `unbash` 同为 ESM；`index.js` 由 `tools/bash/run.js` 惰性 `await import()` 加载，加载失败即 fail-closed（`policy engine unavailable`）。
 
 ## 测试用例规划（实现时）
 

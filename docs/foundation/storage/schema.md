@@ -318,6 +318,49 @@ CREATE TABLE user_jobs (
 )
 ```
 
+## team_tasks (Agent Team 共享任务板)
+一块看板对应一个 subagent 树根会话（`team_id` = 根会话 id）。一行是完整任务快照；`revision` 是 CAS 版本，每次变更 +1。`blocked_by` / `write_scopes` 是 JSON 数组。删除行保留为墓碑，`seq` 不复用。成员体系不落这张表，仍由 `subagents` 树提供。语义见 `docs/runtime/team.md`。
+
+```sql
+CREATE TABLE team_tasks (
+  id           integer  PRIMARY KEY,
+  team_id      integer  NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  seq          integer  NOT NULL,
+  task_id      text     NOT NULL,
+  revision     integer  NOT NULL DEFAULT 1,
+  subject      text     NOT NULL,
+  description  text     NOT NULL,
+  status       text     NOT NULL DEFAULT 'pending',
+  owner_id     integer,
+  owner_name   text,
+  blocked_by   text     NOT NULL DEFAULT '[]',
+  write_scopes text     NOT NULL DEFAULT '[]',
+  created_at   TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMP NOT NULL DEFAULT now()
+)
+```
+
+## schedules (Host 定时任务)
+一行是一条完整任务快照；`timing` / `target` / `last_delivery` 是 JSON。`next_at` 是已提交的下一次发生时刻，不是规则投影；`revision` 是编辑与投递提交共用的 CAS 版本。`schedule_id` 形如 `schedule-<seq>`。语义见 `docs/runtime/schedule.md`。
+
+```sql
+CREATE TABLE schedules (
+  id            integer  PRIMARY KEY,
+  seq           integer  NOT NULL UNIQUE,
+  schedule_id   text     NOT NULL UNIQUE,
+  title         text     NOT NULL,
+  prompt        text     NOT NULL,
+  timing        text     NOT NULL,
+  target        text     NOT NULL,
+  status        text     NOT NULL DEFAULT 'active',
+  next_at       TIMESTAMP NOT NULL,
+  last_delivery text,
+  revision      integer  NOT NULL DEFAULT 1,
+  created_at    TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMP NOT NULL DEFAULT now()
+)
+```
+
 ## agent_subagents (子代理关联表)
 一次委派一行。`agent_name` 是模型侧名称，在同父的子级之间唯一；根会话的名称固定为 `lead`，不落库。Session id 仍是持久身份，名称只用于 `send_message` / `interrupt_agent` / `list_agents` 的寻址。`delivery` 是创建时固定的结果交付策略：`parent` 轮末把结算通知投进父会话，`caller` 只把结果交给发起方。策略随行持久化，子代理实例被释放后重新唤醒时沿用同一个值。名称规则与路径解析见 `docs/agents/subagent.md` 第 6 节。
 
@@ -411,4 +454,84 @@ create table flow_node_runs (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_flow_node_runs_run ON flow_node_runs (run_id, id);
+```
+
+## a2a_instances (A2A 入站端点)
+一个对外 AgentCard 对应一行；`skills` 是 AgentCard 广告能力的 JSON 数组。
+`workspace_id` 决定该实例新建 context 时使用的会话目录。
+
+```sql
+create table a2a_instances (
+  id              integer PRIMARY KEY,
+  instance_id     text    NOT NULL UNIQUE,
+  name            text    NOT NULL,
+  description     text,
+  version         text    NOT NULL DEFAULT '0.1.0',
+  workspace_id    integer NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  skills          text    NOT NULL DEFAULT '[]',
+  token_env       text,
+  approval_policy text    NOT NULL DEFAULT 'deny',
+  enabled         integer NOT NULL DEFAULT 1,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## a2a_contexts (A2A context -> session)
+`context_id` 由外部客户端提供或服务端生成；同一 context 只映射一个内部
+session。`context_id` 全局唯一，避免跨实例串话。
+
+```sql
+create table a2a_contexts (
+  id          integer PRIMARY KEY,
+  context_id  text    NOT NULL UNIQUE,
+  instance_id text    NOT NULL,
+  session_id  integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_a2a_contexts_session ON a2a_contexts (session_id);
+```
+
+## a2a_tasks (A2A Task)
+协议级工作单元，可跨多个内部 turn。`revision` 用于取消与完成之间的 CAS；
+`artifacts` 是最终结果的 JSON 数组，不写回 assistant message。
+
+```sql
+create table a2a_tasks (
+  id              integer PRIMARY KEY,
+  task_id         text    NOT NULL UNIQUE,
+  context_id      text    NOT NULL,
+  session_id      integer NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  instance_id     text    NOT NULL,
+  skill           text    NOT NULL DEFAULT 'chat',
+  state           text    NOT NULL DEFAULT 'TASK_STATE_SUBMITTED',
+  status_message  text,
+  last_message_id text,
+  input           text,
+  artifacts       text    NOT NULL DEFAULT '[]',
+  error           text,
+  revision        integer NOT NULL DEFAULT 1,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at     TIMESTAMP
+);
+CREATE INDEX idx_a2a_tasks_context ON a2a_tasks (context_id, created_at);
+CREATE INDEX idx_a2a_tasks_state ON a2a_tasks (state);
+```
+
+## a2a_messages (A2A Message)
+`message_id` 唯一，是 SendMessage 的幂等键；`parts` 是原始 JSON。内部
+assistant/user 消息仍由 `messages` / `contents` 保存。
+
+```sql
+create table a2a_messages (
+  id         integer PRIMARY KEY,
+  message_id text    NOT NULL UNIQUE,
+  task_id    text    NOT NULL,
+  role       text    NOT NULL,
+  parts      text    NOT NULL DEFAULT '[]',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_a2a_messages_task ON a2a_messages (task_id);
 ```

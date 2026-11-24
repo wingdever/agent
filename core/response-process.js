@@ -1,8 +1,8 @@
 "use strict";
-const tokenMeter = require("./token-meter");
-const { issueRequest } = require("./model-request");
-const { renderDelta } = require("./stream-render");
-const { ModelResponse } = require("./memory");
+import tokenMeter from "./token-meter.js";
+import { issueRequest } from "./model-request.js";
+import { renderDelta } from "./stream-render.js";
+import { ModelResponse } from "./memory/index.js";
 
 // 把底层模型的 usage 对象标准化后上报（兼容字段缺失 / 不同厂商命名）。
 // cached_tokens 可能嵌在 prompt_tokens_details 内，也可能直接给顶层。
@@ -148,4 +148,6 @@ async function stream(modelService, { messages, toolDefs, model, onEvent, sessio
   return finalize(acc);
 }
 
-module.exports = { stream, emitUsage };
+const __exports = { stream, emitUsage };
+export { stream, emitUsage };
+export default __exports;

@@ -101,4 +101,6 @@ function validateSchema(schema, value, { noun = "arguments" } = {}) {
   return violations;
 }
 
-module.exports = { validateSchema };
+const __exports = { validateSchema };
+export { validateSchema };
+export default __exports;

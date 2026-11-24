@@ -4,10 +4,10 @@
 // (input, ctx) and reaches services through ctx.services. The engine only owns
 // scheduling, hooks, turn finalization and the [turn] log.
 
-  const { loadNodes } = require("./registry");
-  const { readLoops } = require("./loops-config");
-  const { TurnError } = require("../turn-error");
-  const { RequestSpec } = require("../memory");
+  import { loadNodes } from "./registry.js";
+  import { readLoops } from "./loops-config.js";
+  import { TurnError } from "./../turn-error.js";
+  import { RequestSpec } from "./../memory/index.js";
 
 const ENTRY_NODE = "turn-start";
 
@@ -134,6 +134,10 @@ class NodeGraphEngine {
         interactions: core.interactions,
         subagents: core.subagents,
         workflow: core.workflow,
+        jobs: core.jobs,
+        team: core.team,
+        schedule: core.schedule,
+        a2a: core.a2a,
         store: core.store,
         goals: core.goals,
       },
@@ -201,4 +205,4 @@ class NodeGraphEngine {
   }
 }
 
-module.exports = { runLoop: (core, ctx, agent) => new NodeGraphEngine().runLoop(core, ctx, agent), NodeGraphEngine };
+export default { runLoop: (core, ctx, agent) => new NodeGraphEngine().runLoop(core, ctx, agent), NodeGraphEngine };

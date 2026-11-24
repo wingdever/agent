@@ -14,4 +14,6 @@ async function run(args, exec) {
   return `message delivered to agent ${agent}`;
 }
 
-module.exports = { run };
+const __exports = { run };
+export { run };
+export default __exports;

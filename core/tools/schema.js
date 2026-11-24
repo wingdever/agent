@@ -4,10 +4,12 @@
 // used by the RPC registry with noun "params"; tools keep the DSH wording
 // "invalid arguments: ...".
 
-const { validateSchema: validate } = require("../schema");
+import { validateSchema as validate } from "./../schema.js";
 
 function validateSchema(schema, value) {
   return validate(schema, value, { noun: "arguments" });
 }
 
-module.exports = { validateSchema };
+const __exports = { validateSchema };
+export { validateSchema };
+export default __exports;

@@ -1,0 +1,1440 @@
+// 数据持久化存储引擎（真值：docs/foundation/storage/schema.md）
+// 使用 pgmicro（PostgreSQL 兼容的嵌入式数据库），单文件存储于 ./data/store.db
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { connect } from "pg-micro";
+import { SCHEMA_STATEMENTS } from "./schema.js";
+// surface 回放时现拼 framed checkpoint（preamble + 标签 + 摘要）。该模块是纯函数，
+// 不反向依赖存储层。
+import compaction from "../compaction.js";
+
+// 把 jsonb 读取结果规整为对象（pgmicro 可能返回字符串或已解析对象）
+function _utcTimestamp(v) {
+  if (v == null) return v;
+  if (v instanceof Date) return v.toISOString();
+  const text = String(v);
+  // pgmicro returns TIMESTAMP values as "YYYY-MM-DD HH:mm:ss.fff" in UTC but
+  // without the zone suffix. Appending Z keeps schedule arithmetic from being
+  // reinterpreted in the host's local timezone.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(text) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
+    return text.replace(" ", "T") + "Z";
+  }
+  return text;
+}
+
+function _j(v) {
+  if (v == null) return v;
+  if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
+  return v;
+}
+
+class Store {
+  constructor(db) {
+    this.db = db;
+    // 应用层分配 integer 主键（SELECT MAX(id)+1 再 INSERT）不是原子操作。单连接
+    // pg-micro 下父子 turn 并发写会抢到同一个 id（UNIQUE constraint failed:
+    // contents.id）。所有「取 id + 插行」走这条进程内串行链。
+    this._writeChain = Promise.resolve();
+  }
+
+  async close() { await this.db.close(); }
+
+  // 串行化一次「读-改-写」临界区（进程内互斥，不支持多进程）。
+  _serial(task) {
+    const run = this._writeChain.then(task, task);
+    // 吞掉链上的错误，避免一次失败污染后续任务；错误仍会传给调用方。
+    this._writeChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  // ---- schema ----
+  async _execSchema() {
+    for (const sql of SCHEMA_STATEMENTS) await this.db.exec(sql);
+  }
+
+  // ---- 通用底层 ----
+  async _nextId(table) {
+    const row = await this.db.prepare(`SELECT COALESCE(MAX(id),0)+1 AS n FROM ${table}`).get();
+    return Number(row.n);
+  }
+  async _get(table, id) {
+    return this.db.prepare(`SELECT * FROM ${table} WHERE id=$1`).get(id);
+  }
+  async _list(table, where = {}, order) {
+    const keys = Object.keys(where);
+    let sql = `SELECT * FROM ${table}`;
+    if (keys.length) sql += " WHERE " + keys.map((k, i) => `${k}=$${i + 1}`).join(" AND ");
+    if (order) sql += ` ORDER BY ${order}`;
+    return this.db.prepare(sql).all(...keys.map((k) => where[k]));
+  }
+  async _delete(table, id) {
+    await this.db.prepare(`DELETE FROM ${table} WHERE id=$1`).run(id);
+    return { id };
+  }
+  async _insertRow(table, cols, vals) {
+    const sql = `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map((_, i) => "$" + (i + 1)).join(", ")})`;
+    await this.db.prepare(sql).run(...vals);
+  }
+  // 仅插入调用方提供的列（未提供的列回落到列默认值）
+  async _create(table, data, allowed) {
+    return this._serial(async () => {
+      const id = data.id != null ? data.id : await this._nextId(table);
+      const cols = ["id"]; const vals = [id];
+      for (const c of allowed) {
+        if (data[c] !== undefined) { cols.push(c); vals.push(data[c]); }
+      }
+      await this._insertRow(table, cols, vals);
+      return this._get(table, id);
+    });
+  }
+  // 仅更新白名单内的列，并刷新 updated_at
+  async _update(table, id, data, allowed) {
+    const cols = allowed.filter((c) => data[c] !== undefined);
+    if (!cols.length) return this._get(table, id);
+    const sql = `UPDATE ${table} SET ${cols.map((c, i) => `${c}=$${i + 1}`).join(", ")}, updated_at=now() WHERE id=$${cols.length + 1}`;
+    await this.db.prepare(sql).run(...cols.map((c) => data[c]), id);
+    return this._get(table, id);
+  }
+
+  // ================= 工作区 / 会话树 =================
+  listWorkspaces() { return this._list("workspaces", {}, "updated_at DESC"); }
+  getWorkspace({ id }) { return this._get("workspaces", id); }
+  createWorkspace(data) { return this._create("workspaces", data, ["folder_path", "folder_name"]); }
+  updateWorkspace({ id, ...d }) { return this._update("workspaces", id, d, ["folder_path", "folder_name"]); }
+  async deleteWorkspace({ id }) {
+    const sessions = await this._list("sessions", { workspace_id: id });
+    for (const s of sessions) await this.deleteSession({ id: s.id, hard: true });
+    return this._delete("workspaces", id);
+  }
+
+  listSessions({ workspace_id, includeDeleted } = {}) {
+    let sql = "SELECT * FROM sessions WHERE 1=1";
+    const params = [];
+    let i = 0;
+    if (!includeDeleted) { sql += " AND deleted_at IS NULL"; }
+    if (workspace_id != null) { sql += ` AND workspace_id=$${++i}`; params.push(workspace_id); }
+    sql += " ORDER BY updated_at DESC";
+    return this.db.prepare(sql).all(...params);
+  }
+  getSession({ id }) { return this._get("sessions", id); }
+  createSession(data) { return this._create("sessions", data, ["workspace_id", "kind", "name", "description", "activity"]); }
+  updateSession({ id, ...d }) { return this._update("sessions", id, d, ["name", "description", "activity"]); }
+  async deleteSession({ id, hard } = {}) {
+    if (hard) return this._deleteSessionTree(id, new Set());
+    // 默认软删除：标记 deleted_at，保留 turns 供回溯恢复
+    return this._update("sessions", id, { deleted_at: "now" }, ["deleted_at"]);
+  }
+  // 硬删：先沿 session_forks 递归删掉后代会话，再清本会话的全部行。
+  // pg-micro 不强制外键，所有级联都在这里手工完成。
+  async _deleteSessionTree(id, seen) {
+    if (seen.has(id)) return { id };
+    seen.add(id);
+    const children = await this.db.prepare(
+      "SELECT child_session_id FROM session_forks WHERE parent_session_id=$1"
+    ).all(id);
+    for (const row of children) await this._deleteSessionTree(row.child_session_id, seen);
+
+    const turns = await this._list("turns", { session_id: id });
+    for (const t of turns) await this.deleteTurn({ id: t.id });
+    // 手工清理子代理委派记录（作为子会话或被委派方）。关联行里指向本会话
+    // 消息的 prompt/settle 随上面的 deleteMessage 已清；这里只补 subagents 本身。
+    await this.db.prepare("DELETE FROM subagents WHERE sub_sess_id=$1 OR par_sess_id=$1").run(id);
+    // 压缩记录与其摘要正文、per-session 序号缓存
+    const comps = await this.db.prepare("SELECT id, summary_content_id FROM compactions WHERE session_id=$1").all(id);
+    for (const c of comps) if (c.summary_content_id != null) await this._delete("contents", c.summary_content_id);
+    await this.db.prepare("DELETE FROM compactions WHERE session_id=$1").run(id);
+    await this.db.prepare("DELETE FROM session_seq_counters WHERE session_id=$1").run(id);
+    // fork 继承点：本会话作为子或父的行都清掉，避免指向已删除的会话。
+    await this.db.prepare("DELETE FROM session_forks WHERE child_session_id=$1 OR parent_session_id=$1").run(id);
+    return this._delete("sessions", id);
+  }
+  async restoreSession({ id }) {
+    return this._update("sessions", id, { deleted_at: null }, ["deleted_at"]);
+  }
+
+  // ================= 会话 fork 继承（无 id 列，走裸 SQL / _insertRow）=================
+  async addSessionFork({ child_session_id, parent_session_id, parent_boundary_seq }) {
+    await this._insertRow("session_forks", [
+      "child_session_id", "parent_session_id", "parent_boundary_seq",
+    ], [child_session_id, parent_session_id, parent_boundary_seq]);
+    return this.getSessionFork({ child_session_id });
+  }
+  getSessionFork({ child_session_id }) {
+    return this.db.prepare("SELECT * FROM session_forks WHERE child_session_id=$1").get(child_session_id);
+  }
+  listSessionForks({ parent_session_id }) {
+    return this.db.prepare("SELECT * FROM session_forks WHERE parent_session_id=$1").all(parent_session_id);
+  }
+  async deleteSessionFork({ child_session_id }) {
+    await this.db.prepare("DELETE FROM session_forks WHERE child_session_id=$1").run(child_session_id);
+    return { child_session_id };
+  }
+  // fork 继承点：最后一个已完成轮次的最后一条消息的 surface_seq。
+  // 在途与尚未开始的轮次不进入继承范围；没有已完成轮次时返回 0。
+  async getForkBoundary({ session_id }) {
+    const row = await this.db.prepare(
+      "SELECT MAX(m.surface_seq) AS boundary FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id WHERE t.session_id=$1 AND t.status NOT IN ('pending','running')"
+    ).get(session_id);
+    return row && row.boundary != null ? Number(row.boundary) : 0;
+  }
+
+  // ================= 压缩（compactions 关系表） =================
+  // seq 与 messages.surface_seq 共用同一个 per-session 序列：一次压缩消耗一个
+  // seq，作为摘要节点（checkpoint）在 surface 里的序号。
+  // 锁 = 同一 boot 内 status='running' 的行；进程重启后旧 boot 的 running 自动失效。
+  async _nextSessionSeq(sessionId) {
+    // 读-改-写，调用方必须已在 _serial 临界区内。
+    const row = await this.db.prepare("SELECT next_seq FROM session_seq_counters WHERE session_id=$1").get(sessionId);
+    const next = Number(row && row.next_seq != null ? row.next_seq : 0) + 1;
+    if (row) {
+      await this.db.prepare("UPDATE session_seq_counters SET next_seq=$1 WHERE session_id=$2").run(next, sessionId);
+    } else {
+      await this._insertRow("session_seq_counters", ["session_id", "next_seq"], [sessionId, next]);
+    }
+    return next;
+  }
+  _mapCompaction(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      seq: Number(row.seq),
+      startSeq: Number(row.start_seq),
+      endSeq: Number(row.end_seq),
+      summaryContentId: row.summary_content_id == null ? null : Number(row.summary_content_id),
+      trigger: row.trigger,
+      provider: row.provider,
+      model: row.model,
+      status: row.status,
+      error: row.error,
+      boot: row.boot,
+      createdAt: row.created_at,
+      finishedAt: row.finished_at,
+    };
+  }
+  // 开始一次压缩：分配 seq 并插入 running 行（持久锁）。此时区间尚未确定，
+  // start_seq / end_seq 占位为 0，成功时再写入；因此只返回 id 与 seq。
+  async startCompaction({ session_id, trigger, boot }) {
+    return this._serial(async () => {
+      const seq = await this._nextSessionSeq(session_id);
+      const id = await this._nextId("compactions");
+      await this._insertRow("compactions", [
+        "id", "session_id", "seq", "start_seq", "end_seq", "trigger", "status", "boot",
+      ], [id, session_id, seq, 0, 0, trigger || null, "running", boot || null]);
+      return { id, seq };
+    });
+  }
+  async succeedCompaction({ id, summary_content_id, start_seq, end_seq, provider, model }) {
+    await this.db.prepare(
+      "UPDATE compactions SET summary_content_id=$1, start_seq=$2, end_seq=$3, provider=$4, model=$5, status='succeeded', finished_at=now() WHERE id=$6"
+    ).run(summary_content_id, start_seq, end_seq, provider || null, model || null, id);
+    return this._mapCompaction(await this._get("compactions", id));
+  }
+  async failCompaction({ id, error }) {
+    await this.db.prepare(
+      "UPDATE compactions SET error=$1, status='failed', finished_at=now() WHERE id=$2"
+    ).run(error == null ? null : String(error), id);
+    return this._mapCompaction(await this._get("compactions", id));
+  }
+  async getActiveCompaction({ session_id, boot }) {
+    const row = await this.db.prepare(
+      "SELECT * FROM compactions WHERE session_id=$1 AND status='running' ORDER BY seq DESC LIMIT 1"
+    ).get(session_id);
+    if (!row) return null;
+    if (boot != null && row.boot !== boot) return null;
+    return this._mapCompaction(row);
+  }
+  // UI / 轨迹视图：全部压缩记录（含失败）。边界消息与轮次不落列，读时按
+  // end_seq 在 messages 里定位；turn 数由区间内的消息反查。
+  async listCompactions({ session_id }) {
+    const rows = await this.db.prepare(
+      "SELECT * FROM compactions WHERE session_id=$1 ORDER BY seq"
+    ).all(session_id);
+    const out = [];
+    for (const row of rows) {
+      const c = this._mapCompaction(row);
+      const summary = c.summaryContentId == null ? null : await this._get("contents", c.summaryContentId);
+      c.summary = summary ? summary.content : null;
+      let boundary = null;
+      let counted = null;
+      if (c.status === "succeeded") {
+        boundary = await this.db.prepare(
+          "SELECT m.id, t.seq AS turn_seq FROM messages m JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE t.session_id=$1 AND m.surface_seq=$2"
+        ).get(session_id, c.endSeq);
+        counted = await this.db.prepare(
+          "SELECT COUNT(DISTINCT t.seq) AS n FROM messages m JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE t.session_id=$1 AND m.surface_seq>=$2 AND m.surface_seq<=$3"
+        ).get(session_id, c.startSeq, c.endSeq);
+      }
+      c.upToMessageId = boundary ? boundary.id : null;
+      c.upToTurnSeq = boundary ? boundary.turn_seq : null;
+      c.turns = counted ? Number(counted.n) : 0;
+      out.push(c);
+    }
+    return out;
+  }
+
+  // ---- tool-result pruner（模型无关的确定性裁剪，原始消息不动）----
+  async listToolMessages({ session_id }) {
+    return this.db.prepare(
+      "SELECT t.seq AS turn_seq, m.id AS message_id, c.content AS content FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id LEFT JOIN contents c ON c.id=m.content_id WHERE t.session_id=$1 AND m.role='tool' ORDER BY t.seq, s.seq, m.seq"
+    ).all(session_id);
+  }
+  async saveToolResultPrune({ message_id, content, chars_before, chars_after }) {
+    await this.db.prepare("DELETE FROM tool_result_prunes WHERE message_id=$1").run(message_id);
+    await this.db.prepare(
+      "INSERT INTO tool_result_prunes (message_id, content, chars_before, chars_after) VALUES ($1,$2,$3,$4)"
+    ).run(message_id, content, chars_before, chars_after);
+    return { message_id };
+  }
+
+  // 消息投影（含 per-session surface_seq）。原始消息永不改写；tool 结果用
+  // pruned 替换体，assistant 的 tool_calls 从 calls 表还原并按步配对 call_id。
+  async _projectMessages({ session_id }) {
+    const rows = await this.db.prepare(
+      'SELECT t.id AS turn_id, t.seq AS turn_seq, s.id AS step_id, s.seq AS step_seq, m.id AS message_id, m.seq AS msg_seq, m.surface_seq, m.role, c.content AS content, p.content AS pruned FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id LEFT JOIN contents c ON c.id=m.content_id LEFT JOIN tool_result_prunes p ON p.message_id=m.id WHERE t.session_id=$1 ORDER BY t.seq, s.seq, m.seq'
+    ).all(session_id);
+    const callRows = await this.db.prepare(
+      'SELECT c.id, c.reply_id, c.seq, c.call_id, c.name, c."arguments" FROM calls c JOIN messages m ON m.id=c.reply_id JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE t.session_id=$1 ORDER BY c.reply_id, c.seq'
+    ).all(session_id);
+    const callsByReply = new Map();
+    for (const c of callRows) {
+      if (!callsByReply.has(c.reply_id)) callsByReply.set(c.reply_id, []);
+      callsByReply.get(c.reply_id).push(c);
+    }
+    const messages = [];
+    let stepId = null;
+    let pendingCallIds = [];
+    for (const r of rows) {
+      if (r.step_id !== stepId) { stepId = r.step_id; pendingCallIds = []; }
+      if (r.role === "system") {
+        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "system", content: r.content == null ? "" : r.content });
+        continue;
+      }
+      if (r.role === "user") {
+        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "user", content: r.content == null ? "" : r.content });
+      } else if (r.role === "assistant") {
+        const msg = { id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "assistant", content: r.content == null ? "" : r.content };
+        const calls = callsByReply.get(r.message_id) || [];
+        if (calls.length) {
+          pendingCallIds = calls.map((c) => String(c.call_id != null ? c.call_id : c.id));
+          msg.tool_calls = calls.map((c) => ({
+            id: String(c.call_id != null ? c.call_id : c.id),
+            type: "function",
+            function: { name: c.name, arguments: c.arguments == null ? "{}" : String(c.arguments) },
+          }));
+        }
+        messages.push(msg);
+      } else if (r.role === "tool") {
+        const toolCallId = pendingCallIds.length ? pendingCallIds.shift() : "";
+        messages.push({
+          id: r.message_id,
+          surfaceSeq: Number(r.surface_seq),
+          turnSeq: r.turn_seq,
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: r.pruned != null ? r.pruned : (r.content == null ? "" : r.content),
+        });
+      }
+    }
+    return messages;
+  }
+
+  // 单个会话自己的 surface 节点：append-origin 消息（无 system），带 originSessionId。
+  // 节点 seq 是 per-session 的，跨会话复用同一个数值，定位一律用 (originSessionId, seq)。
+  async _ownSurfaceNodes(session_id) {
+    const messages = await this._projectMessages({ session_id });
+    return messages
+      .filter((m) => m.role !== "system")
+      .sort((a, b) => a.surfaceSeq - b.surfaceSeq)
+      .map((m) => ({
+        seq: m.surfaceSeq,
+        kind: "message",
+        id: m.id,
+        turnSeq: m.turnSeq == null ? null : Number(m.turnSeq),
+        originSessionId: session_id,
+        message: Object.assign(
+          { role: m.role, content: m.content },
+          m.tool_calls ? { tool_calls: m.tool_calls } : {},
+          m.tool_call_id ? { tool_call_id: m.tool_call_id } : {},
+        ),
+      }));
+  }
+
+  async _checkpointNode(row, originSessionId, turnSeq, summaryContent) {
+    const content = summaryContent != null
+      ? summaryContent
+      : ((await this._get("contents", row.summary_content_id)) || {}).content;
+    return {
+      seq: Number(row.seq),
+      kind: "checkpoint",
+      id: null,
+      turnSeq: turnSeq == null ? null : Number(turnSeq),
+      originSessionId,
+      compactionId: row.id,
+      message: { role: "user", content: compaction.frameCheckpoint(content == null ? "" : content) },
+    };
+  }
+
+  // 历史回放（fork 感知）。boundarySeq 非空表示「父侧冻结」：只取该会话
+  // 截至该 seq 的历史，用于 fork 子会话重建继承段。
+  //
+  // 基础序列 = 继承段 + 本会话消息，然后按 seq 顺序应用本会话的成功压缩：
+  // 有 fork 记录时 start_seq 记 0，表示从整段历史的头部替换；否则按
+  // [originSessionId, seq] 定位区间端点（surface_seq 是 per-session 的，会跨会话撞号）。
+  async _hist(sessionId, boundarySeq, seen) {
+    const key = sessionId + "@" + (boundarySeq == null ? "live" : boundarySeq);
+    if (seen.has(key)) throw new Error("session fork cycle detected at session " + sessionId);
+    seen.add(key);
+    if (boundarySeq === 0) return [];
+
+    const own = await this._ownSurfaceNodes(sessionId);
+    const scoped = boundarySeq == null ? own : own.filter((node) => node.seq <= boundarySeq);
+
+    let rows = boundarySeq == null
+      ? await this.db.prepare(
+        "SELECT * FROM compactions WHERE session_id=$1 AND status='succeeded' ORDER BY seq"
+      ).all(sessionId)
+      : await this.db.prepare(
+        "SELECT * FROM compactions WHERE session_id=$1 AND status='succeeded' AND end_seq<=$2 ORDER BY seq"
+      ).all(sessionId, boundarySeq);
+
+    // start_seq = 0 的压缩从整段历史头部替换，已经吸收继承段与更早的压缩：
+    // 只保留这一行，也不再访问父会话。
+    const latest = rows.length ? rows[rows.length - 1] : null;
+    const absorbsAll = latest != null && Number(latest.start_seq) === 0;
+    if (absorbsAll) rows = [latest];
+
+    const fork = absorbsAll ? null : await this.getSessionFork({ child_session_id: sessionId });
+    const inherited = fork
+      ? await this._hist(fork.parent_session_id, Number(fork.parent_boundary_seq), seen)
+      : [];
+    const nodes = [...inherited, ...scoped];
+
+    for (const row of rows) {
+      const startSeq = Number(row.start_seq);
+      const endSeq = Number(row.end_seq);
+      const startIdx = startSeq === 0
+        ? 0
+        : nodes.findIndex((node) => node.originSessionId === sessionId && node.seq === startSeq);
+      const endIdx = nodes.findIndex((node) => node.originSessionId === sessionId && node.seq === endSeq);
+      if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) continue;
+      const summary = row.summary_content_id == null ? null : await this._get("contents", row.summary_content_id);
+      if (!summary) continue;
+      nodes.splice(
+        startIdx,
+        endIdx - startIdx + 1,
+        await this._checkpointNode(row, sessionId, nodes[endIdx].turnSeq, summary.content),
+      );
+    }
+    return nodes;
+  }
+
+  // 模型可见历史：fork 子会话 = 继承段 + 本会话消息。
+  async getSurface({ session_id }) {
+    return { nodes: await this._hist(session_id, null, new Set()) };
+  }
+
+  // Convenience projection for tests/tools: flat surface messages + latest
+  // successful compaction summary.
+  async getSessionHistory({ session_id }) {
+    const surface = await this.getSurface({ session_id });
+    const succeeded = (await this.listCompactions({ session_id })).filter((c) => c.status === "succeeded");
+    return {
+      messages: surface.nodes.map((node) => Object.assign(
+        { id: node.kind === "checkpoint" ? node.seq : node.id, turnSeq: node.turnSeq, checkpoint: node.kind === "checkpoint" },
+        node.message,
+      )),
+      compaction: succeeded.length ? succeeded[succeeded.length - 1] : null,
+    };
+  }
+
+  // ---- token-meter usage anchor ----
+  _mapAnchor(row) {
+    if (!row) return null;
+    return {
+      sessionId: row.session_id,
+      headerKey: row.header_key,
+      headerTokens: Number(row.header_tokens),
+      inputTokens: Number(row.input_tokens),
+      assistantTokens: Number(row.assistant_tokens),
+      usageTotal: Number(row.usage_total),
+    };
+  }
+  async getTokenAnchor({ session_id }) {
+    const row = await this.db.prepare("SELECT * FROM token_anchors WHERE session_id=$1").get(session_id);
+    return this._mapAnchor(row);
+  }
+  async saveTokenAnchor({ session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total }) {
+    await this.db.prepare("DELETE FROM token_anchors WHERE session_id=$1").run(session_id);
+    await this.db.prepare(
+      "INSERT INTO token_anchors (session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total) VALUES ($1,$2,$3,$4,$5,$6)"
+    ).run(session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total);
+    return this.getTokenAnchor({ session_id });
+  }
+
+  // ---- goals（每个 session 一个当前 goal，revision 做 CAS）----
+  _mapGoal(row) {
+    if (!row) return null;
+    return {
+      id: row.goal_id,
+      revision: Number(row.revision),
+      objective: row.objective,
+      phase: row.phase,
+      roundsStarted: Number(row.rounds_started),
+      maxGoalRounds: Number(row.max_goal_rounds),
+      ...(row.blocked_code ? { blockedReason: { code: row.blocked_code, message: row.blocked_message || "" } } : {}),
+      activation: row.activation,
+    };
+  }
+  async getGoal({ session_id }) {
+    const row = await this.db.prepare("SELECT * FROM goals WHERE session_id=$1").get(session_id);
+    return this._mapGoal(row);
+  }
+  async saveGoal({ session_id, goal }) {
+    await this.db.prepare("DELETE FROM goals WHERE session_id=$1").run(session_id);
+    await this._insertRow("goals", [
+      "session_id", "goal_id", "revision", "objective", "phase",
+      "rounds_started", "max_goal_rounds", "blocked_code", "blocked_message", "activation",
+    ], [
+      session_id, goal.id, goal.revision, goal.objective, goal.phase,
+      goal.roundsStarted || 0, goal.maxGoalRounds, goal.blockedReason ? goal.blockedReason.code : null,
+      goal.blockedReason ? goal.blockedReason.message : null, goal.activation || "armed",
+    ]);
+    return this.getGoal({ session_id });
+  }
+
+  // ---- user jobs（模型派给真人用户的任务；status: pending|completed|killed）----
+  _mapUserJob(row) {
+    if (!row) return null;
+    return {
+      jobId: row.job_id,
+      sessionId: row.session_id,
+      status: row.status,
+      description: row.description,
+      title: row.title,
+      result: row.result,
+    };
+  }
+  async createUserJob({ job_id, session_id, status = "pending", description, title }) {
+    return this._serial(async () => {
+      const id = await this._nextId("user_jobs");
+      await this._insertRow("user_jobs", ["id", "job_id", "session_id", "status", "description", "title"], [id, job_id, session_id, status, description, title || null]);
+      return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+    });
+  }
+  async getUserJob({ job_id }) {
+    const row = await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id);
+    return this._mapUserJob(row);
+  }
+  async listUserJobs({ session_id }) {
+    const rows = await this.db.prepare("SELECT * FROM user_jobs WHERE session_id=$1 ORDER BY created_at DESC").all(session_id);
+    return rows.map((r) => this._mapUserJob(r));
+  }
+  async completeUserJob({ job_id, result }) {
+    await this.db.prepare("UPDATE user_jobs SET status='completed', result=$1, updated_at=now() WHERE job_id=$2").run(result || null, job_id);
+    return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+  }
+  async killUserJob({ job_id }) {
+    await this.db.prepare("UPDATE user_jobs SET status='killed', updated_at=now() WHERE job_id=$1").run(job_id);
+    return this._mapUserJob(await this.db.prepare("SELECT * FROM user_jobs WHERE job_id=$1").get(job_id));
+  }
+
+  // ---- background jobs（agent 自己的后台工作，不是派给真人的 user_jobs）----
+  async createJob({ job_id, session_id, kind, label, status = "running", output = null, owner_pid = null, boot = null }) {
+    return this._serial(async () => {
+      const id = await this._nextId("jobs");
+      await this._insertRow(
+        "jobs",
+        ["id", "job_id", "session_id", "kind", "label", "status", "output"],
+        [id, job_id, session_id, kind, label || null, status, output],
+      );
+      if (owner_pid != null || boot != null) {
+        await this._insertRow(
+          "job_owners",
+          ["id", "job_id", "pid", "boot"],
+          [await this._nextId("job_owners"), job_id, owner_pid, boot],
+        );
+      }
+      return this._mapJob(await this.db.prepare("SELECT * FROM jobs WHERE job_id=$1").get(job_id));
+    });
+  }
+  async getJob({ job_id }) {
+    return this._mapJob(await this.db.prepare("SELECT * FROM jobs WHERE job_id=$1").get(job_id));
+  }
+  async listJobs({ session_id }) {
+    const rows = await this.db.prepare("SELECT * FROM jobs WHERE session_id=$1 ORDER BY created_at DESC").all(session_id);
+    return rows.map((r) => this._mapJob(r));
+  }
+  async completeJob({ job_id, status, detail = null, result = null, output = null }) {
+    await this.db.prepare(
+      "UPDATE jobs SET status=$1, detail=$2, result=$3, output=$4, finished_at=now(), updated_at=now() WHERE job_id=$5",
+    ).run(status, detail, result, output, job_id);
+    return this._mapJob(await this.db.prepare("SELECT * FROM jobs WHERE job_id=$1").get(job_id));
+  }
+  async killJob({ job_id }) {
+    await this.db.prepare(
+      "UPDATE jobs SET status='killed', finished_at=now(), updated_at=now() WHERE job_id=$1 AND status='running'",
+    ).run(job_id);
+    return this._mapJob(await this.db.prepare("SELECT * FROM jobs WHERE job_id=$1").get(job_id));
+  }
+  // 进程重启后的孤儿判定需要看 owner_pid 是否还活着，这里只提供行，
+  // 由 JobService 决定“回收还是跳过”（同一库可能被桌面端与通道进程共用）。
+  async listRunningJobs() {
+    const rows = await this.db.prepare(
+      `SELECT jobs.id, jobs.job_id, jobs.session_id, jobs.kind, jobs.label, jobs.status,
+              jobs.detail, jobs.result, jobs.output, jobs.created_at, jobs.started_at,
+              jobs.finished_at, job_owners.pid AS owner_pid, job_owners.boot AS boot
+         FROM jobs LEFT JOIN job_owners ON job_owners.job_id = jobs.job_id
+        WHERE jobs.status='running'`,
+    ).all();
+    return rows.map((r) => this._mapJob(r));
+  }
+  async failJob({ job_id, detail = "interrupted by restart" }) {
+    await this.db.prepare(
+      "UPDATE jobs SET status='failed', detail=$1, finished_at=now(), updated_at=now() WHERE job_id=$2 AND status='running'",
+    ).run(detail, job_id);
+    return this._mapJob(await this.db.prepare("SELECT * FROM jobs WHERE job_id=$1").get(job_id));
+  }
+  _mapJob(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      jobId: row.job_id,
+      sessionId: row.session_id,
+      kind: row.kind,
+      label: row.label,
+      status: row.status,
+      detail: row.detail,
+      result: row.result,
+      output: row.output,
+      ownerPid: row.owner_pid,
+      boot: row.boot,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      finishedAt: row.finished_at,
+    };
+  }
+
+  // ---- Agent Team shared task board ----
+  // One board per root session. `seq` is the Team-local numeric suffix; task ids
+  // are `task-<seq>` and never reused because deleted rows stay as tombstones.
+  async createTeamTask({ team_id, subject, description, blocked_by = [], write_scopes = [] }) {
+    return this._serial(async () => {
+      const max = await this.db.prepare("SELECT COALESCE(MAX(seq),0) AS n FROM team_tasks WHERE team_id=$1").get(team_id);
+      const seq = Number(max.n) + 1;
+      const id = await this._nextId("team_tasks");
+      await this._insertRow(
+        "team_tasks",
+        ["id", "team_id", "seq", "task_id", "revision", "subject", "description", "status", "blocked_by", "write_scopes"],
+        [id, team_id, seq, `task-${seq}`, 1, subject, description, "pending", JSON.stringify(blocked_by), JSON.stringify(write_scopes)],
+      );
+      return this._mapTeamTask(await this.db.prepare("SELECT * FROM team_tasks WHERE team_id=$1 AND task_id=$2").get(team_id, `task-${seq}`));
+    });
+  }
+  async getTeamTask({ team_id, task_id }) {
+    return this._mapTeamTask(
+      await this.db.prepare("SELECT * FROM team_tasks WHERE team_id=$1 AND task_id=$2").get(team_id, task_id),
+    );
+  }
+  async listTeamTasks({ team_id }) {
+    const rows = await this.db.prepare("SELECT * FROM team_tasks WHERE team_id=$1 ORDER BY seq").all(team_id);
+    return rows.map((r) => this._mapTeamTask(r));
+  }
+  async countActiveTeamTasks({ team_id }) {
+    const row = await this.db.prepare("SELECT COUNT(*) AS n FROM team_tasks WHERE team_id=$1 AND status!='deleted'").get(team_id);
+    return Number(row.n);
+  }
+  // Compare-and-set by revision. Returns the row even on failure so the caller
+  // can report the actual current revision.
+  async casTeamTask({ team_id, task_id, expected_revision, patch = {} }) {
+    const allowed = ["subject", "description", "status", "owner_id", "owner_name", "blocked_by", "write_scopes"];
+    const cols = allowed.filter((key) => patch[key] !== undefined);
+    const jsonCols = new Set(["blocked_by", "write_scopes"]);
+    const values = cols.map((key) => (jsonCols.has(key) ? JSON.stringify(patch[key]) : patch[key]));
+    const assignments = cols.map((key, i) => `${key}=$${i + 1}`).join(", ");
+    let applied = false;
+    if (assignments) {
+      const n = cols.length;
+      const result = await this.db.prepare(
+        `UPDATE team_tasks SET ${assignments}, revision=revision+1, updated_at=now()
+          WHERE team_id=$${n + 1} AND task_id=$${n + 2} AND revision=$${n + 3}`,
+      ).run(...values, team_id, task_id, expected_revision);
+      applied = Number(result.changes) === 1;
+    }
+    const row = this._mapTeamTask(
+      await this.db.prepare("SELECT * FROM team_tasks WHERE team_id=$1 AND task_id=$2").get(team_id, task_id),
+    );
+    return { applied, task: row };
+  }
+  _mapTeamTask(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      teamId: row.team_id,
+      seq: row.seq,
+      taskId: row.task_id,
+      revision: row.revision,
+      subject: row.subject,
+      description: row.description,
+      status: row.status,
+      ownerId: row.owner_id,
+      ownerName: row.owner_name,
+      blockedBy: _j(row.blocked_by) || [],
+      writeScopes: _j(row.write_scopes) || [],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  // ================= schedules =================
+  async createSchedule({ title, prompt, timing, target, next_at }) {
+    return this._serial(async () => {
+      const max = await this.db.prepare("SELECT COALESCE(MAX(seq),0) AS n FROM schedules").get();
+      const seq = Number(max.n) + 1;
+      const id = await this._nextId("schedules");
+      await this._insertRow(
+        "schedules",
+        ["id", "seq", "schedule_id", "title", "prompt", "timing", "target", "status", "next_at"],
+        [id, seq, `schedule-${seq}`, title, prompt, JSON.stringify(timing), JSON.stringify(target), "active", next_at],
+      );
+      return this._mapSchedule(await this.db.prepare("SELECT * FROM schedules WHERE schedule_id=$1").get(`schedule-${seq}`));
+    });
+  }
+
+  async getSchedule({ schedule_id }) {
+    return this._mapSchedule(await this.db.prepare("SELECT * FROM schedules WHERE schedule_id=$1").get(schedule_id));
+  }
+
+  async listSchedules() {
+    const rows = await this.db.prepare("SELECT * FROM schedules ORDER BY next_at, seq").all();
+    return rows.map((row) => this._mapSchedule(row));
+  }
+
+  // Compare-and-set by revision. Returns the current row even on failure so the
+  // caller can report the actual revision.
+  async casSchedule({ schedule_id, expected_revision, patch = {} }) {
+    const allowed = ["title", "prompt", "timing", "target", "status", "next_at", "last_delivery"];
+    const cols = allowed.filter((key) => patch[key] !== undefined);
+    const jsonCols = new Set(["timing", "target", "last_delivery"]);
+    const values = cols.map((key) => (jsonCols.has(key) ? JSON.stringify(patch[key]) : patch[key]));
+    const assignments = cols.map((key, i) => `${key}=$${i + 1}`).join(", ");
+    let applied = false;
+    if (assignments) {
+      const n = cols.length;
+      const result = await this.db.prepare(
+        `UPDATE schedules SET ${assignments}, revision=revision+1, updated_at=now()
+          WHERE schedule_id=$${n + 1} AND revision=$${n + 2}`,
+      ).run(...values, schedule_id, expected_revision);
+      applied = Number(result.changes) === 1;
+    }
+    const row = this._mapSchedule(await this.db.prepare("SELECT * FROM schedules WHERE schedule_id=$1").get(schedule_id));
+    return { applied, task: row };
+  }
+
+  async deleteSchedule({ schedule_id }) {
+    await this.db.prepare("DELETE FROM schedules WHERE schedule_id=$1").run(schedule_id);
+    return { schedule_id };
+  }
+
+  _mapSchedule(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      seq: row.seq,
+      scheduleId: row.schedule_id,
+      title: row.title,
+      prompt: row.prompt,
+      timing: _j(row.timing) || {},
+      target: _j(row.target) || {},
+      status: row.status,
+      nextAt: _utcTimestamp(row.next_at),
+      lastDelivery: _j(row.last_delivery) || null,
+      revision: row.revision,
+      createdAt: _utcTimestamp(row.created_at),
+      updatedAt: _utcTimestamp(row.updated_at),
+    };
+  }
+
+  // ================= A2A protocol domain =================
+  async createA2AInstance(data) {
+    return this._create("a2a_instances", {
+      ...data,
+      skills: JSON.stringify(data.skills || []),
+    }, ["instance_id", "name", "description", "version", "workspace_id", "skills", "token_env", "approval_policy", "enabled"])
+      .then((row) => this._mapA2AInstance(row));
+  }
+
+  async getA2AInstance({ instance_id }) {
+    return this._mapA2AInstance(await this.db.prepare("SELECT * FROM a2a_instances WHERE instance_id=$1").get(instance_id));
+  }
+
+  async listA2AInstances() {
+    const rows = await this.db.prepare("SELECT * FROM a2a_instances ORDER BY instance_id").all();
+    return rows.map((row) => this._mapA2AInstance(row));
+  }
+
+  async getA2AContext({ context_id }) {
+    return this._mapA2AContext(await this.db.prepare("SELECT * FROM a2a_contexts WHERE context_id=$1").get(context_id));
+  }
+
+  async createA2AContext({ context_id, instance_id, session_id }) {
+    return this._create("a2a_contexts", { context_id, instance_id, session_id }, ["context_id", "instance_id", "session_id"])
+      .then((row) => this._mapA2AContext(row));
+  }
+
+  async getOrCreateA2AContext({ context_id, instance_id, session_id }) {
+    const existing = await this.getA2AContext({ context_id });
+    if (existing) return existing;
+    return this.createA2AContext({ context_id, instance_id, session_id });
+  }
+
+  async createA2ATask(data) {
+    return this._serial(async () => {
+      const id = data.id != null ? data.id : await this._nextId("a2a_tasks");
+      const cols = ["id", "task_id", "context_id", "session_id", "instance_id", "skill", "state", "input", "artifacts", "last_message_id"];
+      const vals = [
+        id,
+        data.task_id,
+        data.context_id,
+        data.session_id,
+        data.instance_id,
+        data.skill || "chat",
+        data.state || "TASK_STATE_SUBMITTED",
+        JSON.stringify(data.input || {}),
+        JSON.stringify(data.artifacts || []),
+        data.last_message_id || null,
+      ];
+      await this._insertRow("a2a_tasks", cols, vals);
+      return this._mapA2ATask(await this.db.prepare("SELECT * FROM a2a_tasks WHERE task_id=$1").get(data.task_id));
+    });
+  }
+
+  async getA2ATask({ task_id }) {
+    return this._mapA2ATask(await this.db.prepare("SELECT * FROM a2a_tasks WHERE task_id=$1").get(task_id));
+  }
+
+  async listA2ATasks({ context_id, instance_id, state } = {}) {
+    const clauses = [];
+    const params = [];
+    if (context_id != null) { clauses.push(`context_id=$${params.length + 1}`); params.push(context_id); }
+    if (instance_id != null) { clauses.push(`instance_id=$${params.length + 1}`); params.push(instance_id); }
+    if (state != null) { clauses.push(`state=$${params.length + 1}`); params.push(state); }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const rows = await this.db.prepare(`SELECT * FROM a2a_tasks${where} ORDER BY created_at DESC`).all(...params);
+    return rows.map((row) => this._mapA2ATask(row));
+  }
+
+  // Compare-and-set by revision. Returns the current row even on failure so
+  // callers can report the actual revision.
+  async casA2ATask({ task_id, expected_revision, patch = {} }) {
+    const allowed = ["state", "status_message", "last_message_id", "artifacts", "error", "finished_at"];
+    const cols = allowed.filter((key) => patch[key] !== undefined);
+    const jsonCols = new Set(["artifacts"]);
+    const values = cols.map((key) => (jsonCols.has(key) ? JSON.stringify(patch[key]) : patch[key]));
+    const assignments = cols.map((key, i) => `${key}=$${i + 1}`).join(", ");
+    let applied = false;
+    if (assignments) {
+      const n = cols.length;
+      const result = await this.db.prepare(
+        `UPDATE a2a_tasks SET ${assignments}, revision=revision+1, updated_at=now()
+          WHERE task_id=$${n + 1} AND revision=$${n + 2}`,
+      ).run(...values, task_id, expected_revision);
+      applied = Number(result.changes) === 1;
+    }
+    const row = this._mapA2ATask(await this.db.prepare("SELECT * FROM a2a_tasks WHERE task_id=$1").get(task_id));
+    return { applied, task: row };
+  }
+
+  async addA2AMessage({ message_id, task_id, role, parts }) {
+    return this._serial(async () => {
+      const id = await this._nextId("a2a_messages");
+      await this._insertRow("a2a_messages", ["id", "message_id", "task_id", "role", "parts"],
+        [id, message_id, task_id, role, JSON.stringify(parts || [])]);
+      return this._mapA2AMessage(await this.db.prepare("SELECT * FROM a2a_messages WHERE message_id=$1").get(message_id));
+    });
+  }
+
+  async getA2AMessage({ message_id }) {
+    return this._mapA2AMessage(await this.db.prepare("SELECT * FROM a2a_messages WHERE message_id=$1").get(message_id));
+  }
+
+  _mapA2AInstance(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      instanceId: row.instance_id,
+      name: row.name,
+      description: row.description,
+      version: row.version,
+      workspaceId: row.workspace_id,
+      skills: _j(row.skills) || [],
+      tokenEnv: row.token_env,
+      approvalPolicy: row.approval_policy,
+      enabled: Number(row.enabled) === 1,
+      createdAt: _utcTimestamp(row.created_at),
+      updatedAt: _utcTimestamp(row.updated_at),
+    };
+  }
+
+  _mapA2AContext(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      contextId: row.context_id,
+      instanceId: row.instance_id,
+      sessionId: row.session_id,
+      createdAt: _utcTimestamp(row.created_at),
+      updatedAt: _utcTimestamp(row.updated_at),
+    };
+  }
+
+  _mapA2ATask(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      contextId: row.context_id,
+      sessionId: row.session_id,
+      instanceId: row.instance_id,
+      skill: row.skill,
+      state: row.state,
+      statusMessage: row.status_message,
+      lastMessageId: row.last_message_id,
+      input: _j(row.input) || {},
+      artifacts: _j(row.artifacts) || [],
+      error: row.error,
+      revision: row.revision,
+      createdAt: _utcTimestamp(row.created_at),
+      updatedAt: _utcTimestamp(row.updated_at),
+      finishedAt: _utcTimestamp(row.finished_at),
+    };
+  }
+
+  _mapA2AMessage(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      messageId: row.message_id,
+      taskId: row.task_id,
+      role: row.role,
+      parts: _j(row.parts) || [],
+      createdAt: _utcTimestamp(row.created_at),
+    };
+  }
+
+  listTurns({ session_id }) { return this._list("turns", { session_id }, "seq"); }
+  getTurn({ id }) { return this._get("turns", id); }
+  createTurn(data) { return this._create("turns", data, ["session_id", "seq", "status"]); }
+  updateTurn({ id, ...d }) { return this._update("turns", id, d, ["status"]); }
+  async deleteTurn({ id }) {
+    const steps = await this._list("steps", { turn_id: id });
+    for (const s of steps) await this.deleteStep({ id: s.id });
+    return this._delete("turns", id);
+  }
+
+  listSteps({ turn_id }) { return this._list("steps", { turn_id }, "seq"); }
+  getStep({ id }) { return this._get("steps", id); }
+  createStep(data) { return this._create("steps", data, ["turn_id", "seq", "status"]); }
+  updateStep({ id, ...d }) { return this._update("steps", id, d, ["status"]); }
+  async deleteStep({ id }) {
+    const msgs = await this._list("messages", { step_id: id });
+    for (const m of msgs) await this.deleteMessage({ id: m.id });
+    return this._delete("steps", id);
+  }
+
+  // ---- contents ----
+  addContent(data) { return this._create("contents", data, ["content"]); }
+  getContent({ id }) { return this._get("contents", id); }
+
+  // ---- messages（content 与 thought 分别存于 contents，经 content_id / thought_id 关联）----
+  async addMessage({ step_id, seq, role, content, thought, session_id, source }) {
+    return this._serial(async () => {
+      // surface_seq 与 compactions.seq 共用一个 per-session 序列；调用方通常
+      // 直接传 session_id，测试/旧调用则从 step -> turn 反查。
+      let sid = session_id;
+      if (sid == null) {
+        const owner = await this.db.prepare(
+          "SELECT t.session_id FROM steps s JOIN turns t ON t.id=s.turn_id WHERE s.id=$1"
+        ).get(step_id);
+        sid = owner ? owner.session_id : null;
+      }
+      const surfaceSeq = sid != null ? await this._nextSessionSeq(sid) : 0;
+      // content_id / thought_id 可空：仅当对应内容存在时才建 contents 行
+      let content_id = null;
+      if (content != null) {
+        content_id = await this._nextId("contents");
+        await this._insertRow("contents", ["id", "content"], [content_id, content]);
+      }
+      let thought_id = null;
+      if (thought != null) {
+        thought_id = await this._nextId("contents");
+        await this._insertRow("contents", ["id", "content"], [thought_id, thought]);
+      }
+      const id = await this._nextId("messages");
+      const cols = ["id", "step_id", "seq", "surface_seq", "role", "content_id", "thought_id"];
+      const vals = [id, step_id, seq, surfaceSeq, role, content_id, thought_id];
+      if (source != null) { cols.push("source"); vals.push(source); }
+      await this._insertRow("messages", cols, vals);
+      return this.getMessage({ id });
+    });
+  }
+  async getMessage({ id }) {
+    return this.db.prepare(
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.source, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.id=$1"
+    ).get(id);
+  }
+  async listMessages({ step_id }) {
+    return this.db.prepare(
+      "SELECT messages.id, messages.step_id, messages.seq, messages.role, messages.source, messages.content_id, messages.thought_id, contents.content, thought_content.content AS thought, messages.created_at, messages.updated_at FROM messages LEFT JOIN contents ON contents.id=messages.content_id LEFT JOIN contents thought_content ON thought_content.id=messages.thought_id WHERE messages.step_id=$1 ORDER BY messages.seq"
+    ).all(step_id);
+  }
+  // 会话级 system prompt：返回该 session 最早落库的 system 消息内容。
+  // 每轮都会复制一份同样的内容，因此取任意一份都相同；按 turn/step/message 顺序取最早。
+  async getSessionPrompt({ session_id }) {
+    const row = await this.db.prepare(
+      "SELECT contents.content FROM turns JOIN steps ON steps.turn_id=turns.id JOIN messages ON messages.step_id=steps.id JOIN contents ON contents.id=messages.content_id WHERE turns.session_id=$1 AND messages.role='system' ORDER BY turns.seq ASC, steps.seq ASC, messages.seq ASC LIMIT 1"
+    ).get(session_id);
+    return row ? row.content : null;
+  }
+  // 轨迹面板：返回 turns -> steps -> (messages + calls) 的树，供前端时间线渲染。
+  // 复用现有 list* 方法，不新增采集逻辑。
+  async getTrajectory({ session_id }) {
+    const turns = await this.listTurns({ session_id });
+    const out = [];
+    for (const turn of turns) {
+      const steps = await this.listSteps({ turn_id: turn.id });
+      const stepOut = [];
+      for (const step of steps) {
+        const messages = await this.listMessages({ step_id: step.id });
+        const calls = [];
+        for (const m of messages) {
+          const cs = await this.db.prepare(
+            "SELECT id, call_id, name, arguments, description, status, result_id, error, category FROM calls WHERE reply_id=$1 ORDER BY seq"
+          ).all(m.id);
+          for (const c of cs) {
+            let result = null;
+            if (c.result_id != null) {
+              const rc = await this.db.prepare("SELECT content FROM contents WHERE id=$1").get(c.result_id);
+              result = rc ? rc.content : null;
+            }
+            calls.push({
+              id: c.id, call_id: c.call_id, name: c.name, arguments: c.arguments,
+              description: c.description, status: c.status, result, error: c.error, category: c.category,
+            });
+          }
+        }
+        stepOut.push({ id: step.id, seq: step.seq, status: step.status, messages, calls });
+      }
+      out.push({ id: turn.id, seq: turn.seq, status: turn.status, steps: stepOut });
+    }
+    return out;
+  }
+  async deleteMessage({ id }) {
+    const msg = await this._get("messages", id);
+    if (!msg) return;
+    const callsToDel = await this.db.prepare("SELECT id, result_id FROM calls WHERE reply_id=$1").all(msg.id);
+    // 手工清理子代理关联行（pg-micro 不强制 FK，ON DELETE CASCADE 为空文）。
+    // 该消息可能是委派 tool_call 的宿主、子会话首条 prompt、或结算/输出消息。
+    for (const c of callsToDel) {
+      await this.db.prepare("DELETE FROM subagent_prompts WHERE call_id=$1").run(c.id);
+    }
+    await this.db.prepare("DELETE FROM subagent_prompts WHERE prompt_id=$1").run(msg.id);
+    await this.db.prepare("DELETE FROM subagent_settles WHERE output_id=$1 OR settle_id=$1").run(msg.id);
+    for (const c of callsToDel) if (c.result_id != null) await this._delete("contents", c.result_id);
+    await this.db.prepare("DELETE FROM calls WHERE reply_id=$1").run(msg.id);
+    if (msg.thought_id != null) await this._delete("contents", msg.thought_id);
+    await this._delete("messages", id);
+    if (msg.content_id != null) return this._delete("contents", msg.content_id);
+  }
+
+  // ---- calls（工具调用，arguments 为 text 原文；result 存于 contents）----
+  async addCall(payload) {
+    return this._serial(() => this._addCallUnlocked(payload));
+  }
+  async _addCallUnlocked({ reply_id, seq, name, description, arguments: args, status, category, call_id, result, error, id }) {
+    let result_id = null;
+    if (result !== undefined && result !== null) {
+      result_id = await this._nextId("contents");
+      const rc = typeof result === "string" ? result : JSON.stringify(result);
+      await this._insertRow("contents", ["id", "content"], [result_id, rc]);
+    }
+    const cid = id != null ? id : await this._nextId("calls");
+    const argJson = args && typeof args === "object" ? JSON.stringify(args) : (args || "{}");
+    const cols = ["id", "reply_id", "seq", "name"]; const vals = [cid, reply_id, seq, name];
+    if (call_id !== undefined && call_id !== null) { cols.push("call_id"); vals.push(String(call_id)); }
+    if (description !== undefined) { cols.push("description"); vals.push(description); }
+    cols.push('"arguments"'); vals.push(argJson);
+    if (status !== undefined) { cols.push("status"); vals.push(status); }
+    if (result_id !== null) { cols.push("result_id"); vals.push(result_id); }
+    if (error !== undefined) { cols.push("error"); vals.push(error); }
+    cols.push("category"); vals.push(category || "unknown");
+    await this._insertRow("calls", cols, vals);
+    return this.getCall({ id: cid });
+  }
+  _callRow(row) { if (row) row.arguments = _j(row.arguments); return row; }
+  async getCall({ id }) {
+    const row = await this.db.prepare(
+      'SELECT id, reply_id, seq, call_id, name, description, "arguments", status, result_id, error, category, created_at, updated_at FROM calls WHERE id=$1'
+    ).get(id);
+    return this._callRow(row);
+  }
+  async listCallsByReply({ reply_id }) {
+    const rows = await this.db.prepare(
+      'SELECT id, reply_id, seq, call_id, name, description, "arguments", status, result_id, error, category, created_at, updated_at FROM calls WHERE reply_id=$1 ORDER BY seq'
+    ).all(reply_id);
+    return rows.map((r) => this._callRow(r));
+  }
+  async updateCall({ id, status, error, result }) {
+    return this._serial(async () => {
+      let result_id;
+      if (result !== undefined) {
+        result_id = await this._nextId("contents");
+        const rc = typeof result === "string" ? result : JSON.stringify(result);
+        await this._insertRow("contents", ["id", "content"], [result_id, rc]);
+      }
+      const sets = []; const vals = []; let i = 1;
+      if (status !== undefined) { sets.push(`status=$${i++}`); vals.push(status); }
+      if (error !== undefined) { sets.push(`error=$${i++}`); vals.push(error); }
+      if (result_id !== undefined && result_id !== null) { sets.push(`result_id=$${i++}`); vals.push(result_id); }
+      if (sets.length) {
+        sets.push("updated_at=now()"); vals.push(id);
+        await this.db.prepare(`UPDATE calls SET ${sets.join(", ")} WHERE id=$${i}`).run(...vals);
+      }
+      return this.getCall({ id });
+    });
+  }
+  async deleteCall({ id }) {
+    const call = await this._get("calls", id);
+    if (call && call.result_id != null) await this._delete("contents", call.result_id);
+    return this._delete("calls", id);
+  }
+
+  // ================= 注册表：供应者 / 模型 / 工具 / 技能 / 配置 =================
+  // DEPRECATED: 供应者/模型现已改由 user/providers.json 承载（见 core/index.js 的 case "providers"，
+  // 由 ui/web/models.js 读写）。以下 provider.* / model.* 方法仅保留以兼容旧 store.db 数据，
+  // 运行时不再使用，后续可整体删除。
+  listProviders() { return this._list("providers"); }
+  createProvider(data) { return this._create("providers", data, ["name", "description", "baseurl", "apikey"]); }
+  updateProvider({ id, ...d }) { return this._update("providers", id, d, ["name", "description", "baseurl", "apikey"]); }
+  async deleteProvider({ id }) {
+    const models = await this._list("models", { provider_id: id });
+    for (const m of models) await this.deleteModel({ id: m.id });
+    return this._delete("providers", id);
+  }
+
+  // DEPRECATED: 见上方 provider.* 说明。
+  listModels({ provider_id } = {}) { return this._list("models", provider_id != null ? { provider_id } : {}); }
+  createModel(data) { return this._create("models", data, ["provider_id", "name", "description", "fee"]); }
+  updateModel({ id, ...d }) { return this._update("models", id, d, ["provider_id", "name", "description", "fee"]); }
+  async deleteModel({ id }) {
+    return this._delete("models", id);
+  }
+
+  listTools() { return this._list("tools"); }
+  createTool(data) { return this._create("tools", data, ["name", "description", "schema_json", "path"]); }
+  updateTool({ id, ...d }) { return this._update("tools", id, d, ["name", "description", "schema_json", "path"]); }
+  async deleteTool({ id }) {
+    await this.db.prepare("DELETE FROM tool_skills WHERE tool_id=$1").run(id);
+    return this._delete("tools", id);
+  }
+
+  listSkills() { return this._list("skills"); }
+  createSkill(data) { return this._create("skills", data, ["name", "description", "prompt", "path"]); }
+  updateSkill({ id, ...d }) { return this._update("skills", id, d, ["name", "description", "prompt", "path"]); }
+  async deleteSkill({ id }) {
+    await this.db.prepare("DELETE FROM tool_skills WHERE skill_id=$1").run(id);
+    return this._delete("skills", id);
+  }
+
+
+  // ================= 子代理关联表（无 id 列，走裸 SQL / _insertRow）=================
+  // 一次委派一行。agent_name 是模型侧名称，同父唯一（schema 上的 UNIQUE 索引承担）。
+  async addSubagent({ sub_sess_id, par_sess_id, agent_name, delivery }) {
+    await this._insertRow(
+      "subagents",
+      ["sub_sess_id", "par_sess_id", "agent_name", "delivery"],
+      [sub_sess_id, par_sess_id, agent_name, delivery === "caller" ? "caller" : "parent"],
+    );
+    return this.getSubagent({ sub_sess_id });
+  }
+  getSubagent({ sub_sess_id }) {
+    return this.db.prepare("SELECT * FROM subagents WHERE sub_sess_id=$1").get(sub_sess_id);
+  }
+  listSubagents({ par_sess_id }) {
+    return this.db.prepare("SELECT * FROM subagents WHERE par_sess_id=$1").all(par_sess_id);
+  }
+  getSubagentByName({ par_sess_id, agent_name }) {
+    return this.db.prepare("SELECT * FROM subagents WHERE par_sess_id=$1 AND agent_name=$2").get(par_sess_id, agent_name);
+  }
+  markSubagentDiscarded({ sub_sess_id }) {
+    return this.db.prepare("UPDATE subagents SET discarded_at=now() WHERE sub_sess_id=$1").run(sub_sess_id);
+  }
+
+  // ---- flows: user-edited node graphs and their executions ----
+  // `definition` is a JSON document stored verbatim; the runtime validates it on
+  // save and walks it on run (docs/flow/flow.md).
+
+  listFlows() {
+    return this.db.prepare("SELECT id, name, description, created_at, updated_at FROM flows ORDER BY updated_at DESC").all();
+  }
+  getFlow({ id }) {
+    return this._get("flows", id);
+  }
+  createFlow(data) {
+    return this._create("flows", data, ["name", "description", "definition"]);
+  }
+  updateFlow({ id, ...d }) {
+    return this._update("flows", id, d, ["name", "description", "definition"]);
+  }
+  deleteFlow({ id }) {
+    return this._delete("flows", id);
+  }
+
+  createFlowRun({ flow_id, input }) {
+    return this._create("flow_runs", { flow_id, input, status: "running" }, ["flow_id", "input", "status"]);
+  }
+  finishFlowRun({ id, status, output, error }) {
+    return this._update("flow_runs", id, { status, output, error }, ["status", "output", "error"]);
+  }
+  listFlowRuns({ flow_id }) {
+    return this.db.prepare("SELECT * FROM flow_runs WHERE flow_id=$1 ORDER BY created_at DESC, id DESC").all(flow_id);
+  }
+  getFlowRun({ id }) {
+    return this._get("flow_runs", id);
+  }
+
+  async addFlowNodeRun(data) {
+    const row = await this._create(
+      "flow_node_runs",
+      data,
+      ["run_id", "node_id", "node_type", "seq", "status", "input", "output", "error"],
+    );
+    return row;
+  }
+  listFlowNodeRuns({ run_id }) {
+    return this.db.prepare("SELECT * FROM flow_node_runs WHERE run_id=$1 ORDER BY id ASC").all(run_id);
+  }
+  async addSubagentPrompt({ call_id, prompt_id }) {
+    await this._insertRow("subagent_prompts", ["call_id", "prompt_id"], [call_id, prompt_id]);
+    return { call_id, prompt_id };
+  }
+  getSubagentPrompt({ call_id }) {
+    return this.db.prepare("SELECT * FROM subagent_prompts WHERE call_id=$1").get(call_id);
+  }
+  async addSubagentSettle({ output_id, settle_id }) {
+    await this._insertRow("subagent_settles", ["output_id", "settle_id"], [output_id, settle_id]);
+    return { output_id, settle_id };
+  }
+  getSubagentSettle({ settle_id }) {
+    return this.db.prepare("SELECT * FROM subagent_settles WHERE settle_id=$1").get(settle_id);
+  }
+  // 反查：给定父会话结算消息 id，找出产生它的子会话 id。
+  // 分步查（pg-micro 不支持 JOIN ON 里引用外层别名的标量子查询）：
+  // settle_id -> output_id -> 子会话 session_id -> subagents 行。
+  async getSubagentBySettle({ settle_id }) {
+    const link = await this.db.prepare("SELECT output_id FROM subagent_settles WHERE settle_id=$1").get(settle_id);
+    if (!link || link.output_id == null) return undefined;
+    const owner = await this.db.prepare(
+      "SELECT t.session_id FROM messages m JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE m.id=$1"
+    ).get(link.output_id);
+    if (!owner) return undefined;
+    return this.db.prepare("SELECT * FROM subagents WHERE sub_sess_id=$1").get(owner.session_id);
+  }
+
+  // ================= 关联表 =================
+  async linkToolSkill({ tool_id, skill_id }) {
+    try { await this.db.prepare("INSERT INTO tool_skills (tool_id, skill_id) VALUES ($1,$2)").run(tool_id, skill_id); }
+    catch (e) { if (!/unique/i.test(String(e.message))) throw e; }
+    return { tool_id, skill_id };
+  }
+  unlinkToolSkill({ tool_id, skill_id }) { return this.db.prepare("DELETE FROM tool_skills WHERE tool_id=$1 AND skill_id=$2").run(tool_id, skill_id); }
+  listSkillsForTool({ tool_id }) { return this.db.prepare("SELECT skills.id, skills.name, skills.description, skills.prompt, skills.path, skills.created_at, skills.updated_at FROM skills JOIN tool_skills ON tool_skills.skill_id=skills.id WHERE tool_skills.tool_id=$1").all(tool_id); }
+  listToolsForSkill({ skill_id }) { return this.db.prepare("SELECT tools.id, tools.name, tools.description, tools.schema_json, tools.path, tools.created_at, tools.updated_at FROM tools JOIN tool_skills ON tool_skills.tool_id=tools.id WHERE tool_skills.skill_id=$1").all(skill_id); }
+
+
+  // ================= 供 handleCall 调用的操作分发 =================
+  async run(op, p = {}) {
+    const fn = OPS[op];
+    if (typeof fn !== "function") throw new Error("unknown storage op: " + op);
+    return fn(this, p);
+  }
+}
+
+// op 映射表：fn(store, payload) => result
+const OPS = {
+  "workspace.list": (s) => s.listWorkspaces(),
+  "workspace.get": (s, p) => s.getWorkspace(p),
+  "workspace.create": (s, p) => s.createWorkspace(p),
+  "workspace.update": (s, p) => s.updateWorkspace(p),
+  "workspace.delete": (s, p) => s.deleteWorkspace(p),
+
+  "session.list": (s, p) => s.listSessions(p),
+  "session.get": (s, p) => s.getSession(p),
+  "session.create": (s, p) => s.createSession(p),
+  "session.update": (s, p) => s.updateSession(p),
+  "session.delete": (s, p) => s.deleteSession(p),
+  "session.restore": (s, p) => s.restoreSession(p),
+  "session.prompt": (s, p) => s.getSessionPrompt(p),
+  "session.trajectory": (s, p) => s.getTrajectory(p),
+  "session.history": (s, p) => s.getSessionHistory(p),
+  "session.surface": (s, p) => s.getSurface(p),
+  "session.compactions": (s, p) => s.listCompactions(p),
+
+  "sessionFork.add": (s, p) => s.addSessionFork(p),
+  "sessionFork.get": (s, p) => s.getSessionFork(p),
+  "sessionFork.list": (s, p) => s.listSessionForks(p),
+  "sessionFork.delete": (s, p) => s.deleteSessionFork(p),
+  "sessionFork.boundary": (s, p) => s.getForkBoundary(p),
+
+  "compaction.start": (s, p) => s.startCompaction(p),
+  "compaction.succeed": (s, p) => s.succeedCompaction(p),
+  "compaction.fail": (s, p) => s.failCompaction(p),
+  "compaction.active": (s, p) => s.getActiveCompaction(p),
+
+  "toolResultPrune.list": (s, p) => s.listToolMessages(p),
+  "toolResultPrune.save": (s, p) => s.saveToolResultPrune(p),
+
+  "tokenAnchor.get": (s, p) => s.getTokenAnchor(p),
+  "tokenAnchor.save": (s, p) => s.saveTokenAnchor(p),
+
+  "goal.get": (s, p) => s.getGoal(p),
+  "goal.save": (s, p) => s.saveGoal(p),
+
+  "userJob.create": (s, p) => s.createUserJob(p),
+  "userJob.get": (s, p) => s.getUserJob(p),
+  "userJob.list": (s, p) => s.listUserJobs(p),
+  "userJob.complete": (s, p) => s.completeUserJob(p),
+  "userJob.kill": (s, p) => s.killUserJob(p),
+
+  "job.create": (s, p) => s.createJob(p),
+  "job.get": (s, p) => s.getJob(p),
+  "job.list": (s, p) => s.listJobs(p),
+  "job.complete": (s, p) => s.completeJob(p),
+  "job.kill": (s, p) => s.killJob(p),
+  "job.running": (s) => s.listRunningJobs(),
+  "job.fail": (s, p) => s.failJob(p),
+
+  "team.task.create": (s, p) => s.createTeamTask(p),
+  "team.task.get": (s, p) => s.getTeamTask(p),
+  "team.task.list": (s, p) => s.listTeamTasks(p),
+  "team.task.count": (s, p) => s.countActiveTeamTasks(p),
+  "team.task.cas": (s, p) => s.casTeamTask(p),
+
+  "schedule.create": (s, p) => s.createSchedule(p),
+  "schedule.get": (s, p) => s.getSchedule(p),
+  "schedule.list": (s) => s.listSchedules(),
+  "schedule.cas": (s, p) => s.casSchedule(p),
+  "schedule.delete": (s, p) => s.deleteSchedule(p),
+
+  "subagent.add": (s, p) => s.addSubagent(p),
+  "subagent.get": (s, p) => s.getSubagent(p),
+  "subagent.list": (s, p) => s.listSubagents(p),
+  "subagent.byName": (s, p) => s.getSubagentByName(p),
+  "subagent.discard": (s, p) => s.markSubagentDiscarded(p),
+  "subagent.bySettle": (s, p) => s.getSubagentBySettle(p),
+  "subagentPrompt.add": (s, p) => s.addSubagentPrompt(p),
+  "subagentPrompt.get": (s, p) => s.getSubagentPrompt(p),
+  "subagentSettle.add": (s, p) => s.addSubagentSettle(p),
+  "subagentSettle.get": (s, p) => s.getSubagentSettle(p),
+
+  "a2aInstance.create": (s, p) => s.createA2AInstance(p),
+  "a2aInstance.get": (s, p) => s.getA2AInstance(p),
+  "a2aInstance.list": (s) => s.listA2AInstances(),
+
+  "a2aContext.get": (s, p) => s.getA2AContext(p),
+  "a2aContext.create": (s, p) => s.createA2AContext(p),
+  "a2aContext.getOrCreate": (s, p) => s.getOrCreateA2AContext(p),
+
+  "a2aTask.create": (s, p) => s.createA2ATask(p),
+  "a2aTask.get": (s, p) => s.getA2ATask(p),
+  "a2aTask.list": (s, p) => s.listA2ATasks(p),
+  "a2aTask.cas": (s, p) => s.casA2ATask(p),
+
+  "a2aMessage.add": (s, p) => s.addA2AMessage(p),
+  "a2aMessage.get": (s, p) => s.getA2AMessage(p),
+
+  "flow.list": (s) => s.listFlows(),
+  "flow.get": (s, p) => s.getFlow(p),
+  "flow.create": (s, p) => s.createFlow(p),
+  "flow.update": (s, p) => s.updateFlow(p),
+  "flow.delete": (s, p) => s.deleteFlow(p),
+
+  "flowRun.create": (s, p) => s.createFlowRun(p),
+  "flowRun.finish": (s, p) => s.finishFlowRun(p),
+  "flowRun.list": (s, p) => s.listFlowRuns(p),
+  "flowRun.get": (s, p) => s.getFlowRun(p),
+
+  "flowNodeRun.add": (s, p) => s.addFlowNodeRun(p),
+  "flowNodeRun.list": (s, p) => s.listFlowNodeRuns(p),
+
+  "turn.list": (s, p) => s.listTurns(p),
+  "turn.get": (s, p) => s.getTurn(p),
+  "turn.create": (s, p) => s.createTurn(p),
+  "turn.update": (s, p) => s.updateTurn(p),
+  "turn.delete": (s, p) => s.deleteTurn(p),
+
+  "step.list": (s, p) => s.listSteps(p),
+  "step.get": (s, p) => s.getStep(p),
+  "step.create": (s, p) => s.createStep(p),
+  "step.update": (s, p) => s.updateStep(p),
+  "step.delete": (s, p) => s.deleteStep(p),
+
+  "content.add": (s, p) => s.addContent(p),
+  "content.get": (s, p) => s.getContent(p),
+
+  "message.add": (s, p) => s.addMessage(p),
+  "message.list": (s, p) => s.listMessages(p),
+  "message.get": (s, p) => s.getMessage(p),
+  "message.delete": (s, p) => s.deleteMessage(p),
+
+  "call.add": (s, p) => s.addCall(p),
+  "call.list": (s, p) => s.listCallsByReply(p),
+  "call.get": (s, p) => s.getCall(p),
+  "call.update": (s, p) => s.updateCall(p),
+  "call.delete": (s, p) => s.deleteCall(p),
+
+  // DEPRECATED: 供应者/模型 OPS 已由 core/index.js 的 case "providers"（读写 user/providers.json）取代，
+  // ui/web/models.js 不再调用以下 op。仅保留以兼容旧 store.db，后续可删除。
+  "provider.list": (s) => s.listProviders(),
+  "provider.get": (s, p) => s._get("providers", p.id),
+  "provider.create": (s, p) => s.createProvider(p),
+  "provider.update": (s, p) => s.updateProvider(p),
+  "provider.delete": (s, p) => s.deleteProvider(p),
+
+  "model.list": (s, p) => s.listModels(p),
+  "model.get": (s, p) => s._get("models", p.id),
+  "model.create": (s, p) => s.createModel(p),
+  "model.update": (s, p) => s.updateModel(p),
+  "model.delete": (s, p) => s.deleteModel(p),
+
+  "tool.list": (s) => s.listTools(),
+  "tool.get": (s, p) => s._get("tools", p.id),
+  "tool.create": (s, p) => s.createTool(p),
+  "tool.update": (s, p) => s.updateTool(p),
+  "tool.delete": (s, p) => s.deleteTool(p),
+
+  "skill.list": (s) => s.listSkills(),
+  "skill.get": (s, p) => s._get("skills", p.id),
+  "skill.create": (s, p) => s.createSkill(p),
+  "skill.update": (s, p) => s.updateSkill(p),
+  "skill.delete": (s, p) => s.deleteSkill(p),
+
+
+  "toolSkill.link": (s, p) => s.linkToolSkill(p),
+  "toolSkill.unlink": (s, p) => s.unlinkToolSkill(p),
+  "toolSkill.listSkills": (s, p) => s.listSkillsForTool(p),
+  "toolSkill.listTools": (s, p) => s.listToolsForSkill(p),
+
+};
+
+export async function createStore(options = {}) {
+  const rawPath = options.path || process.env.STORE_PATH || "./data/store.db";
+  const dbPath = resolve(process.cwd(), rawPath);
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const db = await connect(dbPath);
+  const store = new Store(db);
+  await store._execSchema();
+  return store;
+}
+
+export { Store };

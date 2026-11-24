@@ -11,13 +11,17 @@
 //
 // loadNodes() 返回 Map<nodeId, Node>，其中 Node = { ...registry 字段, run }。
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath, pathToFileURL } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const NODES_DIR = path.join(__dirname, "nodes");
 const BUILTINS_DIR = path.join(__dirname, "builtins");
 
-function loadFromDir(dir, typeOverride) {
+async function loadFromDir(dir, typeOverride) {
   const out = [];
   let entries;
   try {
@@ -42,7 +46,7 @@ function loadFromDir(dir, typeOverride) {
     let run = null;
     if (fs.existsSync(runPath)) {
       try {
-        run = require(runPath);
+        run = await import(pathToFileURL(runPath).href);
         if (run && run.default) run = run.default;
         if (typeof run !== "function") run = null;
       } catch (e) {
@@ -58,8 +62,8 @@ function loadFromDir(dir, typeOverride) {
 
 // 加载全部节点（主干 + builtin）。主干 nodes/* 的 type 以 registry.json 声明为准，
 // builtins/* 强制 type="builtin"。返回 Map<nodeId, Node>。
-function loadNodes() {
-  const all = [...loadFromDir(NODES_DIR), ...loadFromDir(BUILTINS_DIR, "builtin")];
+async function loadNodesAsync() {
+  const all = [...(await loadFromDir(NODES_DIR)), ...(await loadFromDir(BUILTINS_DIR, "builtin"))];
   const map = new Map();
   for (const node of all) {
     if (!node.id) {
@@ -75,4 +79,19 @@ function loadNodes() {
   return map;
 }
 
-module.exports = { loadNodes, NODES_DIR, BUILTINS_DIR };
+// 扫描目录必须用动态 import（异步），但调用方（node-graph 构造器、catalog RPC）依赖同步 API。
+// 因此用顶层 await 在模块初始化时一次性建好缓存，对外保持同步签名不变。
+let __nodesCache = null;
+
+function loadNodes() {
+  if (!__nodesCache) {
+    throw new Error("[loops] node registry not initialized yet");
+  }
+  return __nodesCache;
+}
+
+__nodesCache = await loadNodesAsync();
+
+const __exports = { loadNodes, loadNodesAsync, NODES_DIR, BUILTINS_DIR };
+export { loadNodes, loadNodesAsync, NODES_DIR, BUILTINS_DIR };
+export default __exports;

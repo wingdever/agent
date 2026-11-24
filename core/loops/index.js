@@ -11,8 +11,12 @@
 //   ctx  = 归一化后的请求上下文（messages / model / onEvent / sessionId / stream /
 //          autonomy / activity / references / effort / toolNames 等）
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath, pathToFileURL } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 // 引擎目录：本文件所在目录
 const LOOPS_DIR = __dirname;
@@ -49,17 +53,19 @@ function listEngineNames() {
   return names;
 }
 
-function loadEngine(name) {
+async function loadEngine(name) {
   // 默认引擎映射：linear -> ./linear.js（单文件，不强制目录）
   const candidates = [
     path.join(LOOPS_DIR, name, "index.js"),
     path.join(LOOPS_DIR, name + ".js"),
   ];
-  let modPath = candidates.find((p) => fs.existsSync(p));
+  const modPath = candidates.find((p) => fs.existsSync(p));
   if (!modPath) {
     throw new Error("loop engine not found: " + name);
   }
-  const mod = require(modPath);
+  // ESM 只有动态 import 能按路径加载；统一取 default 与命名空间里的 runLoop
+  const ns = await import(pathToFileURL(modPath).href);
+  const mod = ns.default && typeof ns.default.runLoop === "function" ? ns.default : ns;
   if (typeof mod.runLoop !== "function") {
     throw new Error("loop engine '" + name + "' must export async runLoop(core, ctx)");
   }
@@ -67,10 +73,10 @@ function loadEngine(name) {
 }
 
 // 返回指定名称的引擎；缺省/未知回落到 default（保证向后兼容，不会因配置错误而整体失败）。
-function getLoop(name) {
+async function getLoop(name) {
   const target = name || DEFAULT_ENGINE;
   try {
-    return loadEngine(target);
+    return await loadEngine(target);
   } catch (e) {
     if (target === DEFAULT_ENGINE) throw e;
     console.error("[loops] unknown loop engine '" + target + "', falling back to '" + DEFAULT_ENGINE + "': " + (e.message || e));
@@ -78,4 +84,6 @@ function getLoop(name) {
   }
 }
 
-module.exports = { getLoop, listEngineNames, DEFAULT_ENGINE };
+const __exports = { getLoop, listEngineNames, DEFAULT_ENGINE };
+export { getLoop, listEngineNames, DEFAULT_ENGINE };
+export default __exports;

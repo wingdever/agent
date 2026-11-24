@@ -7,15 +7,10 @@
 // the UI's flat renderer (onChatEventFlat / handleTranslationFlat) behaves the
 // same as a persisted turn.
 
-const {
-  resolveConfig: resolveTranslateConfig,
-  shouldTranslateUser,
-  shouldTranslateAssistant,
-  translateText,
-} = require("./translation");
-const { assembleSystemPrompt, DEFAULT_IDENTITY } = require("./system-prompt");
-const { TurnError } = require("./turn-error");
-const { RequestSpec } = require("./memory");
+import { resolveConfig as resolveTranslateConfig, shouldTranslateUser, shouldTranslateAssistant, translateText } from "./translation.js";
+import { assembleSystemPrompt, DEFAULT_IDENTITY } from "./system-prompt.js";
+import { TurnError } from "./turn-error.js";
+import { RequestSpec } from "./memory/index.js";
 
 async function runBareChat(core, ctx, agent) {
   // ctx = { messages, model, effort, stream, onEvent }.
@@ -173,4 +168,6 @@ async function runBareChat(core, ctx, agent) {
   }
 }
 
-module.exports = { runBareChat };
+const __exports = { runBareChat };
+export { runBareChat };
+export default __exports;

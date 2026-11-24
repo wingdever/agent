@@ -27,4 +27,6 @@ When ready, call exit_plan_mode with the complete plan markdown, starting with a
 // Plan mode is instance state (Agent.planMode); this module owns only the
 // policy text that a plan-active request carries.
 
-module.exports = { POLICY };
+const __exports = { POLICY };
+export { POLICY };
+export default __exports;

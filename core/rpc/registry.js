@@ -1,6 +1,6 @@
 "use strict";
 
-const { validateSchema } = require("../schema");
+import { validateSchema } from "./../schema.js";
 
 const EMPTY_PARAMS = { type: "object", properties: {}, additionalProperties: false };
 
@@ -57,4 +57,6 @@ class RpcRegistry {
   }
 }
 
-module.exports = { RpcRegistry, EMPTY_PARAMS };
+const __exports = { RpcRegistry, EMPTY_PARAMS };
+export { RpcRegistry, EMPTY_PARAMS };
+export default __exports;

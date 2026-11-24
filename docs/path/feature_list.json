@@ -11,6 +11,14 @@
       "testedAt": "2026-11-05"
     },
     {
+      "id": "acp-bridge",
+      "name": "ACP server adapter over stdio",
+      "description": "Standalone ACP JSON-RPC server that drives the existing Core without changing AgentRuntime: initialize, session/new/list/resume/close/prompt/cancel, streamed session/update and one-shot permission bridging. Electron keeps its private HTTP/IPC transport.",
+      "status": "pass",
+      "evidence": "acp-server.js stdio entry; core/acp/index.js createAcpServer; core/acp/acp.test.js protocol tests; docs/runtime/acp.md; package.json acp script.",
+      "testedAt": "2026-11-24"
+    },
+    {
       "id": "transport-registry",
       "name": "Pluggable Transport (http / ipc)",
       "description": "Core-to-UI communication is abstracted behind a transport registry; http is the default and ipc is an alternative, selected by AGENT_TRANSPORT.",
@@ -167,39 +175,135 @@
       "name": "request_user_job — delegate real-world task to human",
       "description": "Delegate a task to the human user; the turn pauses until the user submits a free-text report via an interactive card. Returns the report plus a job_id for later recall via job_output / job_list.",
       "status": "pass",
-      "evidence": "tools/request_user_job/registry.json (type interaction; params description, title); tools/request_user_job/run.js; core/index.js requestUserJob()/answerUserJob(); schema.mjs user_jobs table; ui.md user-job-request.",
+      "evidence": "tools/request_user_job/registry.json (type interaction; params description, title); tools/request_user_job/run.js; core/index.js requestUserJob()/answerUserJob(); schema.js user_jobs table; ui.md user-job-request.",
       "testedAt": "2026-11-05"
+    },
+    {
+      "id": "background-jobs",
+      "name": "Background jobs — registry, output ring, completion notice",
+      "description": "Agent-owned background work: a tool starts a job, gets job_... immediately, and the run settles later. Jobs persist status/detail/result/output, keep a 200-line observation ring, notify the owning session with a job-settle follow-up turn, and are marked failed after a restart.",
+      "status": "pass",
+      "evidence": "core/jobs/index.js JobService start/get/list/output/wait/kill/init; schema.js jobs table; store.js job.* ops; core/index.js createCore() wires core.jobs and agent.setJobs(); tools/workflow/run.js run_in_background.",
+      "testedAt": "2026-11-23"
     },
     {
       "id": "tool-job-output",
-      "name": "job_output — read user job result/status",
-      "description": "Fetch the result or current status of a user job by job_id: the user's report when completed, or a status line if still pending or killed. Requires an active session (reads exec.store directly).",
+      "name": "job_output — read background or user job result/status",
+      "description": "Fetch the result or current status of a background job (`job_...`) or a user job (`ujob_...`). Background jobs return result plus recent output when settled, or a running status with the output tail. Never blocks.",
       "status": "pass",
-      "evidence": "tools/job_output/registry.json (type read; params job_id); tools/job_output/run.js reads store.run('userJob.get'); schema.mjs user_jobs table.",
-      "testedAt": "2026-11-05"
+      "evidence": "tools/job_output/registry.json (type read; params job_id); tools/job_output/run.js branches on exec.jobs for job_* and store.run('userJob.get') for ujob_*; core/jobs/index.js output().",
+      "testedAt": "2026-11-23"
     },
     {
       "id": "tool-job-list",
-      "name": "job_list — list session user jobs",
-      "description": "List the user jobs delegated to the human for this session, each with job_id, status and a short (80-char) description snippet. Requires an active session (reads exec.store directly).",
+      "name": "job_list — list background and user jobs",
+      "description": "List the current session's background jobs (`job_...`) and user jobs (`ujob_...`), each with job_id, status and a short label or description.",
       "status": "pass",
-      "evidence": "tools/job_list/registry.json (type read; no params); tools/job_list/run.js reads store.run('userJob.list', {session_id}); schema.mjs user_jobs table.",
-      "testedAt": "2026-11-05"
+      "evidence": "tools/job_list/registry.json (type read; no params); tools/job_list/run.js reads exec.jobs.list() and store.run('userJob.list', {session_id}).",
+      "testedAt": "2026-11-23"
     },
     {
       "id": "tool-job-kill",
-      "name": "job_kill — cancel a pending user job",
-      "description": "Cancel a pending user job by job_id. Completed or already-cancelled jobs cannot be killed; the current status is reported instead.",
+      "name": "job_kill — cancel a background or user job",
+      "description": "Cancel a background job (`job_...`) by stopping its live run, or recall a pending user job (`ujob_...`). Terminal jobs report their current status instead.",
       "status": "pass",
-      "evidence": "tools/job_kill/registry.json (type read; params job_id); tools/job_kill/run.js; core/index.js killUserJob(); schema.mjs user_jobs table.",
-      "testedAt": "2026-11-05"
+      "evidence": "tools/job_kill/registry.json (type read; params job_id); tools/job_kill/run.js calls exec.jobs.kill() or core.interactions.killUserJob(); core/jobs/index.js kill().",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-job-wait",
+      "name": "job_wait — bounded wait for a background job",
+      "description": "Wait for a background job to settle, up to timeout_ms (capped at 30000, default 10000). Returns the result and output tail when settled, or a running status with the output tail on timeout.",
+      "status": "pass",
+      "evidence": "tools/job_wait/registry.json (type read; params job_id, timeout_ms); tools/job_wait/run.js calls exec.jobs.wait(); core/jobs/index.js wait() caps at 30 s.",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "team-task-board",
+      "name": "Agent Team — shared task board",
+      "description": "A durable task board shared by every member of a subagent tree, rooted at the tree's top-level session. Tasks carry a whole snapshot: subject, description, status, owner, dependency list, advisory write scopes and a monotonic revision. Mutations use revision CAS; dependencies gate claims; only the Lead reassigns.",
+      "status": "pass",
+      "evidence": "core/team/index.js TeamService createTask/getTask/listTasks/updateTask; schema.js team_tasks table; store.js team.task.create/get/list/count/cas plus revision CAS; core/index.js createCore() wires core.team after core.subagents; docs/runtime/team.md; core/team/team.test.js 8 tests.",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-team-task-create",
+      "name": "team_task_create — add a shared task",
+      "description": "Create one unowned pending task on the shared Team task board. Any member of the subagent tree can add a task, optionally with blocker task ids and advisory workspace-relative write scopes.",
+      "status": "pass",
+      "evidence": "tools/team_task_create/registry.json (type control; params subject, description, blocked_by, write_scopes); tools/team_task_create/run.js calls exec.team.createTask(); core/team/index.js createTask().",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-team-task-get",
+      "name": "team_task_get — read one shared task",
+      "description": "Read the complete latest value of one shared task, including readiness, owner, revision, blockers and write-scope warnings; deleted tasks remain readable as tombstones.",
+      "status": "pass",
+      "evidence": "tools/team_task_get/registry.json (type control; param task_id); tools/team_task_get/run.js calls exec.team.getTask(); core/team/index.js getTask()/_view().",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-team-task-list",
+      "name": "team_task_list — list shared tasks",
+      "description": "List shared tasks with status, owner, unowned, readiness filters and cursor/limit paging; deleted tasks are excluded and results include revision, blockers and write-scope warnings.",
+      "status": "pass",
+      "evidence": "tools/team_task_list/registry.json (type control; params status, owner, unowned, ready, cursor, limit); tools/team_task_list/run.js calls exec.team.listTasks(); core/team/index.js listTasks().",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-team-task-update",
+      "name": "team_task_update — CAS task transition",
+      "description": "Compare-and-set one shared task action using expected_revision: claim, release, edit, set_dependencies, complete, reopen, reassign or delete. Owners and the Lead mutate their tasks; only the Lead reassigns.",
+      "status": "pass",
+      "evidence": "tools/team_task_update/registry.json (type control; params task_id, expected_revision, action, subject, description, blocked_by, write_scopes, owner); tools/team_task_update/run.js calls exec.team.updateTask(); core/team/index.js updateTask() + store team.task.cas.",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "schedule",
+      "name": "Host scheduled tasks — persisted timing and follow-up delivery",
+      "description": "A Host-level scheduled task persists a rule and a target, arms one timer, and delivers a synthetic user follow-up when due. It supports one-shot, interval, daily/weekly wall-clock, five-field cron and a bounded RRULE subset; targets are this_session, new_once and new. Delivery coalesces missed occurrences to the latest one and never replays the backlog.",
+      "status": "pass",
+      "evidence": "core/schedule/index.js ScheduleService create/list/view/edit/tick/_deliver/_advance; core/schedule/time.js timing parser and bounded occurrence arithmetic; schema.js schedules table; store.js schedule.* ops; core/index.js createCore() wires core.schedule after core.jobs; docs/runtime/schedule.md; core/schedule/schedule.test.js 6 tests.",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-schedule-create",
+      "name": "schedule_create — create a Host scheduled task",
+      "description": "Create a persisted schedule for this_session, new_once or new targets. Timing accepts after/at/every/daily/weekly/cron/rrule; the service validates the rule and resolves target identity.",
+      "status": "pass",
+      "evidence": "tools/schedule_create/registry.json (type control; params title, prompt, target, timing); tools/schedule_create/run.js calls exec.schedule.create().",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-schedule-list",
+      "name": "schedule_list — list Host scheduled tasks",
+      "description": "List schedules visible to every session, filtering active versus paused/ended and paging by limit/offset.",
+      "status": "pass",
+      "evidence": "tools/schedule_list/registry.json (type control; params active, limit, offset); tools/schedule_list/run.js calls exec.schedule.list().",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-schedule-view",
+      "name": "schedule_view — read one scheduled task",
+      "description": "Read timing, target, committed next occurrence, status, revision and last delivery receipt for one schedule.",
+      "status": "pass",
+      "evidence": "tools/schedule_view/registry.json (type control; param id); tools/schedule_view/run.js calls exec.schedule.view().",
+      "testedAt": "2026-11-23"
+    },
+    {
+      "id": "tool-schedule-edit",
+      "name": "schedule_edit — CAS update, pause, resume or delete",
+      "description": "Compare-and-set one scheduled task using expected_revision. Supports title/prompt/timing/target changes and active pause/resume, or permanent delete.",
+      "status": "pass",
+      "evidence": "tools/schedule_edit/registry.json (type control; params id, action, expected_revision, title, prompt, target, active, timing); tools/schedule_edit/run.js calls exec.schedule.edit(); core/schedule/index.js edit().",
+      "testedAt": "2026-11-23"
     },
     {
       "id": "tool-create-goal",
       "name": "create_goal — persisted session goal",
       "description": "Create a persisted goal with an optional max_goal_rounds cap, intended for long-running objectives. The registry describes automatic continuation rounds, but that driver is not implemented yet (tracked as the pending goal-auto-continue feature).",
       "status": "pass",
-      "evidence": "tools/create_goal/registry.json (type goal; params objective, max_goal_rounds); tools/create_goal/run.js; core/goals.js createGoalService().create() + header note; schema.mjs goals table.",
+      "evidence": "tools/create_goal/registry.json (type goal; params objective, max_goal_rounds); tools/create_goal/run.js; core/goals.js createGoalService().create() + header note; schema.js goals table.",
       "testedAt": "2026-11-05"
     },
     {
@@ -279,7 +383,7 @@
       "name": "Event-sourced session storage (pgmicro)",
       "description": "Sessions, turns, steps, messages, calls and compaction events are stored in a single-file pgmicro DB; the model-visible history is a replayed surface projection, with log rows never rewritten.",
       "status": "pass",
-      "evidence": "core/storage/store.mjs Store class with session.surface/compaction/message.add/turn.create/step.create; core/storage/schema.mjs tables incl. compactions, tool_result_prunes, token_anchors, user_jobs; docs/event-sourcing.md; docs/dev/context-compact.md.",
+      "evidence": "core/storage/store.js Store class with session.surface/compaction/message.add/turn.create/step.create; core/storage/schema.js tables incl. compactions, tool_result_prunes, token_anchors, user_jobs; docs/event-sourcing.md; docs/dev/context-compact.md.",
       "testedAt": "2026-11-05"
     },
     {
@@ -311,7 +415,7 @@
       "name": "Token metering & usage anchors",
       "description": "Standardizes provider usage (incl. cached tokens), records per-request usage anchors, and drives the UI context/token indicators.",
       "status": "pass",
-      "evidence": "core/token-meter.js normalizeUsage()/measure()/anchorFrom(); core/index.js _emitUsage()/_recordTokenAnchor(); schema.mjs token_anchors table; docs/context-compact.md.",
+      "evidence": "core/token-meter.js normalizeUsage()/measure()/anchorFrom(); core/index.js _emitUsage()/_recordTokenAnchor(); schema.js token_anchors table; docs/context-compact.md.",
       "testedAt": "2026-11-05"
     },
     {
@@ -343,7 +447,7 @@
       "name": "Human-in-the-loop interaction tools",
       "description": "ask_user_question, request_user_job (+ job_list / job_output / job_kill) suspend the turn and emit UI cards; in autonomous mode they resolve without waiting.",
       "status": "pass",
-      "evidence": "tools/ask_user_question, tools/request_user_job, tools/job_list, tools/job_output, tools/job_kill registries; core/index.js requestUserQuestion()/answerQuestions()/requestUserJob()/answerUserJob()/killUserJob(); schema.mjs user_jobs table; ui.md ask-user-prompt/user-job-request.",
+      "evidence": "tools/ask_user_question, tools/request_user_job, tools/job_list, tools/job_output, tools/job_kill registries; core/index.js requestUserQuestion()/answerQuestions()/requestUserJob()/answerUserJob()/killUserJob(); schema.js user_jobs table; ui.md ask-user-prompt/user-job-request.",
       "testedAt": "2026-11-05"
     },
     {
@@ -351,7 +455,7 @@
       "name": "Goal & todo tools",
       "description": "create_goal / get_goal / update_goal (goal service) and todo_write project task state into the session.",
       "status": "pass",
-      "evidence": "core/goals.js createGoalService(); core/todo-state.js reset(); tools/create_goal, get_goal, update_goal, todo_write registries; schema.mjs goals table; docs/tool.md 'P2 已实现'.",
+      "evidence": "core/goals.js createGoalService(); core/todo-state.js reset(); tools/create_goal, get_goal, update_goal, todo_write registries; schema.js goals table; docs/tool.md 'P2 已实现'.",
       "testedAt": "2026-11-05"
     },
     {
@@ -407,7 +511,7 @@
       "name": "Skill system",
       "description": "Planned: a skill layer; a skills table exists in schema but no runtime implementation.",
       "status": "pending",
-      "evidence": "docs/roadmap.md '## skill'; core/storage/schema.mjs defines skills / tool_skills tables but no skill loader exists.",
+      "evidence": "docs/roadmap.md '## skill'; core/storage/schema.js defines skills / tool_skills tables but no skill loader exists.",
       "testedAt": null
     },
     {
@@ -441,6 +545,14 @@
       "status": "pending",
       "evidence": "docs/tool.md 'P2 已实现 ... goal 自动续轮待做'; core/goals.js currently only provides CRUD service.",
       "testedAt": null
+    },
+    {
+      "id": "browser-tools",
+      "name": "Browser tools (Playwright Chromium)",
+      "description": "Session-scoped Chromium contexts exposed as browser_navigate/snapshot/click/type/press/screenshot/tabs; ref-based snapshots and a private-network guard without adding a new agent loop.",
+      "status": "pass",
+      "evidence": "core/browser/index.js; tools/browser_*/; docs/runtime/browser.md; node --test core/browser/browser.test.js (5/5).",
+      "testedAt": "2026-11-24"
     }
   ]
 }

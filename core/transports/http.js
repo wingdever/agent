@@ -1,5 +1,5 @@
 "use strict";
-const http = require("http");
+import http from "http";
 
 // HTTP transport: REST + SSE. It knows only the RPC registry's streaming flag;
 // it never special-cases domain command names.
@@ -63,4 +63,6 @@ function createHttpTransport(options = {}) {
   };
 }
 
-module.exports = { createHttpTransport };
+const __exports = { createHttpTransport };
+export { createHttpTransport };
+export default __exports;

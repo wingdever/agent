@@ -1,4 +1,10 @@
 "use strict";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+import path from "path";
+import fs from "fs";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 // Radeon (AMD developer) provider 适配器。
 // 该 provider 暴露 OpenAI 兼容的 /models 接口，模型列表在 data[] 中。
 // fetch() 自行发 GET /models 并落盘原始响应；adapt() 提取并映射为现有 providers.json schema。
@@ -6,11 +12,11 @@
 // schema（与 user/providers.json 一致）：
 //   provider: { name, base_url, api_key?, description?, models: [{ name, fee, effort?: { supported_levels, default_level } }] }
 
-const PROVIDERS_FILE = require("path").join(__dirname, "..", "user", "providers.json");
+const PROVIDERS_FILE = path.join(__dirname, "..", "user", "providers.json");
 
 function readExistingProvider(name) {
   try {
-    const arr = JSON.parse(require("fs").readFileSync(PROVIDERS_FILE, "utf8"));
+    const arr = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8"));
     if (!Array.isArray(arr)) return null;
     return arr.find((p) => p.name === name) || null;
   } catch (_) {
@@ -53,17 +59,17 @@ function adaptModel(m) {
   let levels = null;
   if (m.effort && Array.isArray(m.effort.supported_levels)) levels = m.effort.supported_levels;
   else if (cap.reasoningEffortOptions && Array.isArray(cap.reasoningEffortOptions)) levels = cap.reasoningEffortOptions;
-  if (!levels && module.exports.effortLevels && module.exports.effortLevels.length) levels = module.exports.effortLevels;
+  if (!levels && __provider.effortLevels && __provider.effortLevels.length) levels = __provider.effortLevels;
   if (levels && levels.length) {
     out.effort = { supported_levels: levels.slice() };
     if (m.effort && m.effort.default_level) out.effort.default_level = m.effort.default_level;
     else if (cap.defaultReasoningEffort) out.effort.default_level = cap.defaultReasoningEffort;
-    else if (module.exports.effortDefault) out.effort.default_level = module.exports.effortDefault;
+    else if (__provider.effortDefault) out.effort.default_level = __provider.effortDefault;
   }
   return out;
 }
 
-module.exports = {
+const __provider = {
   name: "radeon",
   baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
   apiKeyEnv: "RADEON_API_KEY",
@@ -90,3 +96,5 @@ module.exports = {
     return { models: list.map(adaptModel) };
   },
 };
+
+export default __provider;

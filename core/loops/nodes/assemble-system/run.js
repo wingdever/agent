@@ -2,10 +2,11 @@
 
 // Node assemble-system: build the session system prompt + skill catalog on the
 // first turn and reuse the stored prompt afterwards.
-const { DEFAULT_IDENTITY } = require("../../../system-prompt");
-const { isModelInvocable } = require("../../../skills");
+import { DEFAULT_IDENTITY } from "./../../../system-prompt.js";
+import _mod0 from "./../../../skills/index.js";
+const { isModelInvocable } = _mod0;
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const { services, session, request } = ctx;
   const settings = services.config.readSettings();
   const persist = session.persist;

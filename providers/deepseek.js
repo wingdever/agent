@@ -1,4 +1,10 @@
 "use strict";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+import path from "path";
+import fs from "fs";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 // DeepSeek provider 适配器。
 // DeepSeek 暴露 OpenAI 兼容的 /models 接口（data[]），其中仅含 id/object/owned_by 等基础字段，
 // 推理等级（supported_levels/default_level）不在 /models 响应里，故 adapt 只映射 name + fee，
@@ -7,11 +13,11 @@
 // schema（与 user/providers.json 一致）：
 //   provider: { name, base_url, api_key?, description?, models: [{ name, fee, effort?: { supported_levels, default_level } }] }
 
-const PROVIDERS_FILE = require("path").join(__dirname, "..", "user", "providers.json");
+const PROVIDERS_FILE = path.join(__dirname, "..", "user", "providers.json");
 
 function readExistingProvider(name) {
   try {
-    const arr = JSON.parse(require("fs").readFileSync(PROVIDERS_FILE, "utf8"));
+    const arr = JSON.parse(fs.readFileSync(PROVIDERS_FILE, "utf8"));
     if (!Array.isArray(arr)) return null;
     return arr.find((p) => p.name === name) || null;
   } catch (_) {
@@ -44,16 +50,16 @@ function adaptModel(m) {
   const name = m.id || m.name;
   // DeepSeek 官方模型默认付费；这里统一标 "paid"，可由 UI 覆盖。
   const out = { name, fee: "paid", enabled: false };
-  // DeepSeek 的 /models 不暴露推理等级，由模块声明基线（见下方 module.exports.effortLevels）。
-  const levels = module.exports.effortLevels;
+  // DeepSeek 的 /models 不暴露推理等级，由模块声明基线（见下方 __provider.effortLevels）。
+  const levels = __provider.effortLevels;
   if (levels && levels.length) {
     out.effort = { supported_levels: levels.slice() };
-    if (module.exports.effortDefault) out.effort.default_level = module.exports.effortDefault;
+    if (__provider.effortDefault) out.effort.default_level = __provider.effortDefault;
   }
   return out;
 }
 
-module.exports = {
+const __provider = {
   name: "deepseek",
   baseUrl: "https://api.deepseek.com",
   apiKeyEnv: "DEEPSEEK_API_KEY",
@@ -78,3 +84,5 @@ module.exports = {
     return { models: list.map(adaptModel) };
   },
 };
+
+export default __provider;

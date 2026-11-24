@@ -6,7 +6,7 @@
 // without the DSH goal-round authority checks. The state and revision CAS are
 // real, and the tool results match DSH's goal value shape.
 
-const { randomUUID } = require("crypto");
+import { randomUUID } from "crypto";
 
 const DEFAULT_MAX_ROUNDS = 256;
 
@@ -178,4 +178,6 @@ function createGoalService(store) {
   };
 }
 
-module.exports = { createGoalService, goalValue, DEFAULT_MAX_ROUNDS };
+const __exports = { createGoalService, goalValue, DEFAULT_MAX_ROUNDS };
+export { createGoalService, goalValue, DEFAULT_MAX_ROUNDS };
+export default __exports;

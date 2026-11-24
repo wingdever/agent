@@ -28,6 +28,14 @@
         "prefix": "ui/web/"
       },
       {
+        "layer": "accounts",
+        "prefix": "accounts/"
+      },
+      {
+        "layer": "channels",
+        "prefix": "channels/"
+      },
+      {
         "layer": "providers",
         "prefix": "providers/"
       },
@@ -149,6 +157,61 @@
       "allow": []
     },
     {
+      "id": "accounts-is-shared",
+      "severity": "error",
+      "description": "accounts/ holds the mechanics shared by both account slots: credential lifecycle, error taxonomy, outbound pacing and instance discovery. It is a leaf like lib/: it must not depend on core, tools, providers, clients, or on either slot it serves.",
+      "from": [
+        "accounts/**"
+      ],
+      "deny": [
+        "core/**",
+        "tools/**",
+        "channels/**",
+        "proxies/**",
+        "providers/**",
+        "ui-electron",
+        "ui-web",
+        "scripts/**"
+      ],
+      "allow": []
+    },
+    {
+      "id": "channels-no-core-internals",
+      "severity": "error",
+      "description": "A channel is one authenticated external account binding. It reaches core only through the transport RPC surface (POST /api/call, fn=chat.send), never by importing core modules, and it must not depend on tools, providers or any client. Keeping this true is what allows a channel to run on another machine against a remote core.",
+      "from": [
+        "channels/**"
+      ],
+      "deny": [
+        "core/**",
+        "tools/**",
+        "providers/**",
+        "ui-electron",
+        "ui-web",
+        "scripts/**",
+        "proxies/**"
+      ],
+      "allow": []
+    },
+    {
+      "id": "proxies-no-core-internals",
+      "severity": "error",
+      "description": "A proxy acts as a person using that person's grant. It reaches core only through the transport RPC surface, never by importing core modules, and it must not depend on tools, providers, clients, or on channels. A proxy is invoked on demand; it has no inbound event stream.",
+      "from": [
+        "proxies/**"
+      ],
+      "deny": [
+        "core/**",
+        "tools/**",
+        "providers/**",
+        "ui-electron",
+        "ui-web",
+        "scripts/**",
+        "channels/**"
+      ],
+      "allow": []
+    },
+    {
       "id": "scripts-isolated",
       "severity": "warn",
       "description": "Developer scripts are standalone tooling; depending on application code makes them break silently when app layers move.",
@@ -170,7 +233,7 @@
     "$comment": "Dependency cycles are not automatically wrong (store/compaction, context/compaction-runner legitimately interlock), so they are reported for review rather than failed.",
     "ignore": [
       [
-        "core/storage/store.mjs",
+        "core/storage/store.js",
         "core/compaction.js"
       ]
     ]

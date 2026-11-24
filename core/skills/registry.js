@@ -9,7 +9,7 @@
 // single-session agent, so resolution is a single flat rank merge
 // (see docs/skills/skills.md 5.7). `scope` is intentionally absent from the API.
 
-const { isSkillName } = require("../../lib/skill-policy");
+import { isSkillName } from "./../../lib/skill-policy/index.js";
 
 const RUNTIME_RANK = 250;
 const RUNTIME_PROVIDER = "runtime";
@@ -210,4 +210,6 @@ class SkillRegistry {
   }
 }
 
-module.exports = { SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER };
+const __exports = { SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER };
+export { SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER };
+export default __exports;

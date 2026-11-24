@@ -1,0 +1,34 @@
+{
+  "name": "team_task_create",
+  "description": "Create one unowned pending task on the shared Team task board. Any member of a subagent tree can add a task; blockers must be existing task ids and write scopes are advisory workspace-relative prefixes.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "subject": {
+        "type": "string",
+        "description": "Concise task title."
+      },
+      "description": {
+        "type": "string",
+        "description": "Complete task details and acceptance criteria."
+      },
+      "blocked_by": {
+        "type": "array",
+        "description": "Task ids that must complete first.",
+        "items": { "type": "string" }
+      },
+      "write_scopes": {
+        "type": "array",
+        "description": "Advisory file or directory prefixes relative to the workspace root; no absolute paths or \"..\" segments. Omit or pass [] if no workspace files will be modified.",
+        "items": { "type": "string" }
+      }
+    },
+    "required": ["subject", "description"]
+  },
+  "type": "control",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Team shared task board: create, read, list, and compare-and-set tasks across the subagent tree. Claim a ready task with its current revision, do the work, then complete it. Dependencies gate claims; write scopes are advisory, not a lock.",
+  "promptSection": "team_task",
+  "result": "json"
+}

@@ -2,12 +2,13 @@
 
 // Node turn-start: initialize the turn, session gates and tool/permission
 // selection. This is the only node that claims the active session.
-const path = require("path");
-const { readPermissions } = require("../../../permissions");
-const { readFsPolicy } = require("../../../fs-policy");
-const { reset: resetTodos } = require("../../../../lib/todo-state");
+import path from "path";
+import { readPermissions } from "./../../../permissions.js";
+import _mod0 from "./../../../fs-policy.js";
+const { readFsPolicy } = _mod0;
+import { reset as resetTodos } from "./../../../../lib/todo-state/index.js";
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const { agent, services, session, turn } = ctx;
   // Delivery state for this turn lives on the instance; beginTurn already
   // installed it (node-graph owns opening and closing the turn).

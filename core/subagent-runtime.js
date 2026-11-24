@@ -1,7 +1,7 @@
 "use strict";
 
-const crypto = require("crypto");
-const { parseStructured } = require("../lib/workflow-runtime");
+import crypto from "crypto";
+import { parseStructured } from "./../lib/workflow-runtime/index.js";
 
 // One-shot subagent runtime (docs/agents/subagent.md).
 //
@@ -687,7 +687,7 @@ class SubagentRuntime {
   }
 }
 
-module.exports = {
+const __exports = {
   SubagentRuntime,
   SUBAGENT_DELEGATION_CONTEXT,
   ROOT_AGENT_NAME,
@@ -697,3 +697,5 @@ module.exports = {
   buildSettlementText,
   mapStopReason,
 };
+export { SubagentRuntime, SUBAGENT_DELEGATION_CONTEXT, ROOT_AGENT_NAME, AGENT_NAME_PATTERN, settlementSummary, limitDiagnostic, buildSettlementText, mapStopReason };
+export default __exports;

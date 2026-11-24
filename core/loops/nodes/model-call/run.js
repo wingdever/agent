@@ -2,12 +2,12 @@
 
 // Node model-call: one model request plus its step lifecycle, overflow retry,
 // assistant persistence and token anchor.
-const compaction = require("../../../compaction");
-const planMode = require("../../../plan-mode");
-const { TurnError } = require("../../../turn-error");
-const { StepState } = require("../../../memory");
+import compaction from "./../../../compaction.js";
+import planMode from "./../../../plan-mode.js";
+import { TurnError } from "./../../../turn-error.js";
+import { StepState } from "./../../../memory/index.js";
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const { agent, services, session, request } = ctx;
   const persist = session.persist;
   const r = ctx.turn.steps;

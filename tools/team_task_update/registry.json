@@ -1,0 +1,51 @@
+{
+  "name": "team_task_update",
+  "description": "Compare-and-set a shared task action using the latest revision from team_task_get or team_task_list. Owners and the Team Lead mutate their tasks; only the Lead reassigns.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "task_id": {
+        "type": "string",
+        "description": "Shared task id."
+      },
+      "expected_revision": {
+        "type": "integer",
+        "description": "Current task revision used as the CAS precondition."
+      },
+      "action": {
+        "type": "string",
+        "description": "Task transition to apply.",
+        "enum": ["claim", "release", "edit", "set_dependencies", "complete", "reopen", "reassign", "delete"]
+      },
+      "subject": {
+        "type": "string",
+        "description": "Replacement title for edit."
+      },
+      "description": {
+        "type": "string",
+        "description": "Replacement details for edit."
+      },
+      "blocked_by": {
+        "type": "array",
+        "description": "Complete blocker list for set_dependencies.",
+        "items": { "type": "string" }
+      },
+      "write_scopes": {
+        "type": "array",
+        "description": "Replacement workspace-relative write scopes for edit. Omit to keep current scopes; [] clears them.",
+        "items": { "type": "string" }
+      },
+      "owner": {
+        "type": "string",
+        "description": "Agent name of the root or any continuable descendant for root-only reassign; omit to unassign."
+      }
+    },
+    "required": ["task_id", "expected_revision", "action"]
+  },
+  "type": "control",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Team shared task board: create, read, list, and compare-and-set tasks across the subagent tree. Claim a ready task with its current revision, do the work, then complete it. Dependencies gate claims; write scopes are advisory, not a lock.",
+  "promptSection": "team_task",
+  "result": "json"
+}

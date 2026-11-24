@@ -1,0 +1,42 @@
+{
+  "$comment": "Template for user/proxies.json. A proxy acts as a person with that person's grant; scopes are the only source of truth for what it may do. Credentials may come from env: PROXY_<ID>_<FIELD>.",
+  "proxies": [
+    {
+      "id": "me",
+      "type": "lark",
+      "enabled": false,
+      "scopes": ["docx:document:readonly", "drive:drive:readonly"],
+      "credentials": {},
+      "options": {
+        "impl": "cli",
+        "command": "lark-cli",
+        "allow": ["read"],
+        "qps": 1
+      }
+    },
+    {
+      "id": "me-oauth",
+      "type": "lark",
+      "enabled": false,
+      "scopes": ["docx:document:readonly", "drive:drive:readonly"],
+      "credentials": {
+        "clientId": "cli_xxx",
+        "clientSecret": "xxx",
+        "refreshToken": ""
+      },
+      "options": {
+        "impl": "oauth",
+        "allow": ["read"],
+        "qps": 5
+      }
+    },
+    {
+      "id": "fake-lab",
+      "type": "fake",
+      "enabled": false,
+      "scopes": ["doc:read", "doc:write"],
+      "credentials": {},
+      "options": {}
+    }
+  ]
+}

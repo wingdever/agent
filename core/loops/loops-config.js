@@ -9,8 +9,12 @@
 // This module depends only on fs/path so it never forms a circular dependency
 // with the engine, registry or core index.
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const LOOPS_FILE = path.join(__dirname, "..", "..", "user", "loops.json");
 
@@ -81,4 +85,6 @@ function validateHooks(hooksArray, coreNodeIds, allNodeIds) {
   return hooksArray;
 }
 
-module.exports = { LOOPS_FILE, DEFAULT_HOOKS, readLoops, writeLoops, validateHooks };
+const __exports = { LOOPS_FILE, DEFAULT_HOOKS, readLoops, writeLoops, validateHooks };
+export { LOOPS_FILE, DEFAULT_HOOKS, readLoops, writeLoops, validateHooks };
+export default __exports;

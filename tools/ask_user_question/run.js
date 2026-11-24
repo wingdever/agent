@@ -30,7 +30,7 @@ function validateQuestions(questions) {
   }
 }
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     validateQuestions(args.questions);
     if (typeof exec.askUserQuestion !== "function") {

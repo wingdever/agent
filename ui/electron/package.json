@@ -1,5 +1,6 @@
 {
   "name": "ui-electron",
+  "type": "module",
   "version": "0.1.0",
   "private": true,
   "description": "Electron 桌面客户端（独立子项目）",

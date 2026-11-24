@@ -13,4 +13,6 @@ async function run(args, exec) {
   return `interrupt requested for agent ${agent}`;
 }
 
-module.exports = { run };
+const __exports = { run };
+export { run };
+export default __exports;

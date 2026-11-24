@@ -11,4 +11,6 @@ class WebToolError extends Error {
   }
 }
 
-module.exports = { WebToolError };
+const __exports = { WebToolError };
+export { WebToolError };
+export default __exports;

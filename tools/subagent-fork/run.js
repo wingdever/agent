@@ -13,4 +13,6 @@ async function run(args, exec) {
   return `started subagent ${started.name}`;
 }
 
-module.exports = { run };
+const __exports = { run };
+export { run };
+export default __exports;

@@ -3,7 +3,7 @@
 // Config-domain commands. Write commands keep the `payload` wrapper; reads take
 // direct filter fields.
 
-module.exports = function defineConfigCommands(rpc) {
+export default function defineConfigCommands(rpc) {
   const payloadObject = {
     type: "object",
     properties: { payload: { type: "object" } },

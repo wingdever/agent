@@ -1,6 +1,6 @@
 "use strict";
-const { createHttpTransport } = require("./transports/http");
-const { createIpcTransport } = require("./transports/ipc");
+import { createHttpTransport } from "./transports/http.js";
+import { createIpcTransport } from "./transports/ipc.js";
 
 // 传输层注册表：默认 http，可由 AGENT_TRANSPORT 切换
 const registry = { http: createHttpTransport, ipc: createIpcTransport };
@@ -11,5 +11,7 @@ async function startTransport(name, core, options) {
   return await make(options || {}).start(core);
 }
 
-module.exports = { registry, startTransport, DEFAULT };
+const __exports = { registry, startTransport, DEFAULT };
+export { registry, startTransport, DEFAULT };
+export default __exports;
  

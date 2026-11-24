@@ -12,17 +12,21 @@
 // Usage: node scripts/graph/scan.js
 // Re-run after changing code; the graph tab always reads the generated file.
 
-const fs = require("fs");
-const path = require("path");
-const { init, parse } = require("es-module-lexer");
-const { readArchRules, evaluateRules } = require("./arch-check");
+import fs from "fs";
+import path from "path";
+import { init, parse } from "es-module-lexer";
+import { readArchRules, evaluateRules } from "./arch-check.js";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const RULES_FILE = path.join(__dirname, "runtime-edges.json");
 const OUT_FILE = path.join(ROOT, "ui", "web", "graph-data.json");
 
 // Scan roots relative to ROOT. Anything reachable from these is a graph node.
-const SCAN_ROOTS = ["launcher.js", "lib", "core", "tools", "ui", "providers", "scripts"];
+const SCAN_ROOTS = ["launcher.js", "lib", "core", "tools", "ui", "providers", "accounts", "channels", "proxies", "scripts"];
 
 // Excluded paths (relative to ROOT, forward slashes). Generator output and
 // third-party vendor bundles are not part of the project's dependency graph.

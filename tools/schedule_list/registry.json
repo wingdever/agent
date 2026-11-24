@@ -1,0 +1,27 @@
+{
+  "name": "schedule_list",
+  "description": "List persisted Host-level scheduled tasks. Every session can see the Host board; active tasks are ordered by next occurrence, paused and ended tasks by recent update.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "active": {
+        "type": "boolean",
+        "description": "true lists only active tasks, false only paused/ended tasks; omit to list all."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size, 1 through 100; default 50."
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Number of filtered tasks to skip; default 0."
+      }
+    }
+  },
+  "type": "control",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Host-level scheduled tasks: create, list, view, and edit a persisted rule that delivers a synthetic user follow-up at its due time. `{{tools}}` manage the rule only; the delivered turn does the work. A schedule is not a Job: use `job_*`/`workflow` when you need immediate asynchronous execution, output and cancellation.",
+  "promptSection": "schedule",
+  "result": "json"
+}

@@ -18,7 +18,7 @@ const bySession = {
   additionalProperties: false,
 };
 
-module.exports = function defineStorageCommands(rpc) {
+export default function defineStorageCommands(rpc) {
   const read = (name, storeOp, params) => {
     rpc.define({
       name,

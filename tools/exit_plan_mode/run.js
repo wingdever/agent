@@ -4,7 +4,7 @@
 // rejection keeps plan mode active and returns the user's feedback as an error
 // so the model revises and presents again.
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     if (typeof exec.isPlanMode !== "function" || !exec.isPlanMode()) {
       throw new Error("exit_plan_mode is only available in plan mode");

@@ -5,11 +5,11 @@
 // the complete output is bounded by fetchMaxOutputChars with DSH's truncation
 // footer. Text bodies pass through verbatim.
 
-const TurndownService = require("turndown");
-const { gfm } = require("@joplin/turndown-plugin-gfm");
+import TurndownService from "turndown";
+import { gfm } from "@joplin/turndown-plugin-gfm";
 
-const { DEFAULTS } = require("./config");
-const { EXTERNAL_WEB_CONTENT_NOTICE } = require("./trust");
+import { DEFAULTS } from "./config.js";
+import { EXTERNAL_WEB_CONTENT_NOTICE } from "./trust.js";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -245,9 +245,11 @@ function formatFetchOutput(result, maxOutputChars = DEFAULTS.fetchMaxOutputChars
   return renderFetchOutput(result, maxOutputChars).text;
 }
 
-module.exports = {
+const __exports = {
   TRUNCATION_FOOTER,
   formatFetchOutput,
   renderFetchOutput,
   renderBody,
 };
+export { TRUNCATION_FOOTER, formatFetchOutput, renderFetchOutput, renderBody };
+export default __exports;

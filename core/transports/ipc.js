@@ -6,7 +6,8 @@ function createIpcTransport() {
   return {
     name: "ipc",
     async start(core) {
-      const { ipcMain } = require("electron"); // lazy: non-electron environments never load it
+      // lazy：非 electron 环境永远不加载这个模块。ESM 用动态 import 保持同样的惰性
+      const { ipcMain } = await import("electron");
       ipcMain.handle("agent:call", async (event, payload) => {
         const fn = payload && payload.fn;
         const params = (payload && payload.params) || {};
@@ -18,4 +19,6 @@ function createIpcTransport() {
   };
 }
 
-module.exports = { createIpcTransport };
+const __exports = { createIpcTransport };
+export { createIpcTransport };
+export default __exports;

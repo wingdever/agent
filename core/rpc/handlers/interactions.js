@@ -15,7 +15,7 @@ const bySession = {
   additionalProperties: false,
 };
 
-module.exports = function defineInteractionCommands(rpc) {
+export default function defineInteractionCommands(rpc) {
   rpc.define({
     name: "interactions.approve",
     params: payload,

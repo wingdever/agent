@@ -206,4 +206,6 @@ function firstHeading(plan) {
   return "";
 }
 
-module.exports = { InteractionService };
+const __exports = { InteractionService };
+export { InteractionService };
+export default __exports;

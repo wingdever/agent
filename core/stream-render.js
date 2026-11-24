@@ -10,4 +10,6 @@ function renderDelta(onEvent, kind, delta) {
   onEvent({ type: kind === "reasoning" ? "reasoning" : "token", delta });
 }
 
-module.exports = { renderDelta };
+const __exports = { renderDelta };
+export { renderDelta };
+export default __exports;

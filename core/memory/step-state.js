@@ -18,4 +18,6 @@ class StepState {
   }
 }
 
-module.exports = { StepState };
+const __exports = { StepState };
+export { StepState };
+export default __exports;

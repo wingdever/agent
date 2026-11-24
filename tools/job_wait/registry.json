@@ -1,0 +1,23 @@
+{
+  "name": "job_wait",
+  "description": "Wait for a background job to settle, up to `timeout_ms` (max 30000). Returns the job's result and recent output when it finishes, or a still-running status with the output tail when the timeout expires. Use it after starting a background workflow or job when you need the result in this turn; otherwise the completion notice will arrive by itself.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "job_id": {
+        "type": "string",
+        "description": "The background job id (e.g. job_...)."
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "description": "Maximum wait in milliseconds, capped at 30000. Defaults to 10000."
+      }
+    },
+    "required": ["job_id"]
+  },
+  "type": "read",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "job_wait: wait up to timeout_ms for a background job to settle and return its result; on timeout, report that it is still running with its output tail.",
+  "promptSection": "job_wait"
+}

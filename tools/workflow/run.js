@@ -4,7 +4,7 @@
 // core/workflow 起一个 run，等它落定，把返回值渲染成一次工具结果。
 // 前台阻塞到整段脚本落定；后台立即返回 job id，返回值随完成通知到达。
 
-const { DEFAULT_RESULT_CHARS, renderCompletion, renderProgress, resultMeta, stopReasonError } = require("./render");
+import { DEFAULT_RESULT_CHARS, renderCompletion, renderProgress, resultMeta, stopReasonError } from "./render.js";
 
 async function run(args, exec) {
   const engine = exec && exec.workflowEngine;
@@ -76,6 +76,7 @@ async function runInBackground({ engine, exec, script, meta, workflowArgs }) {
           if (result.stopReason === "cancelled") return { status: "killed" };
           return { status: "failed", detail: result.error || "unknown error" };
         }),
+        cancel: (reason) => live.cancel(reason),
       };
     },
   });
@@ -103,4 +104,6 @@ function emitProgress(exec, event) {
   } catch (_) { /* advisory */ }
 }
 
-module.exports = { run, renderProgress };
+const __exports = { run, renderProgress };
+export { run, renderProgress };
+export default __exports;

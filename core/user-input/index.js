@@ -2,7 +2,7 @@
 
 // Prepare the per-turn injected input. `deps` is { store, skills }.
 
-const { resolveReferences } = require("./user-references");
+import { resolveReferences } from "./user-references.js";
 
 async function prepareUserInput(deps, { text, cwd, references, sessionId, persist }) {
   const refs = [];
@@ -18,4 +18,6 @@ async function prepareUserInput(deps, { text, cwd, references, sessionId, persis
   return { refs };
 }
 
-module.exports = { prepareUserInput };
+const __exports = { prepareUserInput };
+export { prepareUserInput };
+export default __exports;

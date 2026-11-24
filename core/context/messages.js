@@ -9,4 +9,6 @@ function cleanMessage(message) {
   return clean;
 }
 
-module.exports = { cleanMessage };
+const __exports = { cleanMessage };
+export { cleanMessage };
+export default __exports;

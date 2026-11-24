@@ -7,11 +7,11 @@
 
 将 `#trajectoryTab`（当前空状态）实现为**会话级时间线**，按 `turn → step → (message / call)` 聚合渲染，使每次会话的"思考 / 工具调用 / 文件改动 / 终端命令"逐条可展开回溯，定位"哪一步模型想错、哪个工具返回异常"一目了然。
 
-**复用现有数据**：core 已将对话落库到 `turns/steps/messages/calls`（`core/storage/schema.mjs`），前端 `app.js` 的 `onChatEvent` 已把同类事件渲染进 chat-tab。轨迹面板**不新增数据采集**，只新增一个只读可视化视图。
+**复用现有数据**：core 已将对话落库到 `turns/steps/messages/calls`（`core/storage/schema.js`），前端 `app.js` 的 `onChatEvent` 已把同类事件渲染进 chat-tab。轨迹面板**不新增数据采集**，只新增一个只读可视化视图。
 
 ## 2. 数据来源（无需改 core 采集）
 
-查询路径（API 见 `core/storage/store.mjs`）：
+查询路径（API 见 `core/storage/store.js`）：
 
 ```
 listTurns({ session_id })            → turns (seq, status)
@@ -51,7 +51,7 @@ listTurns({ session_id })            → turns (seq, status)
 
 ## 5. 落地步骤（实现期任务清单）
 
-1. **DB 层**：`store.mjs` 确认 `listTurns/listSteps/listMessages/listCalls` 已暴露且可用（据 schema 应已具备；实现时实测）。如需按 session 直查 step/call 的便捷方法可补一个 `getTrajectory({ session_id })`。
+1. **DB 层**：`store.js` 确认 `listTurns/listSteps/listMessages/listCalls` 已暴露且可用（据 schema 应已具备；实现时实测）。如需按 session 直查 step/call 的便捷方法可补一个 `getTrajectory({ session_id })`。
 2. **API 通道**：`ui/web/api.js` 增加 `getTrajectory(sessionId)` 调用 core 对应 RPC（或在已有 session 加载流程里附带）。
 3. **渲染模块**：`app.js` 新增 `renderTrajectory(sessionId)`，构建 `.traj-turn/.traj-step/.traj-calls` 树，复用 `makeToolCallCard` 与 `markdown.js`。
 4. **空状态**：无 turns → 显示"暂无轨迹"；bare-chat → 显示"该活动不记录轨迹"。

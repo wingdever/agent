@@ -4,14 +4,10 @@
 // text. The query cap is baked into the registry description; keep them in
 // sync if DEFAULTS.maxQueries ever changes.
 
-const { DEFAULTS, resolveTavilyConfig } = require("../lib/web/config");
-const {
-  formatSearchOutput,
-  parseSearchArgs,
-  runSearchQueries,
-} = require("../lib/web/search");
+import { DEFAULTS, resolveTavilyConfig } from "./../lib/web/config.js";
+import { formatSearchOutput, parseSearchArgs, runSearchQueries } from "./../lib/web/search.js";
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     const queries = parseSearchArgs(args, DEFAULTS.maxQueries);
     const config = resolveTavilyConfig();

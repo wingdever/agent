@@ -9,8 +9,12 @@
 // turns a rule set plus the scanned graph into a violation list; it never
 // edits code.
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const RULES_FILE = path.join(__dirname, "arch-rules.json");
 
@@ -161,4 +165,6 @@ function findCycles(nodeIds, edges, cycleCfg) {
     }));
 }
 
-module.exports = { readArchRules, evaluateRules, globToRegExp, layerFor };
+const __exports = { readArchRules, evaluateRules, globToRegExp, layerFor };
+export { readArchRules, evaluateRules, globToRegExp, layerFor };
+export default __exports;

@@ -99,4 +99,6 @@ function hasPlaceholder(template) {
   return PLACEHOLDER.test(template);
 }
 
-module.exports = { TemplateError, readPath, render, renderDeep, hasPlaceholder };
+const __exports = { TemplateError, readPath, render, renderDeep, hasPlaceholder };
+export { TemplateError, readPath, render, renderDeep, hasPlaceholder };
+export default __exports;

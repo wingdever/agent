@@ -32,7 +32,7 @@ skill 能力族拆成「注册表 / 提供方 / 消费方」三段，注册表�
 | `agent/pre-step` waterfall | 会话起始装配点：`core/loops/nodes/assemble-system/run.js` 与 `core/loops/linear.js:139-142` |
 | 用户主动注入技能（引用块） | `core/user-input/user-references.js` 的 `resolveReferences` 的 `type:"skill"` 分支：进入引用上下文消息 |
 | `ctx.sessionSkillCatalog` | UI 侧 `skills.list` IPC |
-| `skills` / `tool_skills` 表 | `core/storage/schema.mjs:48`（存储层已有骨架） |
+| `skills` / `tool_skills` 表 | `core/storage/schema.js:48`（存储层已有骨架） |
 
 ## 2. 数据模型
 
@@ -452,7 +452,7 @@ interface SkillListValue { readonly skills: readonly SkillEntry[] }
 
 `core/system-prompt.js` 的装配结果是**消息块**（`{ role, content }[]`）：首条是 system 文本，随后是 skill 目录的 user-role 消息。`render()` 产出 system 文本（`core/system-prompt.js:72-74`），消息块由 `assembleSystemPrompt()` 在 `systemIsNew` 分支产出（`core/loops/nodes/assemble-system/run.js:13-26`、`core/loops/linear.js:139-142`）。两套 loop 引擎（`core/loops/index.js:22` 默认 `node-graph`）走同一入口，目录注入不接进每 step 的 pre-step。
 
-生成时机是**会话起始一次**：`systemIsNew` 为真时与 system prompt 一起装配、一起落库，之后所有轮次从存储读回，不再重新生成，与本项目 system prompt 的既有生命周期一致（`docs/dev/system-prompt.md`）。目录消息排在 `conv[0]` 之后 —— `conv[0].content` 会在 `core/loops/linear.js:273` 与 `core/loops/nodes/model-call/run.js:64` 被 `requestSystem` 覆写。落库时目录消息作为**独立的 user 消息**与 system 消息一并写入 step 0（`core/loops/linear.js:259-264`、`core/loops/nodes/model-call/run.js:26-48`）；`session.prompt`（`core/storage/store.mjs:460-465` 的 `getSessionPrompt`）只回读 system 文本用于 `requestSystem`，目录消息则由 `surfaceNodes` 作为普通历史消息回放，二者协作构成完整消息块。plan-mode 的 POLICY 只拼到 system 消息上（`core/loops/linear.js:204`、`core/loops/nodes/pre-step/run.js:13`），其余消息原样保留。
+生成时机是**会话起始一次**：`systemIsNew` 为真时与 system prompt 一起装配、一起落库，之后所有轮次从存储读回，不再重新生成，与本项目 system prompt 的既有生命周期一致（`docs/dev/system-prompt.md`）。目录消息排在 `conv[0]` 之后 —— `conv[0].content` 会在 `core/loops/linear.js:273` 与 `core/loops/nodes/model-call/run.js:64` 被 `requestSystem` 覆写。落库时目录消息作为**独立的 user 消息**与 system 消息一并写入 step 0（`core/loops/linear.js:259-264`、`core/loops/nodes/model-call/run.js:26-48`）；`session.prompt`（`core/storage/store.js:460-465` 的 `getSessionPrompt`）只回读 system 文本用于 `requestSystem`，目录消息则由 `surfaceNodes` 作为普通历史消息回放，二者协作构成完整消息块。plan-mode 的 POLICY 只拼到 system 消息上（`core/loops/linear.js:204`、`core/loops/nodes/pre-step/run.js:13`），其余消息原样保留。
 
 消息体用会话目录模板的逐字文案；条目按 `` - `name`: description `` 渲染，description 先折叠空白、按 `catalogDescriptionMaxLength` 截断、再做 `&` / `<` / `>` 转义，名称按 `isSkillName()` 校验。这些渲染规则直接落在 `core/system-prompt.js`，不设独立的 catalog 模块。消息落库后走现有 `surfaceNodes` / `requestMessages` 回放（`core/compaction-runner.js:63-66`），作为普通历史消息参与压缩，不做特殊过滤或重建。
 
@@ -468,7 +468,7 @@ interface SkillListValue { readonly skills: readonly SkillEntry[] }
 
 ### 5.4 存储
 
-`core/storage/schema.mjs` 已有 `skills`（`name` / `description` / `prompt` / `path`）与 `tool_skills` 关联表，以及 `core/storage/store.mjs:596-613` 的 CRUD 与 `:709-719` 的 `skill.*` / `toolSkill.*` 操作名（经 `core/index.js:639-641` 的 `storage` 通道转发）。规格以文件系统为唯一真源：这些表只作 UI 展示与索引，不作为运行时的 skill 定义来源；`prompt` 字段对应 `SkillDefinition.content`。`tool_skills` 的 skill ↔ tool 多对多关联在本规格里不参与加载或调用门控，只保留为索引数据。目录消息由 `message.add` 落库为普通消息行，不引入 `source` 列与压缩记录一类的特殊通道；后续若确实改 schema，按项目约定直接删 db 文件重建，不写迁移。
+`core/storage/schema.js` 已有 `skills`（`name` / `description` / `prompt` / `path`）与 `tool_skills` 关联表，以及 `core/storage/store.js:596-613` 的 CRUD 与 `:709-719` 的 `skill.*` / `toolSkill.*` 操作名（经 `core/index.js:639-641` 的 `storage` 通道转发）。规格以文件系统为唯一真源：这些表只作 UI 展示与索引，不作为运行时的 skill 定义来源；`prompt` 字段对应 `SkillDefinition.content`。`tool_skills` 的 skill ↔ tool 多对多关联在本规格里不参与加载或调用门控，只保留为索引数据。目录消息由 `message.add` 落库为普通消息行，不引入 `source` 列与压缩记录一类的特殊通道；后续若确实改 schema，按项目约定直接删 db 文件重建，不写迁移。
 
 ### 5.5 系统提示与压缩
 

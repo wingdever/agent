@@ -20,4 +20,6 @@ function createTurnState(opts = {}) {
   };
 }
 
-module.exports = { createTurnState };
+const __exports = { createTurnState };
+export { createTurnState };
+export default __exports;

@@ -1,5 +1,5 @@
 "use strict";
-const tokenMeter = require("./token-meter");
+import tokenMeter from "./token-meter.js";
 
 // Record the DSH usage anchor after one successful response.
 // Explicit deps: { store }.
@@ -21,4 +21,6 @@ async function recordTokenAnchor({ store }, { sessionId, model, system, tools, m
   }
 }
 
-module.exports = { recordTokenAnchor };
+const __exports = { recordTokenAnchor };
+export { recordTokenAnchor };
+export default __exports;

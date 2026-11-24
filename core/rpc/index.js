@@ -1,12 +1,12 @@
 "use strict";
 
-const { RpcRegistry } = require("./registry");
-const defineChatCommands = require("./handlers/chat");
-const defineConfigCommands = require("./handlers/config");
-const defineStorageCommands = require("./handlers/storage");
-const defineCatalogCommands = require("./handlers/catalog");
-const defineInteractionCommands = require("./handlers/interactions");
-const defineFlowCommands = require("./handlers/flow");
+import { RpcRegistry } from "./registry.js";
+import defineChatCommands from "./handlers/chat.js";
+import defineConfigCommands from "./handlers/config.js";
+import defineStorageCommands from "./handlers/storage.js";
+import defineCatalogCommands from "./handlers/catalog.js";
+import defineInteractionCommands from "./handlers/interactions.js";
+import defineFlowCommands from "./handlers/flow.js";
 
 function createRpc(core) {
   const rpc = new RpcRegistry(core);
@@ -19,4 +19,6 @@ function createRpc(core) {
   return rpc;
 }
 
-module.exports = { createRpc, RpcRegistry };
+const __exports = { createRpc, RpcRegistry };
+export { createRpc, RpcRegistry };
+export default __exports;

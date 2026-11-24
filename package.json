@@ -1,5 +1,6 @@
 {
   "name": "agent-ui",
+  "type": "module",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@12.15.0",
@@ -7,10 +8,13 @@
   "main": "launcher.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js",
+    "test": "node --test \"test/**/*.test.js\"",
     "graph": "node scripts/graph/scan.js",
     "providers": "node providers/index.js",
-    "providers:all": "node providers/index.js"
+    "providers:all": "node providers/index.js",
+    "channel": "node channel-run.js",
+    "acp": "node acp-server.js",
+    "a2a": "node a2a-server.js"
   },
   "devDependencies": {
     "cytoscape": "^3.35.0",
@@ -19,10 +23,13 @@
     "es-module-lexer": "^3.0.5"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
     "@joplin/turndown-plugin-gfm": "^1.0.68",
+    "@larksuiteoapi/node-sdk": "^1.76.0",
     "@vscode/ripgrep": "^1.18.0",
     "ipaddr.js": "^2.5.0",
     "pg-micro": "^0.0.5",
+    "playwright-core": "1.65.1",
     "turndown": "^7.2.4",
     "unbash": "^6.0.3"
   }

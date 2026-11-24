@@ -65,4 +65,6 @@ class ToolService {
   }
 }
 
-module.exports = { ToolService };
+const __exports = { ToolService };
+export { ToolService };
+export default __exports;

@@ -16,7 +16,7 @@
 // The executor never touches an Agent: nodes receive a narrow `ctx` built here
 // (stream a model, run a tool) and nothing else.
 
-const { getNodeType } = require("./nodes");
+import { getNodeType } from "./nodes.js";
 
 const MAX_VISITS_PER_NODE = 10000;
 
@@ -169,4 +169,6 @@ function stableStringify(value) {
   }
 }
 
-module.exports = { executeFlow, MAX_VISITS_PER_NODE, stableStringify };
+const __exports = { executeFlow, MAX_VISITS_PER_NODE, stableStringify };
+export { executeFlow, MAX_VISITS_PER_NODE, stableStringify };
+export default __exports;

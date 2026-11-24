@@ -4,8 +4,8 @@
 // pure half of DSH's web-fetch-http provider. Kept free of network access so it
 // is cheap to test and reuse before any destination is resolved.
 
-const { DEFAULTS } = require("./config");
-const { WebToolError } = require("./errors");
+import { DEFAULTS } from "./config.js";
+import { WebToolError } from "./errors.js";
 
 // Parse a URL and enforce the transport restrictions that need no DNS lookup:
 // HTTP(S) only and no embedded credentials.
@@ -78,7 +78,7 @@ function decoderForCharset(charset) {
   }
 }
 
-module.exports = {
+const __exports = {
   parseFetchUrl,
   validateFetchUrl,
   isSameOrigin,
@@ -86,3 +86,5 @@ module.exports = {
   parseCharset,
   decoderForCharset,
 };
+export { parseFetchUrl, validateFetchUrl, isSameOrigin, classifyContentType, parseCharset, decoderForCharset };
+export default __exports;

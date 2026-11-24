@@ -4,8 +4,8 @@
 // outcome to model-facing text. Permission/approval stay in core/index.js
 // because they need the session UI; this module only owns the tool contract.
 
-const { validateSchema } = require("./schema");
-const { errorResult, normalizeResult } = require("../../lib/tool-result");
+import { validateSchema } from "./schema.js";
+import { errorResult, normalizeResult } from "./../../lib/tool-result/index.js";
 
 function validateToolArgs(tool, args) {
   return validateSchema(tool.parameters, args);
@@ -21,4 +21,6 @@ async function runTool(tool, args, exec) {
   return normalizeResult(result);
 }
 
-module.exports = { validateToolArgs, runTool };
+const __exports = { validateToolArgs, runTool };
+export { validateToolArgs, runTool };
+export default __exports;

@@ -70,4 +70,6 @@ function resultMeta(run, result) {
   };
 }
 
-module.exports = { DEFAULT_RESULT_CHARS, renderCompletion, renderProgress, stopReasonError, resultMeta };
+const __exports = { DEFAULT_RESULT_CHARS, renderCompletion, renderProgress, stopReasonError, resultMeta };
+export { DEFAULT_RESULT_CHARS, renderCompletion, renderProgress, stopReasonError, resultMeta };
+export default __exports;

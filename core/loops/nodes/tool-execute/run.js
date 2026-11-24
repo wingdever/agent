@@ -3,12 +3,13 @@
 // Node tool-execute: validate → authorize → execute → persist each tool call.
 // Plan review, user questions, user jobs and subagent delegation all happen
 // inside tool execution, not as separate graph phases.
-const { permissionFor } = require("../../../permissions");
-const { resolveFsPermission } = require("../../../fs-policy");
-const { validateToolArgs, runTool } = require("../../../tools/executor");
-const { errorResult } = require("../../../../lib/tool-result");
+import { permissionFor } from "./../../../permissions.js";
+import _mod0 from "./../../../fs-policy.js";
+const { resolveFsPermission } = _mod0;
+import { validateToolArgs, runTool } from "./../../../tools/executor.js";
+import { errorResult } from "./../../../../lib/tool-result/index.js";
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const { agent, services, session } = ctx;
   const response = ctx.step.response;
   const persist = session.persist;
@@ -136,6 +137,15 @@ module.exports = async function run(input, ctx) {
       }),
     } : null;
 
+    // Background work: the tool says what the job is; the service owns identity,
+    // status, output, cancellation and the completion notice.
+    const startJob = services.jobs ? (spec) => services.jobs.start({
+      ...spec,
+      sessionId: session.id,
+      chatCtx: parentChatCtx,
+      onEvent: ctx.emit,
+    }) : null;
+
     const result = await runTool(tool, args, {
       cwd: ctx.cwd,
       sessionId: session.id,
@@ -151,6 +161,14 @@ module.exports = async function run(input, ctx) {
       requestUserJob: (job) => services.interactions.requestUserJob({ agent, callId, sessionId: session.id, ...job }),
       killUserJob: (jobId) => services.interactions.killUserJob(jobId),
       store: services.store,
+      capabilities: services.capabilities,
+      jobs: services.jobs,
+      team: services.team,
+      schedule: services.schedule,
+      a2a: services.a2a,
+      browser: services.browser,
+      startJob,
+      emit: ctx.emit,
       ...delegation,
       workflowEngine,
     });

@@ -5,7 +5,8 @@
 // The assembled prompt is built once per chat() call (one conversation round)
 // and reused by every step of that round.
 
-const { isSkillName } = require("./skills");
+import _mod0 from "./skills/index.js";
+const { isSkillName } = _mod0;
 
 // Skill catalog message (dsh's session skill-catalog). The block is rendered by
 // assembleSystemPrompt as a user-role message appended right after the system
@@ -188,6 +189,9 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
   // DSH allocates a fixed order per tool instead of alphabetical position.
   // Keeping the same order preserves the prompt's reading order for the model.
   const toolOrders = {
+    schedule: 500,
+    a2a: 550,
+    team_task: 600,
     bash: 1000,
     pwsh: 1010,
     read: 1100,
@@ -201,6 +205,7 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
     job_kill: 1630,
     web_search: 2000,
     web_fetch: 2100,
+    browser: 2200,
     goal: 2400,
   };
   const guidance = tools
@@ -240,7 +245,7 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
   return { prompt, system, sections: prompt.sections(), block };
 }
 
-module.exports = {
+const __exports = {
   DEFAULT_IDENTITY,
   ENGLISH_ONLY_INSTRUCTION,
   SECTION_ORDERS,
@@ -250,3 +255,5 @@ module.exports = {
   buildRuntimeContext,
   localIso,
 };
+export { DEFAULT_IDENTITY, ENGLISH_ONLY_INSTRUCTION, SECTION_ORDERS, SystemPrompt, assembleSystemPrompt, renderSkillCatalog, buildRuntimeContext, localIso };
+export default __exports;

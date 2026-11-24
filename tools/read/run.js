@@ -10,9 +10,9 @@
 // `exec.cwd` (the conversation workspace) resolves relative paths; absolute
 // paths are honored as-is.
 
-const fs = require("fs");
-const path = require("path");
-const { record } = require("../../lib/fs-observe");
+import fs from "fs";
+import path from "path";
+import { record } from "./../../lib/fs-observe/index.js";
 
 const READ_LIMIT = 2000;
 const READ_MAX_LINE_LENGTH = 2000;
@@ -167,7 +167,7 @@ function formatReadOutput(displayPath, outcome) {
   return "<path>" + displayPath + "</path>\n<type>file</type>\n<content>\n" + body + "\n</content>";
 }
 
-module.exports = {
+export default {
   READ_LIMIT,
   async run(args = {}, exec = {}) {
     const input = parseReadArgs(args, exec.cwd);

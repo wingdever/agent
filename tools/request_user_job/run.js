@@ -15,7 +15,7 @@ function validate(args) {
   return { description, title };
 }
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     const { description, title } = validate(args);
     if (typeof exec.requestUserJob !== "function") {

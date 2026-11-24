@@ -1,0 +1,56 @@
+{
+  "name": "lark",
+  "description": "Act as the configured Feishu (Lark) user account. Actions: whoami, list_proxies, doc.read, doc.write (needs doc token or URL), drive.list (optional limit), api (raw call, only if the instance allows it). Writes and deletes are refused unless the proxy instance explicitly allows them.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "whoami",
+          "list_proxies",
+          "doc.read",
+          "doc.blocks",
+          "drive.read",
+          "sheet.read",
+          "sheet.info",
+          "sheet.write",
+          "doc.create",
+          "doc.append",
+          "doc.write",
+          "drive.list",
+          "drive.delete",
+          "drive.export",
+          "drive.upload",
+          "im.send",
+          "im.chats",
+          "im.messages",
+          "im.search",
+          "drive.search",
+          "contact.resolve",
+          "calendar.agenda",
+          "calendar.create",
+          "calendar.delete",
+          "api"
+        ],
+        "description": "Which person-level action to perform."
+      },
+      "proxy": {
+        "type": "string",
+        "description": "Proxy instance id. Optional when exactly one proxy is configured."
+      },
+      "params": {
+        "type": "object",
+        "description": "Action arguments. doc.read: {doc}. doc.create: {title, content, folder?}. doc.append: {doc, content}. doc.write: {doc, mode:replace|overwrite, pattern?, replacement?, content?}. drive.read: {token, maxRows?}. sheet.read: {token, sheet|sheetId, range?, maxChars?}. sheet.write: {token, sheet|sheetId, range, values}. sheet.info: {token}. drive.list: {folder?, limit?, pageToken?}. api: {method, path, params?, data?}. sheet.write multi: {token, sheet, writes:[{sheet|sheetId, range, values}]}. drive.delete: {files:[{token,type}]|tokens:[...]|token, type?}. doc.blocks: {doc, pageSize?, pageToken?}. im.send: {chatId|userId, text|markdown|image|file|audio|video(+videoCover), idempotencyKey?} to post new, or {replyTo, ...} to answer one message (a reply names no receiver). One content kind per message; media takes an uploaded key (img_/file_), an http(s) URL, or a local path inside fileRoot; audio must be Opus/Ogg, video needs a cover image; returns message_id/chat_id/msg_type. The cli route appends \" （由豆包工作发送）\" to text/markdown (accepted: the oauth route sends verbatim). drive.upload: {path, folder?, name?}. drive.export: {token, extension, outputDir?, docType?, overwrite?}. drive.read: {token, offset?, limit?, encoding?(\"auto\"|\"text\"|\"base64\"), refresh?}; returns content/encoding/next_offset/eof/total_bytes. im.chats: {types?, pageSize?, sort?, pageToken?}. im.messages: {chatId|userId|thread|threadId, start?, end?, order?, pageSize?, pageToken?}; thread reads topic replies from a message id or thread id. im.search: {query, chatId?, sender?, start?, end?, pageSize?, pageToken?}. drive.search: {query?|mine|createdByMe|creatorIds|originalCreatorIds|folderTokens|spaceIds|chatIds|sharerIds|secureLabelIds|onlyTitle|onlyComment, docTypes?, sort?, pageSize?(<=20), pageToken?, createdSince|createdUntil?, openedSince|openedUntil?, editedSince|editedUntil?, commentedSince|commentedUntil?}; times take unix seconds, \"YYYY-MM-DD\" (midnight +08:00) or relative \"7d\"/\"1m\"/\"1y\", and edit/comment windows snap to the hour; folderTokens and spaceIds are exclusive (doc-only vs wiki-only)}; returns results[{token,title,type,file_type,url,updated_at,cross_tenant}]/has_more/page_token/total. contact.resolve: {query, pageSize?} — a name/email/open_id to {users:[{open_id,name,p2p_chat_id,cross_tenant}]}; calendar.agenda: {from?, to?, calendarId?} — defaults to today, times ISO or YYYY-MM-DD; calendar.create: {summary, start, end, allDay?, attendees?, description?, calendarId?, notify?}; calendar.delete: {eventId, calendarId?, applyTo?, notify?} — high risk, attendee notification on by default."
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "type": "lark",
+  "entry": "run.js",
+  "prompt": "Use the lark tool when the task needs the user's own Feishu identity (their documents, their drive, their name). Do not guess a proxy id when several are configured; call list_proxies first.",
+  "defaultVisible": true,
+  "result": "json"
+}

@@ -36,7 +36,7 @@ const chatCompactParams = {
   additionalProperties: false,
 };
 
-module.exports = function defineChatCommands(rpc) {
+export default function defineChatCommands(rpc) {
   rpc.define({
     name: "chat.send",
     params: chatSendParams,

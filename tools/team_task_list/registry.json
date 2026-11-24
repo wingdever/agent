@@ -1,0 +1,41 @@
+{
+  "name": "team_task_list",
+  "description": "List shared tasks, including readiness, owner, revision, blockers, and write-scope warnings. Deleted tasks are excluded; results are paged.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "Optional exact status filter.",
+        "enum": ["pending", "in_progress", "completed"]
+      },
+      "owner": {
+        "type": "string",
+        "description": "Optional owner agent name filter; cannot be combined with unowned."
+      },
+      "unowned": {
+        "type": "boolean",
+        "description": "Filter tasks by whether they have no owner; cannot be combined with owner."
+      },
+      "ready": {
+        "type": "boolean",
+        "description": "Optional readiness filter."
+      },
+      "cursor": {
+        "type": "integer",
+        "description": "Zero-based result offset. Defaults to 0."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Number of rows, 1 through 100. Defaults to 50."
+      }
+    }
+  },
+  "type": "control",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "prompt": "Team shared task board: create, read, list, and compare-and-set tasks across the subagent tree. Claim a ready task with its current revision, do the work, then complete it. Dependencies gate claims; write scopes are advisory, not a lock.",
+  "promptSection": "team_task",
+  "concurrencySafe": true,
+  "result": "json"
+}

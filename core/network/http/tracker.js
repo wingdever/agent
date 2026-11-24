@@ -11,8 +11,12 @@
 //
 // Capture is ON by default; set NETTRACK=0 to disable (applies to both trees).
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const ENABLED = process.env.NETTRACK !== "0";
 const QUIET = process.env.NETTRACK_QUIET === "1";
@@ -139,4 +143,6 @@ function trackCapture(res, cap) {
   });
 }
 
-module.exports = { recordCapture, trackCapture, expandBody, redactHeaders, ENABLED, QUIET };
+const __exports = { recordCapture, trackCapture, expandBody, redactHeaders, ENABLED, QUIET };
+export { recordCapture, trackCapture, expandBody, redactHeaders, ENABLED, QUIET };
+export default __exports;

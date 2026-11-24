@@ -241,7 +241,7 @@ function selectTailBoundary(nodes) {
   return selectAutoBoundary(nodes, 0, 0);
 }
 
-module.exports = {
+const __exports = {
   DEFAULT_CONTEXT_WINDOW,
   AUTO_THRESHOLD_RATIO,
   AUTO_RETAIN_RATIO,
@@ -268,3 +268,5 @@ module.exports = {
   selectAutoBoundary,
   selectTailBoundary,
 };
+export { DEFAULT_CONTEXT_WINDOW, AUTO_THRESHOLD_RATIO, AUTO_RETAIN_RATIO, MANUAL_RETAIN_TURNS, SUMMARY_MAX_TOKENS, PRUNE_THRESHOLD_CHARS, PRUNE_HEAD_CHARS, PRUNE_TAIL_CHARS, PRUNE_MARKER, SUMMARY_OPEN_TAG, SUMMARY_CLOSE_TAG, CHECKPOINT_PREAMBLE, COMPACTION_INSTRUCTION, estimateTextTokens, estimateMessageTokens, estimateMessagesTokens, estimateToolsTokens, codePointLength, pruneToolResultText, frameCheckpoint, checkpointMessage, isContextOverflowError, surfaceCuts, selectAutoBoundary, selectTailBoundary };
+export default __exports;

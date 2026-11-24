@@ -1,7 +1,8 @@
 "use strict";
-const fs = require("fs");
-const path = require("path");
-const { isUserInvocable, renderSkillContent } = require("../skills");
+import fs from "fs";
+import path from "path";
+import _mod0 from "./../skills/index.js";
+const { isUserInvocable, renderSkillContent } = _mod0;
 
 // 解析引用上下文（文件 / 会话 / 技能），拼成注入 system 的引用块。
 // `deps` = { store, skills }.
@@ -65,4 +66,6 @@ async function resolveReferences(deps, references, sessionId, cwd) {
   return allParts.length ? "以下为本次对话的引用上下文，请基于其内容回答：\n\n" + allParts.join("\n\n") : "";
 }
 
-module.exports = { resolveReferences };
+const __exports = { resolveReferences };
+export { resolveReferences };
+export default __exports;

@@ -12,4 +12,6 @@ class TurnError extends Error {
   }
 }
 
-module.exports = { TurnError };
+const __exports = { TurnError };
+export { TurnError };
+export default __exports;

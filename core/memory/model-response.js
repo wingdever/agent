@@ -14,4 +14,6 @@ class ModelResponse {
   }
 }
 
-module.exports = { ModelResponse };
+const __exports = { ModelResponse };
+export { ModelResponse };
+export default __exports;

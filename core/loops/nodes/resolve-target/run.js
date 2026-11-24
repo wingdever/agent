@@ -2,7 +2,7 @@
 
 // Node resolve-target: resolve provider/model credentials and the stream flag
 // into the turn's single RequestSpec.
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const settings = ctx.services.config.readSettings();
   const request = ctx.request;
   const target = ctx.services.config.resolveTarget({

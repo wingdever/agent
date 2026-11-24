@@ -3,9 +3,9 @@
 // Model-facing glob: ripgrep --files, hidden and ignored included, VCS metadata
 // excluded, modification-time order, first 100 paths plus a spill locator.
 
-const path = require("path");
-const { runRg } = require("../lib/ripgrep");
-const { writeSpill } = require("../../lib/tool-result");
+import path from "path";
+import { runRg } from "./../lib/ripgrep.js";
+import { writeSpill } from "./../../lib/tool-result/index.js";
 
 const MAX_RESULTS = 100;
 const TIMEOUT_MS = 30000;
@@ -42,7 +42,7 @@ function formatGlob(paths, total, spillPath) {
   return body + "\n\n(Showing " + paths.length + " of " + total + " paths. " + recovery + ")";
 }
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     const input = parseGlobArgs(args);
     const cwd = exec.cwd || process.cwd();

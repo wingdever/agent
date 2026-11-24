@@ -3,8 +3,8 @@
 // Model-facing grep: rg --json, first 250 matches, per-line preview bounded to
 // 2000 bytes, grouped by file, with a spill locator when capped.
 
-const { runRg } = require("../lib/ripgrep");
-const { writeSpill, headByBytes, byteLength } = require("../../lib/tool-result");
+import { runRg } from "./../lib/ripgrep.js";
+import { writeSpill, headByBytes, byteLength } from "./../../lib/tool-result/index.js";
 
 const MAX_MATCHES = 250;
 const MAX_LINE_BYTES = 2000;
@@ -60,7 +60,7 @@ function formatMatches(matches) {
   return sections.join("\n\n");
 }
 
-module.exports = {
+export default {
   async run(args = {}, exec = {}) {
     const input = parseGrepArgs(args);
     const rgArgs = ["--json", "--regexp=" + input.pattern];

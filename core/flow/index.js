@@ -10,12 +10,12 @@
 //
 // See docs/flow/flow.md for the data model and the execution model.
 
-const crypto = require("crypto");
-const path = require("path");
-const { validateFlow } = require("./validate");
-const { executeFlow } = require("./execute");
-const { describeNodeTypes } = require("./nodes");
-const { PROJECT_ROOT } = require("../../lib/paths");
+import crypto from "crypto";
+import path from "path";
+import { validateFlow } from "./validate.js";
+import { executeFlow } from "./execute.js";
+import { describeNodeTypes } from "./nodes.js";
+import { PROJECT_ROOT } from "./../../lib/paths/index.js";
 
 /** Default ceiling on agent-free model output for a flow node. */
 const DEFAULT_MAX_TOKENS = 4096;
@@ -27,8 +27,10 @@ const DEFAULT_MAX_TOKENS = 4096;
  * @param {object} deps.config core config service
  * @param {object} deps.tools ToolService
  * @param {Function} deps.runTool the tool executor's runTool(tool, args, exec)
+ * @param {object} [deps.capabilities] proxy/skill handles exposed to tools
+ * @param {object} [deps.browser] browser service for browser_* tools
  */
-function createFlowService({ store, model, config, tools, runTool }) {
+function createFlowService({ store, model, config, tools, runTool, capabilities = null, browser = null }) {
   const active = new Map(); // runId -> AbortController
 
   function resolveTarget(data) {
@@ -69,6 +71,8 @@ function createFlowService({ store, model, config, tools, runTool }) {
         callId: `flow-${runId}-${crypto.randomUUID().slice(0, 8)}`,
         isPlanMode: () => false,
         store,
+        capabilities,
+        browser,
       }),
     };
   }
@@ -182,4 +186,6 @@ function createFlowService({ store, model, config, tools, runTool }) {
   };
 }
 
-module.exports = { createFlowService, DEFAULT_MAX_TOKENS };
+const __exports = { createFlowService, DEFAULT_MAX_TOKENS };
+export { createFlowService, DEFAULT_MAX_TOKENS };
+export default __exports;

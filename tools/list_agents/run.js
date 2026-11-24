@@ -16,4 +16,6 @@ async function run(args, exec) {
   return lines.join("\n");
 }
 
-module.exports = { run };
+const __exports = { run };
+export { run };
+export default __exports;

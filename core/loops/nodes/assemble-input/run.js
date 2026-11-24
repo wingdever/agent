@@ -2,9 +2,9 @@
 
 // Node assemble-input: validate the last user message, resolve @references and
 // build the request conversation (surface projection or in-memory history).
-const { TurnError } = require("../../../turn-error");
+import { TurnError } from "./../../../turn-error.js";
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const { services, session, input: turnInput } = ctx;
   const messages = turnInput.messages;
   const lastInput = Array.isArray(messages) && messages.length ? messages[messages.length - 1] : null;

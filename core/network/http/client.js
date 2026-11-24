@@ -5,10 +5,10 @@
 // never flows before both listeners are attached and no chunk is missed.
 // All outbound LLM traffic (chat/completions + /models) is captured via tracker.js.
 
-const http = require("http");
-const https = require("https");
-const { URL } = require("url");
-const { trackCapture, recordCapture } = require("./tracker");
+import http from "http";
+import https from "https";
+import { URL } from "url";
+import { trackCapture, recordCapture } from "./tracker.js";
 
 // POST /chat/completions. Resolves with { stream, cap } where stream is the raw
 // (paused) IncomingMessage and cap carries request metadata for the tracker.
@@ -152,4 +152,6 @@ async function fetchModels(baseUrl, apiKey) {
   return { list: normalized, response: { status: cap.status, body: cap.response.body } };
 }
 
-module.exports = { postChatCompletions, fetchModels, trackCapture };
+const __exports = { postChatCompletions, fetchModels, trackCapture };
+export { postChatCompletions, fetchModels, trackCapture };
+export default __exports;

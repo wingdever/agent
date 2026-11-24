@@ -44,7 +44,7 @@
 
 ## 4. 数据模型现状（供规划参考，勿改 schema 除非必要）
 
-`core/storage/schema.mjs` 已有层级：
+`core/storage/schema.js` 已有层级：
 
 ```
 sessions (id, workspace_id, name, description, created_at, updated_at)

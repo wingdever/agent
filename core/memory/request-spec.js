@@ -37,4 +37,6 @@ class RequestSpec {
   }
 }
 
-module.exports = { RequestSpec };
+const __exports = { RequestSpec };
+export { RequestSpec };
+export default __exports;

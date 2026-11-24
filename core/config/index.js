@@ -5,9 +5,13 @@
 // compaction, rpc) goes through this module instead of reading user/*.json on
 // its own.
 
-const fs = require("fs");
-const path = require("path");
-const compaction = require("../compaction");
+import fs from "fs";
+import path from "path";
+import compaction from "./../compaction.js";
+import { fileURLToPath as __fileURLToPath } from "node:url";
+import { dirname as __pathDirname } from "node:path";
+const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
+
 
 const USER_DIR = path.join(__dirname, "..", "..", "user");
 const SETTINGS_FILE = path.join(USER_DIR, "settings.json");
@@ -214,7 +218,7 @@ function writeFsPolicyRaw(data) {
   return writePermissionFile(FS_POLICY_FILE, data);
 }
 
-module.exports = {
+const __exports = {
   USER_DIR,
   SETTINGS_FILE,
   PROVIDERS_FILE,
@@ -244,3 +248,5 @@ module.exports = {
   readFsPolicyRaw,
   writeFsPolicyRaw,
 };
+export { USER_DIR, SETTINGS_FILE, PROVIDERS_FILE, PERMISSIONS_FILE, BASH_POLICY_FILE, FS_POLICY_FILE, readJSON, writeJSON, readSettings, writeSettings, readProviders, writeProviders, findProvider, enabledModels, resolveProvider, resolveTarget, resolveDefaultFromProviders, resolveContextWindow, reasoningParamFor, readPermissionFile, writePermissionFile, permissionsSnapshot, readPermissionsRaw, writePermissionsRaw, readBashPolicyRaw, writeBashPolicyRaw, readFsPolicyRaw, writeFsPolicyRaw };
+export default __exports;

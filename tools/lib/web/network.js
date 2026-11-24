@@ -6,11 +6,11 @@
 // private destination. Mirrors DSH's web-fetch-http network policy, minus its
 // NAT64/HTTP-proxy integration.
 
-const dns = require("dns");
-const net = require("net");
-const ipaddr = require("ipaddr.js");
+import dns from "dns";
+import net from "net";
+import ipaddr from "ipaddr.js";
 
-const { WebToolError } = require("./errors");
+import { WebToolError } from "./errors.js";
 
 // WHATWG URL keeps brackets around IPv6 hostnames; IP parsers do not.
 function stripIpv6Brackets(hostname) {
@@ -106,9 +106,11 @@ function pinnedLookup(addresses) {
   };
 }
 
-module.exports = {
+const __exports = {
   isPublicIpAddress,
   resolvePublicAddresses,
   pinnedLookup,
   stripIpv6Brackets,
 };
+export { isPublicIpAddress, resolvePublicAddresses, pinnedLookup, stripIpv6Brackets };
+export default __exports;

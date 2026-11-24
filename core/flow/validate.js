@@ -10,7 +10,7 @@
 // Cycles are NOT rejected: they are how a graph loops, and the executor's
 // (node, visit-count) guard is what stops a runaway one.
 
-const { getNodeType } = require("./nodes");
+import { getNodeType } from "./nodes.js";
 
 const REACHABLE_GUARD = 10000;
 
@@ -146,4 +146,6 @@ function reachableFrom(definition, startId) {
   return seen;
 }
 
-module.exports = { validateFlow, reachableFrom };
+const __exports = { validateFlow, reachableFrom };
+export { validateFlow, reachableFrom };
+export default __exports;

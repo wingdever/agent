@@ -4,10 +4,10 @@
 // 中→英输入翻译：翻译最后一条 user 消息，失败阻断整轮（与 linear 一致 —— 模型只应看到英文）。
 // 由挂在 assemble-input.before 的普通 hook 调用。
 
-const translation = require("../../../translation");
-const { TurnError } = require("../../../turn-error");
+import translation from "./../../../translation.js";
+import { TurnError } from "./../../../turn-error.js";
 
-module.exports = async function run(input, ctx) {
+export default async function run(input, ctx) {
   const onEvent = ctx.emit;
   const messages = ctx.input.messages;
   const last = Array.isArray(messages) && messages.length ? messages[messages.length - 1] : null;

@@ -11,13 +11,14 @@
 // Subsystem-only pieces stay here:
 // - registry.js / filesystem.js: provider merge, discovery, caching
 
-const { SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER } = require("./registry");
-const { FileSystemSkillProvider, createFileSystemProvider } = require("./filesystem");
-const content = require("../../lib/skill-content");
-const { isSkillName, SKILL_NAME_RE, isModelInvocable, isUserInvocable } = require("../../lib/skill-policy");
-const { setSkillsRegistry, getSkillsRegistry } = require("../../lib/skill-instance");
+import { SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER } from "./registry.js";
+import _mod0 from "./filesystem.js";
+const { FileSystemSkillProvider, createFileSystemProvider } = _mod0;
+import content from "./../../lib/skill-content/index.js";
+import { isSkillName, SKILL_NAME_RE, isModelInvocable, isUserInvocable } from "./../../lib/skill-policy/index.js";
+import { setSkillsRegistry, getSkillsRegistry } from "./../../lib/skill-instance/index.js";
 
-module.exports = {
+export default {
   SkillRegistry, RUNTIME_RANK, RUNTIME_PROVIDER,
   FileSystemSkillProvider, createFileSystemProvider,
   isSkillName, SKILL_NAME_RE,

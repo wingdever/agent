@@ -1,0 +1,63 @@
+{
+  "$comment": "Template for user/channels.json. Copy to user/channels.json and fill credentials. Credentials may also come from env: CHANNEL_<ID>_<FIELD>, which wins over this file. `enabled` decides whether the instance is built, never whether it connects: channels only start when the user asks (channels tool / tools/channels). Credentials are checked at that moment only, so leaving appSecret empty keeps the app bootable.",
+  "channels": [
+    {
+      "id": "feishu-main",
+      "type": "feishu",
+      "enabled": false,
+      "trust": "allowlist",
+      "credentials": {
+        "appId": "cli_xxx",
+        "appSecret": "xxx"
+      },
+      "options": {
+        "domain": "feishu",
+        "eventMode": "ws",
+        "qps": 5,
+        "throttleMs": 250
+      }
+    },
+    {
+      "id": "yunhu-lab",
+      "type": "yunhu",
+      "enabled": false,
+      "trust": "allowlist",
+      "credentials": {
+        "botId": "30535459",
+        "token": "xxx"
+      },
+      "options": {
+        "mode": "ws",
+        "qps": 3,
+        "throttleMs": 800
+      }
+    },
+    {
+      "id": "qq-lab",
+      "type": "qq",
+      "enabled": false,
+      "trust": "allowlist",
+      "credentials": {
+        "appId": "",
+        "appSecret": "",
+        "botId": ""
+      },
+      "options": {
+        "intents": 33554432,
+        "qps": 3
+      }
+    },
+    {
+      "id": "fake-lab",
+      "type": "fake",
+      "enabled": false,
+      "trust": "readonly",
+      "credentials": {},
+      "options": {}
+    }
+  ],
+  "limits": {
+    "maxInFlightPerSession": 1,
+    "maxInFlightGlobal": 4
+  }
+}

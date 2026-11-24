@@ -12,7 +12,7 @@
 //   { port: null }                    this branch stops here (no data)
 // A thrown error fails the node and therefore the run.
 
-const { render, renderDeep, readPath } = require("./templating");
+import { render, renderDeep, readPath } from "./templating.js";
 
 const FIELDS = {
   string: (description, extra) => ({ type: "string", description, ...(extra || {}) }),
@@ -259,4 +259,6 @@ function getNodeType(type) {
   return Object.prototype.hasOwnProperty.call(NODE_TYPES, type) ? NODE_TYPES[type] : null;
 }
 
-module.exports = { NODE_TYPES, describeNodeTypes, getNodeType, OPERATORS, parseStructuredInput, checkSchemaValue };
+const __exports = { NODE_TYPES, describeNodeTypes, getNodeType, OPERATORS, parseStructuredInput, checkSchemaValue };
+export { NODE_TYPES, describeNodeTypes, getNodeType, OPERATORS, parseStructuredInput, checkSchemaValue };
+export default __exports;

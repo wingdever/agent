@@ -1,5 +1,5 @@
 "use strict";
-const { postChatCompletions, trackCapture } = require("./network/http/client");
+import { postChatCompletions, trackCapture } from "./network/http/client.js";
 
 // Model request layer: build the Chat Completions payload (including the
 // provider-specific reasoning fields) and POST it. All credentials and the
@@ -42,4 +42,6 @@ async function issueRequest(modelService, {
   return { res, cap };
 }
 
-module.exports = { issueRequest, buildPayload };
+const __exports = { issueRequest, buildPayload };
+export { issueRequest, buildPayload };
+export default __exports;

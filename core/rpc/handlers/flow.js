@@ -49,7 +49,7 @@ const idParams = {
   additionalProperties: false,
 };
 
-module.exports = function defineFlowCommands(rpc) {
+export default function defineFlowCommands(rpc) {
   const service = (core) => {
     if (!core.flow) throw new Error("flow service is not available");
     return core.flow;
