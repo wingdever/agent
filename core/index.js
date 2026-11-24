@@ -22,6 +22,7 @@ import { runTool } from "./tools/executor.js";
 import { createCapabilities } from "./capabilities.js";
 import { createRpc } from "./rpc/index.js";
 import { loadTools } from "./tools/registry.js";
+import { loadMcpTools } from "./mcp/index.js";
 import { createGoalService } from "./goals.js";
 import _mod0 from "./skills/index.js";
 const { SkillRegistry,
@@ -46,7 +47,17 @@ async function createCore(overrides = {}) {
 
   const { createStore } = await import("./storage/store.js");
   const store = await createStore();
-  const tools = new ToolService(await loadTools());
+  // MCP discovery completes before the service exists, so every turn sees the
+  // full tool table; a failing server only drops its own tools.
+  const mcp = await loadMcpTools();
+  // Seed the MCP table with the built-in tools instead of copying MCP tools into
+  // a new Map: ToolService keeps a reference to this one Map, so a reconnect
+  // can add or drop MCP tools in place and the next turn sees the change.
+  const builtins = await loadTools();
+  for (const [name, tool] of builtins) {
+    if (!mcp.tools.has(name)) mcp.tools.set(name, tool);
+  }
+  const tools = new ToolService(mcp.tools);
   const goals = createGoalService(store);
   const interactions = new InteractionService({ store });
   const model = new ModelService({ config });
@@ -80,6 +91,7 @@ async function createCore(overrides = {}) {
     browser: null,
     flow: null,
     store,
+    mcp,
     goals,
     rpc: null,
   };

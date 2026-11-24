@@ -135,6 +135,10 @@ async function runLoop(core, ctx, agentArg) {
       model: request.model,
       skills,
       catalogDescriptionMaxLength: st.skills ? st.skills.catalogDescriptionMaxLength : undefined,
+      // Only servers that can serve resource calls are listed: the names are the
+      // model's argument, so advertising a dead server would invite a failing call.
+      mcpResourceServers: core.mcp ? core.mcp.resourceServerNames() : [],
+      mcpInstructions: core.mcp ? core.mcp.serverInstructions() : [],
     });
     system = assembled.system;
     if (assembled.block.length > 1) catalogMsg = assembled.block[1];
@@ -498,6 +502,7 @@ async function runLoop(core, ctx, agentArg) {
       onEvent({ type: "tool_call", id: callId, name, arguments: args });
       const result = await runTool(tool, args, {
         cwd,
+        signal: handle.signal,
         sessionId,
         callId,
         toolName: name,

@@ -12,6 +12,22 @@ export default async function run(input, ctx) {
     throw new TurnError("truncated", "model response truncated (finish_reason=length)");
   }
 
+  // Cancellation lands here, not mid-tool: a tool body that already started has
+  // run to completion and reported its own abort, so the turn stops before
+  // asking the model for another step instead of abandoning work in flight.
+  // The turn ended because the user asked it to, not because it failed: it
+  // closes normally and carries `stopReason` so the UI can tell it apart.
+  if (ctx.signal && ctx.signal.aborted) {
+    ctx.emit({ type: "done", message: response, stopReason: "interrupted" });
+    if (persist) {
+      try { await services.store.run("step.update", { id: ctx.step.row.id, status: "succeeded" }); }
+      catch (e) { ctx.emit({ type: "error", error: "step.update failed: " + (e.message || e) }); }
+      try { await services.store.run("turn.update", { id: ctx.turn.row.id, status: "succeeded" }); }
+      catch (e) { ctx.emit({ type: "error", error: "turn.update failed: " + (e.message || e) }); }
+    }
+    return { output: response, done: true };
+  }
+
   if (!response.tool_calls) {
     if (!String(response.content || "").trim()) {
       throw new TurnError("empty-response", "model returned no content and no tool calls");

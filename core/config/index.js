@@ -15,6 +15,7 @@ const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
 
 const USER_DIR = path.join(__dirname, "..", "..", "user");
 const SETTINGS_FILE = path.join(USER_DIR, "settings.json");
+const MCP_FILE = path.join(USER_DIR, "mcp.json");
 const PROVIDERS_FILE = path.join(USER_DIR, "providers.json");
 const PERMISSIONS_FILE = path.join(USER_DIR, "permissions.json");
 const BASH_POLICY_FILE = path.join(USER_DIR, "bash-policy.json");
@@ -41,6 +42,18 @@ function readSettings() {
 function writeSettings(patch) {
   const next = Object.assign({}, readSettings(), patch || {});
   return writeJSON(SETTINGS_FILE, next);
+}
+
+// ---- mcp ----
+
+// Raw MCP server table. core/mcp validates and expands it; this module only
+// owns where the file lives.
+function readMcp() {
+  return readJSON(MCP_FILE, {});
+}
+
+function writeMcp(data) {
+  return writeJSON(MCP_FILE, data);
 }
 
 // ---- providers ----
@@ -221,6 +234,7 @@ function writeFsPolicyRaw(data) {
 const __exports = {
   USER_DIR,
   SETTINGS_FILE,
+  MCP_FILE,
   PROVIDERS_FILE,
   PERMISSIONS_FILE,
   BASH_POLICY_FILE,
@@ -229,6 +243,8 @@ const __exports = {
   writeJSON,
   readSettings,
   writeSettings,
+  readMcp,
+  writeMcp,
   readProviders,
   writeProviders,
   findProvider,
@@ -248,5 +264,5 @@ const __exports = {
   readFsPolicyRaw,
   writeFsPolicyRaw,
 };
-export { USER_DIR, SETTINGS_FILE, PROVIDERS_FILE, PERMISSIONS_FILE, BASH_POLICY_FILE, FS_POLICY_FILE, readJSON, writeJSON, readSettings, writeSettings, readProviders, writeProviders, findProvider, enabledModels, resolveProvider, resolveTarget, resolveDefaultFromProviders, resolveContextWindow, reasoningParamFor, readPermissionFile, writePermissionFile, permissionsSnapshot, readPermissionsRaw, writePermissionsRaw, readBashPolicyRaw, writeBashPolicyRaw, readFsPolicyRaw, writeFsPolicyRaw };
+export { USER_DIR, SETTINGS_FILE, MCP_FILE, PROVIDERS_FILE, PERMISSIONS_FILE, BASH_POLICY_FILE, FS_POLICY_FILE, readJSON, writeJSON, readSettings, writeSettings, readMcp, writeMcp, readProviders, writeProviders, findProvider, enabledModels, resolveProvider, resolveTarget, resolveDefaultFromProviders, resolveContextWindow, reasoningParamFor, readPermissionFile, writePermissionFile, permissionsSnapshot, readPermissionsRaw, writePermissionsRaw, readBashPolicyRaw, writeBashPolicyRaw, readFsPolicyRaw, writeFsPolicyRaw };
 export default __exports;

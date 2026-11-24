@@ -20,12 +20,14 @@
     "cytoscape": "^3.35.0",
     "cytoscape-dagre": "^3.0.0",
     "electron": "44.9.3",
-    "es-module-lexer": "^3.0.5"
+    "es-module-lexer": "^3.0.5",
+    "zod": "4.6.7"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
     "@joplin/turndown-plugin-gfm": "^1.0.68",
     "@larksuiteoapi/node-sdk": "^1.76.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@vscode/ripgrep": "^1.18.0",
     "ipaddr.js": "^2.5.0",
     "pg-micro": "^0.0.5",

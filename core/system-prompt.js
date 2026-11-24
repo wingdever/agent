@@ -68,6 +68,10 @@ const SECTION_ORDERS = {
   DEPLOYMENT_PERSONA: 0,
   LANGUAGE_POLICY: 500,
   TOOL_GUIDANCE: 1000,
+  // MCP server-owned text: the resource-server list and per-server instructions.
+  // Content comes from outside, so it sits after our own guidance and before the
+  // runtime context.
+  MCP_SERVERS: 3100,
   RUNTIME_CONTEXT: 10000,
 };
 
@@ -91,11 +95,14 @@ class SystemPrompt {
     return order;
   }
 
-  section({ name, order, text }) {
+  // `interpolate: false` keeps the text verbatim. It exists for content this
+  // project does not author — MCP server instructions, for instance — where a
+  // literal {{name}} must not be substituted or treated as a broken variable.
+  section({ name, order, text, interpolate = true }) {
     if (typeof name !== "string" || !name.trim()) throw new Error("prompt section name must be a non-empty string");
     if (!Number.isFinite(order)) throw new Error('prompt section "' + name + '" order must be a finite number');
     if (typeof text !== "string") throw new Error('prompt section "' + name + '" text must be a string');
-    this._sections.set(name, { name, order, text });
+    this._sections.set(name, { name, order, text, interpolate: interpolate !== false });
     return this;
   }
 
@@ -117,7 +124,8 @@ class SystemPrompt {
     for (const name of names) {
       const section = this._sections.get(name);
       if (!section.text.trim()) continue;
-      out.push({ name: section.name, order: section.order, text: this._interpolate(section.name, section.text) });
+      const text = section.interpolate === false ? section.text : this._interpolate(section.name, section.text);
+      out.push({ name: section.name, order: section.order, text });
     }
     return out;
   }
@@ -173,7 +181,7 @@ function buildRuntimeContext({ cwd, model, now = new Date() } = {}) {
 // string contributed by its registry.json. `skills` (optional) is the list of
 // skill summaries (from the registry) to render as the session skill-catalog
 // user message; `catalogDescriptionMaxLength` bounds each description.
-function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength } = {}) {
+function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength, mcpResourceServers = [], mcpInstructions = [] } = {}) {
   const prompt = new SystemPrompt();
   prompt.variable("cwd", cwd || process.cwd());
   prompt.variable("model", model || "unknown");
@@ -227,6 +235,33 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
         ? toolOrders[sectionName]
         : prompt.getSectionOrder("TOOL_GUIDANCE") + 100 + group.index,
       text: group.tools[0].prompt.replace(/\{\{tools\}\}/g, names),
+    });
+  }
+
+  // Server names are the model's argument to the resource tools, so the list is
+  // rendered from the live set and disappears when no server is resource-capable.
+  const resourceNames = [...mcpResourceServers].sort();
+  if (resourceNames.length > 0) {
+    prompt.section({
+      name: "mcp-resource-servers",
+      order: prompt.getSectionOrder("MCP_SERVERS"),
+      interpolate: false,
+      text: "## MCP resource servers\n\n" +
+        "Use list_mcp_resources, list_mcp_resource_templates, or read_mcp_resource with one of these names " +
+        `as the server argument: ${JSON.stringify(resourceNames)}.`,
+    });
+  }
+  // Each server's own instructions, verbatim and unterpolated: the text is
+  // external content, so braces in it must never be read as variables.
+  const instructions = [...mcpInstructions]
+    .filter((item) => item && typeof item.text === "string" && item.text.trim())
+    .sort((a, b) => (a.server < b.server ? -1 : a.server > b.server ? 1 : 0));
+  for (const item of instructions) {
+    prompt.section({
+      name: "mcp:" + item.server,
+      order: prompt.getSectionOrder("MCP_SERVERS"),
+      interpolate: false,
+      text: item.text,
     });
   }
 

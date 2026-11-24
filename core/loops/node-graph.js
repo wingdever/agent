@@ -140,6 +140,7 @@ class NodeGraphEngine {
         a2a: core.a2a,
         store: core.store,
         goals: core.goals,
+        mcp: core.mcp,
       },
       emit: onEvent,
       signal: turnHandle.signal,

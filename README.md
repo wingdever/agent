@@ -76,7 +76,11 @@ A tool declares its own interface by `registry.json`.
 
 now config files in `user/` includes:
 basic `settings.json`, `providers.json`;
-permit `permissions.json`, `bash-policy.json`, `fs-policy.json`
+permit `permissions.json`, `bash-policy.json`, `fs-policy.json`;
+external MCP servers `mcp.json`
+
+`user/` is not tracked by git. To connect an external service such as the
+Reference Memory server, see [docs/usage/mcp-memory.md](docs/usage/mcp-memory.md).
 
 
 ## Documentation

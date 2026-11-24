@@ -73,7 +73,7 @@
 - **执行器模式（native / ptc）**：我们没有 `ToolExecutor` 概念，只有一种直接调用形态；原型的 `run_code` 与 SDK 声明段不存在。
 - **有状态组合包**：原型的 14 个组合包里，我们只复刻了"共用段落"这一种形态（goal 三件套、user job 三件套、subagent 组）；其余依赖兄弟工具可见性而改变段落文本的（`write`/`edit`、`grep`/`read`、`web_search`/`web_fetch`）都没实现。
 - **工具限制 `tools.restrict()`**：原型可以用它隐藏工具，我们没有。
-- **MCP 工具桥接**：`mcp__<server>__<raw>` 命名与内容投影都不存在。
+- **MCP 进阶能力**：资源订阅（`resources/subscribe`）、prompt 模板、采样 / elicitation / roots 与 tasks extension 都没有。
 - 原型 77 个工具中，我们实现了 26 个；差额以原型文档为准，逐条见 `prototype/tools/README.md` 的索引。
 
 ### 明确不做

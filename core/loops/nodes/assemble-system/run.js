@@ -27,6 +27,10 @@ export default async function run(input, ctx) {
       model: request.model,
       skills,
       catalogDescriptionMaxLength: settings.skills ? settings.skills.catalogDescriptionMaxLength : undefined,
+      // Names must match the live resource tools; a server that is down is not
+      // advertised, so the model never gets a name it cannot use.
+      mcpResourceServers: services.mcp ? services.mcp.resourceServerNames() : [],
+      mcpInstructions: services.mcp ? services.mcp.serverInstructions() : [],
     });
     system = assembled.system;
     if (assembled.block.length > 1) catalogMsg = assembled.block[1];

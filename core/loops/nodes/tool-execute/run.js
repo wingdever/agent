@@ -148,6 +148,9 @@ export default async function run(input, ctx) {
 
     const result = await runTool(tool, args, {
       cwd: ctx.cwd,
+      // The turn's cancellation signal: tools that can stop early (fetch, MCP)
+      // subscribe to it, and runTool turns a cancelled call into the abort text.
+      signal: ctx.signal,
       sessionId: session.id,
       callId,
       toolName: name,

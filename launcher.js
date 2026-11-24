@@ -96,6 +96,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", async () => {
   if (channels) await channels.stopAll();
   if (core && core.browser) await core.browser.stop();
+  if (core && core.mcp) core.mcp.close();
   if (server && server.close) server.close();
   if (core && core.store && core.store.close) {
     try { await core.store.close(); } catch (_) { /* 忽略关闭错误 */ }

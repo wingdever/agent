@@ -42,6 +42,18 @@ registry.json 字段：
 ### 工具执行
 tools/pre-execute
 
+#### 取消
+一轮对话被停止时，`exec.signal` 是中断信号：工具若会等待外部资源，应把它交给底层调用，使等待立即结束。工具体一旦启动就不会被抛弃，而是先跑到静止，再由执行器改写结果，因此半途的副作用不会被当作没发生。
+
+取消后的模型可见结果按工具体是否启动区分：
+
+| 情形 | 结果文本 | isError |
+| --- | --- | --- |
+| 工具体尚未启动 | `Error: tool call aborted before dispatch` | true |
+| 工具体已启动（无论正常返回还是抛错） | `Error: tool call aborted` | true |
+
+与取消无关的失败保留自身错误文本。取消发生在工具执行完之后时，该轮不再请求模型、不再发起新的工具调用，以 `stopReason: "interrupted"` 正常结束，不计为失败。
+
 ### read（读文本文件）
 - 注册：`tools/read/registry.json`；实现：`tools/read/run.js`
 - 参数：`file_path`（必填）、`offset`（1 起，默认 1）、`limit`（默认/最大 2000 行）
