@@ -55,11 +55,12 @@ function normalizeTools(server, listed, call) {
       name,
       description: typeof tool.description === "string" ? tool.description : "",
       parameters: tool.inputSchema && typeof tool.inputSchema === "object" ? tool.inputSchema : EMPTY_SCHEMA,
-      type: "mcp",
+      // 服务器暴露的工具可以产生任意副作用，按最保守的 write 处理；分组交给 UI 的 MCP 子标签。
+      mode: "write",
+      group: "mcp",
       prompt: "",
       promptSection: "",
       timeoutMs: server.timeoutMs,
-      concurrencySafe: true,
       defaultVisible: true,
       result: "text",
       // The public name only exists for the model and permission rules;

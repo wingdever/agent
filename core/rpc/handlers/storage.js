@@ -3,6 +3,8 @@
 // UI-facing storage commands. Only the subset the renderer actually uses is
 // exposed; the rest of Store.run stays internal.
 
+import { resolveWorkspaceFolder } from "./../../context/workspace.js";
+
 const anyId = { oneOf: [{ type: "string" }, { type: "number" }] };
 const payload = {
   type: "object",
@@ -49,7 +51,23 @@ export default function defineStorageCommands(rpc) {
   read("session.compactions", "session.compactions", bySession);
   read("session.trajectory", "session.trajectory", bySession);
 
-  read("workspace.list", "workspace.list", noParams);
+  // workspaces.folder_path 存的是用户给的原始值（可能是 "Downloads" 这类相对路径），
+  // UI 需要能显示完整位置，因此在返回行上附加计算字段 absolute_path（不落库）：
+  // 能解析到真实目录就用解析结果，解析不到就给出基于 cwd 的绝对形式。
+  const withAbsolutePath = (row) => {
+    if (!row || typeof row.folder_path !== "string" || !row.folder_path.trim()) return row;
+    const resolved = resolveWorkspaceFolder(row.folder_path);
+    const absolute = resolved || (row.folder_path.startsWith("/") ? row.folder_path : null);
+    return absolute ? Object.assign({}, row, { absolute_path: absolute }) : row;
+  };
+  rpc.define({
+    name: "workspace.list",
+    params: noParams,
+    handler: async (core) => {
+      const rows = (await core.store.run("workspace.list", {})) || [];
+      return rows.map(withAbsolutePath);
+    },
+  });
   write("workspace.create", "workspace.create");
   write("workspace.delete", "workspace.delete");
 

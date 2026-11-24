@@ -15,7 +15,8 @@
     },
     "required": ["description"]
   },
-  "type": "interaction",
+  "mode": "both",
+  "group": "interaction",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "request_user_job: delegate a real-world task to the human user. The turn pauses until the user completes it and submits a free-text report via the card. Use it only when a step needs an action, credentials, a decision, or information only the human can provide. Pass a clear `description`. The result is the user's report; the `job_id` in it lets you recall the job later with job_output / job_list.",

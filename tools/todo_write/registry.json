@@ -27,7 +27,8 @@
     },
     "required": ["todos"]
   },
-  "type": "todo",
+  "mode": "write",
+  "group": "goal",
   "entry": "run.js",
   "defaultVisible": true
 }

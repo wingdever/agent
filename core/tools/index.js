@@ -58,7 +58,8 @@ class ToolService {
       name: t.name,
       description: t.description,
       parameters: t.parameters,
-      type: t.type,
+      mode: t.mode,
+      group: t.group,
       prompt: t.prompt || "",
       defaultVisible: t.defaultVisible,
     }));

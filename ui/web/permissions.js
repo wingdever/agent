@@ -116,7 +116,25 @@
   }
 
   // ---- 视口：三个 tab ----
-  function refresh() { renderSidebar(); renderViewport(); }
+  var formWatcher = null;
+  function refresh() {
+    renderSidebar();
+    renderViewport();
+    // 重绘 tab 后当前状态即基线
+    setTimeout(function () {
+      if (!viewport) return;
+      if (formWatcher) formWatcher.refresh();
+      else formWatcher = window.App.watchFormDirty({ view: "permissions", container: viewport });
+    }, 0);
+  }
+  function resetFormBaseline() {
+    if (formWatcher) formWatcher.refresh();
+    else if (window.App && window.App.setViewDirty) window.App.setViewDirty("permissions", false);
+  }
+  // 增删规则行会改变控件数量但不一定触发 input/change，这里重新探测一次
+  function reprobeForm() {
+    if (formWatcher) formWatcher.reprobe();
+  }
 
   function renderViewport() {
     if (!viewport) return;
@@ -185,7 +203,7 @@
     }
     var footer = el("div", { className: "config-footer", dataset: { name: "config-footer" } }, [
       el("button", { className: "reset-btn", onclick: function () { refresh(); } }, "重置"),
-      el("button", { className: "save-btn", onclick: save }, "保存"),
+      el("button", { className: "save-btn", onclick: function () { save(); setTimeout(resetFormBaseline, 400); } }, "保存"),
     ]);
     return tabShell("工具权限", el("div", { className: "tool-permissions-tab", dataset: { name: "tool-permissions-tab" } }, [el("div", { className: "tab-header", dataset: { name: "tab-header" } }, [el("span", { className: "tab-title", dataset: { name: "tab-title" } }, "工具权限")]), el("div", { className: "tab-body-inner" }, [err, body]), footer]));
   }
@@ -209,13 +227,13 @@
       dec.value = rule.decision || "ask";
       var reason = el("input", { className: "reason-input", dataset: { name: "reason-input" }, type: "text", placeholder: "可解释理由（可选）", value: rule.reason || "" });
       var env = el("input", { className: "env-input", dataset: { name: "env-input" }, type: "text", placeholder: "URL=https://*.example.com/*（可选）", value: envToText(rule.env || {}) });
-      var del = el("button", { className: "remove-rule-btn", dataset: { name: "remove-rule-btn" }, onclick: function () { row.remove(); } }, "删除");
+      var del = el("button", { className: "remove-rule-btn", dataset: { name: "remove-rule-btn" }, onclick: function () { row.remove(); reprobeForm(); } }, "删除");
       var row = el("div", { className: "bash-rule-row", dataset: { name: "bash-rule-row" } }, [program, args, dec, reason, env, del]);
       table.appendChild(row);
     }
     (bp.rules || []).forEach(addRuleRow);
 
-    var addBtn = el("button", { className: "add-bash-rule-btn", dataset: { name: "add-bash-rule-btn" }, onclick: function () { addRuleRow(); } }, "+ 新增规则");
+    var addBtn = el("button", { className: "add-bash-rule-btn", dataset: { name: "add-bash-rule-btn" }, onclick: function () { addRuleRow(); reprobeForm(); } }, "+ 新增规则");
 
     var body = el("div", null, [
       el("div", { className: "bash-default-row", dataset: { name: "bash-default-row" } }, [
@@ -250,7 +268,7 @@
     }
     var footer = el("div", { className: "config-footer", dataset: { name: "config-footer" } }, [
       el("button", { className: "reset-btn", onclick: function () { refresh(); } }, "重置"),
-      el("button", { className: "save-btn", onclick: save }, "保存"),
+      el("button", { className: "save-btn", onclick: function () { save(); setTimeout(resetFormBaseline, 400); } }, "保存"),
     ]);
     return tabShell("Bash 命令策略", el("div", { className: "bash-policy-tab", dataset: { name: "bash-policy-tab" } }, [el("div", { className: "tab-header", dataset: { name: "tab-header" } }, [el("span", { className: "tab-title", dataset: { name: "tab-title" } }, "Bash 命令策略")]), el("div", { className: "tab-body-inner" }, [err, body]), footer]));
   }
@@ -264,13 +282,13 @@
       var path = el("input", { className: "path-input", dataset: { name: "path-input" }, type: "text", placeholder: "docs/**", value: rule.path || "" });
       var perm = el("select", { className: "permission-select", dataset: { name: "permission-select" } }, [option("allow", "allow"), option("deny", "deny")]);
       perm.value = rule.permission || "allow";
-      var del = el("button", { className: "remove-rule-btn", dataset: { name: "remove-rule-btn" }, onclick: function () { row.remove(); } }, "删除");
+      var del = el("button", { className: "remove-rule-btn", dataset: { name: "remove-rule-btn" }, onclick: function () { row.remove(); reprobeForm(); } }, "删除");
       var row = el("div", { className: "fs-rule-row", dataset: { name: "fs-rule-row" } }, [path, perm, del]);
       table.appendChild(row);
     }
     (fp.rules || []).forEach(addRuleRow);
 
-    var addBtn = el("button", { className: "add-fs-rule-btn", dataset: { name: "add-fs-rule-btn" }, onclick: function () { addRuleRow(); } }, "+ 新增规则");
+    var addBtn = el("button", { className: "add-fs-rule-btn", dataset: { name: "add-fs-rule-btn" }, onclick: function () { addRuleRow(); reprobeForm(); } }, "+ 新增规则");
 
     var body = el("div", null, [
       el("div", { className: "fs-scope-note", dataset: { name: "fs-scope-note" } }, "仅作用于 write / edit（deny 优先，命中即拒）"),
@@ -292,7 +310,7 @@
     }
     var footer = el("div", { className: "config-footer", dataset: { name: "config-footer" } }, [
       el("button", { className: "reset-btn", onclick: function () { refresh(); } }, "重置"),
-      el("button", { className: "save-btn", onclick: save }, "保存"),
+      el("button", { className: "save-btn", onclick: function () { save(); setTimeout(resetFormBaseline, 400); } }, "保存"),
     ]);
     return tabShell("文件写策略", el("div", { className: "fs-policy-tab", dataset: { name: "fs-policy-tab" } }, [el("div", { className: "tab-header", dataset: { name: "tab-header" } }, [el("span", { className: "tab-title", dataset: { name: "tab-title" } }, "文件写策略")]), el("div", { className: "tab-body-inner" }, [err, body]), footer]));
   }
@@ -327,17 +345,10 @@
 
     viewport = el("div", { className: "permissions-viewport", dataset: { name: "permissions-viewport" } });
 
-    var panel = el("div", { className: "permissions-panel", dataset: { name: "permissions-panel" } }, [
-      el("div", { className: "danger-zone", dataset: { name: "danger-zone" } },
-        el("button", { className: "reset-defaults-btn", onclick: resetDefaults }, "恢复默认（default=ask，清空规则）")
-      ),
-      el("button", { className: "close-permissions-btn", dataset: { name: "close-permissions-btn" }, onclick: closePermissions }, "关闭"),
-    ]);
-
-    var win = el("div", { className: "permissions-window" }, [sidebar, viewport, panel]);
-    overlay = el("div", { className: "permissions-modal", dataset: { name: "permissions-modal" } }, [win]);
+    var win = el("div", { className: "permissions-window" }, [sidebar, viewport]);
+    overlay = el("div", { className: "permissions-modal", dataset: { name: "permissions-page" } }, [win]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closePermissions(); });
-    document.body.appendChild(overlay);
+    window.App.mountViewPage(overlay, "permissions");
   }
 
   async function resetDefaults() {
@@ -353,13 +364,24 @@
 
   async function openPermissions() {
     if (!overlay) buildShell();
-    overlay.style.display = "flex";
+    overlay.hidden = false;
     await loadData();
     refresh();
   }
-  function closePermissions() { if (overlay) overlay.style.display = "none"; }
+  function closePermissions() { if (overlay) overlay.hidden = true; window.App.showView("chat"); }
 
   ready(function () {
+    if (window.App && window.App.registerView) {
+      // 本页进表头右槽的内容：恢复默认（破坏性操作收进「更多」菜单）。
+      window.App.registerView("permissions", {
+        title: "权限",
+        header: function () {
+          return window.App.buildViewActions([
+            { label: "恢复默认（default=ask，清空规则）", className: "reset-defaults-btn", danger: true, onClick: resetDefaults },
+          ]);
+        },
+      });
+    }
     var btn = document.getElementById("permissionsBtn");
     if (btn) btn.addEventListener("click", openPermissions);
   });

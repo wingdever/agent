@@ -42,7 +42,8 @@
     },
     "required": ["task_id", "expected_revision", "action"]
   },
-  "type": "control",
+  "mode": "write",
+  "group": "team",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "Team shared task board: create, read, list, and compare-and-set tasks across the subagent tree. Claim a ready task with its current revision, do the work, then complete it. Dependencies gate claims; write scopes are advisory, not a lock.",

@@ -15,7 +15,8 @@
     },
     "required": ["job_id"]
   },
-  "type": "read",
+  "mode": "read",
+  "group": "job",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "job_wait: wait up to timeout_ms for a background job to settle and return its result; on timeout, report that it is still running with its output tail.",

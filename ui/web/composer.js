@@ -17,27 +17,29 @@
   App.saveSettings = saveSettings;
 
   // ---------- 权限预设映射（grill Q2） ----------
-  //  read-only        : 只读工具全部 allow，其余 deny
-  //  workspace-write  : 只读 + 工作区内写 allow，其余 deny（经 fs-policy 限制写路径）
-  //  full-access      : 全部 allow
+  //  read-only        : mode=read 的工具 allow，mode=write / both 的 deny
+  //  workspace-write  : mode=read / both 的工具 allow，mode=write 的 deny（写路径由 fs-policy 限制）
+  //  full-access      : 全部 allow（default=allow，不逐个列）
   //  fine-grained     : 不改写，打开侧栏 permissions modal 沿用 user/* 配置
+  // 读写特性来自 registry 的 mode 字段（tools.list），前端不再维护工具名白名单。
   App.applyPermissionPreset = function applyPermissionPreset(preset) {
     if (preset === "fine-grained") {
       var pBtn = document.getElementById("permissionsBtn");
       if (pBtn) pBtn.click();
       return;
     }
-    var tools = {};
-    Object.keys(App.READONLY_TOOLS).forEach(function (t) { tools[t] = "allow"; });
-    if (preset === "full-access") {
-      Object.keys(App.WRITE_TOOLS).forEach(function (t) { tools[t] = "allow"; });
-    } else if (preset === "workspace-write") {
-      Object.keys(App.WRITE_TOOLS).forEach(function (t) { tools[t] = "allow"; });
-    } else { // read-only
-      Object.keys(App.WRITE_TOOLS).forEach(function (t) { tools[t] = "deny"; });
-    }
-    window.AgentClient.call("config.permissions.upsert", { payload: { default: (preset === "full-access") ? "allow" : "deny", tools: tools } })
-      .catch(function (e) { console.error("applyPermissionPreset failed:", e); });
+    window.AgentClient.call("tools.list", {}).then(function (list) {
+      var tools = {};
+      (list || []).forEach(function (t) {
+        var mode = t.mode || "write";
+        if (preset === "read-only") tools[t.name] = mode === "read" ? "allow" : "deny";
+        else if (preset === "workspace-write") tools[t.name] = mode === "write" ? "deny" : "allow";
+        else tools[t.name] = "allow"; // full-access
+      });
+      return window.AgentClient.call("config.permissions.upsert", {
+        payload: { default: (preset === "full-access") ? "allow" : "deny", tools: tools },
+      });
+    }).catch(function (e) { console.error("applyPermissionPreset failed:", e); });
   };
 
   App.initPermissionSelector = function initPermissionSelector() {

@@ -56,7 +56,8 @@
     },
     "required": ["id"]
   },
-  "type": "control",
+  "mode": "write",
+  "group": "schedule",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "Host-level scheduled tasks: create, list, view, and edit a persisted rule that delivers a synthetic user follow-up at its due time. `{{tools}}` manage the rule only; the delivered turn does the work. A schedule is not a Job: use `job_*`/`workflow` when you need immediate asynchronous execution, output and cancellation.",

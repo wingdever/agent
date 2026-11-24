@@ -89,15 +89,11 @@
   App.compactionHappenedInTurn = false;
 
   // ---------- composer：引用 / 推理控件 ----------
+  // 读写特性不再在前端写死：权限预设直接读 tools.list 返回的 mode（registry 里的 read/write/both）。
   App.pendingRefs = [];
   App.reasoningControl = "think-switch";
   App.modelSelector = null;
   App.effortSelector = null;
-  App.READONLY_TOOLS = {
-    read: 1, glob: 1, grep: 1, get_current_time: 1, get_goal: 1, calculator: 1,
-    web_search: 1, web_fetch: 1, ask_user_question: 1, request_user_job: 1, job_list: 1, job_kill: 1,
-  };
-  App.WRITE_TOOLS = { write: 1, edit: 1, bash: 1, create_goal: 1, update_goal: 1, todo_write: 1, delete_goal: 1 };
   App.ARTIFACT_TOOLS = { write: 1, edit: 1 };
   App.HTTP_STATUS_LABEL = { "on-wait": "wait", "on-post": "post", "on-get": "get" };
 
@@ -141,13 +137,17 @@
       }
       var btnRow = document.createElement("div");
       btnRow.className = "modal-buttons";
-      var cancelBtn = document.createElement("button");
-      cancelBtn.className = "modal-cancel";
-      cancelBtn.textContent = opts.cancelText || "取消";
+      // alert 只是告知，不提供取消（否则「取消」关掉弹窗等于「确定」，语义重复）。
+      var cancelBtn = null;
+      if (opts.kind !== "alert") {
+        cancelBtn = document.createElement("button");
+        cancelBtn.className = "modal-cancel";
+        cancelBtn.textContent = opts.cancelText || "取消";
+        btnRow.appendChild(cancelBtn);
+      }
       var okBtn = document.createElement("button");
       okBtn.className = "modal-ok";
       okBtn.textContent = opts.okText || "确定";
-      btnRow.appendChild(cancelBtn);
       btnRow.appendChild(okBtn);
       box.appendChild(btnRow);
       overlay.appendChild(box);
@@ -171,7 +171,7 @@
         }
         close(v);
       }
-      cancelBtn.addEventListener("click", function () { close(opts.kind === "confirm" ? false : null); });
+      if (cancelBtn) cancelBtn.addEventListener("click", function () { close(opts.kind === "confirm" ? false : null); });
       okBtn.addEventListener("click", submit);
       overlay.addEventListener("click", function (e) { if (e.target === overlay) close(opts.kind === "confirm" ? false : null); });
       if (input) {
@@ -185,6 +185,42 @@
       }
     });
   };
+  // 轻量提示条：右上角滑入，自动消失。用于不该打断流程但又必须让用户看到的反馈
+  // （操作失败、删除后的可撤销提示等）。kind: info | warn | error
+  App.toast = function toast(message, opts) {
+    opts = opts || {};
+    var host = document.getElementById("toastHost");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "toastHost";
+      host.className = "toast-host";
+      host.setAttribute("data-name", "toast-host");
+      document.body.appendChild(host);
+    }
+    var item = document.createElement("div");
+    item.className = "toast toast-" + (opts.kind || "info");
+    item.setAttribute("data-name", "toast");
+    item.textContent = String(message == null ? "" : message);
+    host.appendChild(item);
+    var ttl = typeof opts.duration === "number" ? opts.duration : 4000;
+    // 点击即可关闭；超时自动淡出
+    var alive = true;
+    function dismiss() {
+      if (!alive) return;
+      alive = false;
+      item.classList.add("toast-leaving");
+      setTimeout(function () { if (item.parentNode) item.parentNode.removeChild(item); }, 180);
+    }
+    item.addEventListener("click", dismiss);
+    if (ttl > 0) setTimeout(dismiss, ttl);
+    return item;
+  };
+  // 操作失败统一提示：附上后端给的 reason，避免只进 console 用户看不见。
+  App.reportError = function reportError(purpose, error) {
+    var reason = error && (error.message || error) || "未知错误";
+    App.toast(purpose + "：" + reason, { kind: "error", duration: 6000 });
+  };
+
   App.uiPrompt = function uiPrompt(title, defaultValue, extra) {
     return App.showModal(Object.assign({ kind: "prompt", title: title, defaultValue: defaultValue || "" }, extra || {}));
   };

@@ -53,7 +53,8 @@
     },
     "required": ["questions"]
   },
-  "type": "interaction",
+  "mode": "both",
+  "group": "interaction",
   "entry": "run.js",
   "defaultVisible": true
 }

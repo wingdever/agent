@@ -16,10 +16,12 @@
 目录化注册（扫描 tools/*/registry.json）
 
 registry.json 字段：
-- `name` / `description` / `parameters` / `type` / `entry`：工具身份与实现入口（`entry` 默认 `run.js`）
+- `name` / `description` / `parameters` / `entry`：工具身份与实现入口（`entry` 默认 `run.js`）
+- `mode`：读写特性，`read`（只读）/ `write`（可写）/ `both`（视情况可写）；权限预设按它判定
+- `group`：能力分组，`fs` / `shell` / `web` / `browser` / `job` / `agent` / `team` / `schedule` / `goal` / `interaction` / `channel` / `skill` / `mcp` / `utility`；工具页按它分类。只有 `mcp__<server>__<tool>` 形式的工具归入 MCP 子标签并按服务器名分组，`skill` 与共享注册的 MCP 资源工具（`group: mcp`）留在内置工具里
 - `prompt`（可选）：该工具贡献到 system prompt 的指引段落；order 由工具名查固定表
 - `promptSection`（可选）：多个工具共享同一段指引时使用（goal 三件套用 `goal`）
-- `timeoutMs`（可选）：执行器预算；`concurrencySafe`（可选）：并发标记
+- `timeoutMs`（可选）：执行器预算；`concurrencySafe`（可选）：并发标记（与 `mode` 无关，是调度层的并行开关）
 - `defaultVisible`（可选，默认 true）：false 时默认不下发给模型（如 `calculator`）
 - `result`（可选，默认 `text`）：`text` / `json`
 

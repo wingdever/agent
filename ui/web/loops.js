@@ -65,7 +65,10 @@
     dirty: false,
   };
 
-  var overlay = null, summaryEl = null, topologyEl = null, tableEl = null;
+  var overlay = null, topologyEl = null, tableEl = null;
+  var engineIndicatorEl = null; // 表头右槽里的「当前引擎」指示器
+  var saveBtnEl = null;         // 表头右槽的「保存」
+  var undoBtnEl = null;         // 表头右槽的「撤销修改」
 
   // Backend wrapper: loops.fn with op.
   function api(op, payload) {
@@ -112,22 +115,36 @@
     state.dirty = false;
   }
 
-  // ---- Summary (left sidebar) ----
-  function renderSummary() {
-    if (!summaryEl) return;
-    summaryEl.innerHTML = "";
-    var nodeCount = (state.data.nodes || []).length;
-    var builtinCount = (state.data.builtins || []).length;
-    // Loop edges = next chain edges (each core node with a next) + the decide-next loop-back.
-    var loopEdges = (state.data.nodes || []).filter(function (n) { return n.next; }).length + 1;
-    summaryEl.appendChild(el("div", { className: "current-engine-label", dataset: { name: "current-engine-label" } },
-      "当前引擎: " + (state.data.currentEngine || "—")));
-    summaryEl.appendChild(el("div", { className: "engine-note", dataset: { name: "engine-note" } },
-      "由 AGENT_LOOP_ENGINE 决定，重启生效（只读）"));
-    summaryEl.appendChild(el("div", { className: "loop-node-count-label", dataset: { name: "loop-node-count-label" } },
-      "节点数: " + nodeCount + " (含 builtin " + builtinCount + ")"));
-    summaryEl.appendChild(el("div", { className: "loop-edge-count-label", dataset: { name: "loop-edge-count-label" } },
-      "循环边数: " + loopEdges));
+  // ---- Header indicator: current engine ----
+  // 引擎由环境变量决定、重启生效，界面不可改，所以只做只读指示器；点击弹说明。
+  function buildEngineIndicator() {
+    engineIndicatorEl = el("button", {
+      className: "engine-indicator",
+      dataset: { name: "engine-indicator" },
+      title: "点击查看引擎与拓扑统计",
+      onclick: function () {
+        var data = state.data || {};
+        var nodeCount = (data.nodes || []).length;
+        var builtinCount = (data.builtins || []).length;
+        // 循环边数 = next 链边数 + decide-next 的回边
+        var loopEdges = (data.nodes || []).filter(function (n) { return n.next; }).length + 1;
+        if (window.uiAlert) {
+          window.uiAlert("当前引擎: " + (data.currentEngine || "—") +
+            "\n由 AGENT_LOOP_ENGINE 决定，重启生效（只读）" +
+            "\n节点数: " + nodeCount + " (含 builtin " + builtinCount + ")" +
+            "\n循环边数: " + loopEdges);
+        }
+      },
+    }, "当前引擎: —");
+    return engineIndicatorEl;
+  }
+
+  function renderEngineIndicator() {
+    if (!engineIndicatorEl) return;
+    var data = state.data || {};
+    var name = data.currentEngine || "—";
+    engineIndicatorEl.textContent = "当前引擎: " + name;
+    engineIndicatorEl.setAttribute("data-engine", name);
   }
 
   // ---- Left: read-only topology ----
@@ -199,6 +216,7 @@
   }
 
   function renderTable() {
+    syncEditButtons(); // 每次重绘表格都按 dirty 刷新「保存 / 撤销修改」可用态
     if (!tableEl) return;
     tableEl.innerHTML = "";
     var ids = allNodeIds();
@@ -295,51 +313,57 @@
   }
 
   function refresh() {
-    renderSummary();
+    renderEngineIndicator();
     renderTopology();
     renderTable();
+    syncEditButtons();
+  }
+
+  // 「保存 / 撤销修改」只在有未保存改动时可用。
+  function syncEditButtons() {
+    if (saveBtnEl) saveBtnEl.disabled = !state.dirty;
+    if (undoBtnEl) undoBtnEl.disabled = !state.dirty;
+    if (window.App && window.App.setViewDirty) window.App.setViewDirty("loops", state.dirty);
   }
 
   // ---- Shell ----
+  // 左栏（循环拓扑标题 + 统计）已取消：统计并入表头「当前引擎」提示，拓扑与节点表占满整页。
   function buildShell() {
-    summaryEl = el("div", { className: "loops-summary", dataset: { name: "loops-summary" } });
-    var sidebar = el("div", { className: "loops-sidebar", dataset: { name: "loops-sidebar" } }, [
-      el("div", { className: "tab-header", dataset: { name: "tab-header" } }, [
-        el("span", { className: "tab-title", dataset: { name: "tab-title" } }, "循环拓扑"),
-      ]),
-      summaryEl,
-    ]);
-
     topologyEl = el("div", { className: "loop-topology", dataset: { name: "loop-topology" } });
     tableEl = el("div", { className: "loop-nodes-table", dataset: { name: "loop-nodes-table" } });
 
-    var configFooter = el("div", { className: "config-footer", dataset: { name: "config-footer" } }, [
-      el("button", { className: "reset-btn", dataset: { name: "reset-btn" }, onclick: resetEdits }, "重置"),
-      el("button", { className: "save-btn", dataset: { name: "save-btn" }, onclick: saveHooks }, "保存"),
+    // 表尾操作条：撤销修改 / 保存（当前配置这层对象的常用操作）。
+    undoBtnEl = el("button", {
+      className: "reset-btn", dataset: { name: "undo-btn" },
+      title: "丢弃页面上尚未保存的改动，重新载入当前配置",
+      onclick: resetEdits,
+    }, "撤销修改");
+    saveBtnEl = el("button", {
+      className: "save-btn", dataset: { name: "save-btn" },
+      title: "把当前修改写入配置",
+      onclick: saveHooks,
+    }, "保存");
+    var foot = el("div", { className: "config-footer", dataset: { name: "config-footer" } }, [
+      el("span", { className: "config-footer-spacer" }),
+      undoBtnEl,
+      saveBtnEl,
     ]);
 
     var viewport = el("div", { className: "loops-viewport", dataset: { name: "loops-viewport" } }, [
-      el("div", { className: "loops-viewport-split" }, [topologyEl, tableEl]),
-      configFooter,
+      el("div", { className: "loops-viewport-split", dataset: { name: "loops-viewport-split" } }, [topologyEl, tableEl]),
+      foot,
     ]);
 
-    var panel = el("div", { className: "loops-panel", dataset: { name: "loops-panel" } }, [
-      el("div", { className: "danger-zone", dataset: { name: "danger-zone" } },
-        el("button", { className: "reset-defaults-btn", dataset: { name: "reset-defaults-btn" }, onclick: resetDefaults }, "恢复默认 hooks")
-      ),
-      el("button", { className: "close-loops-btn", dataset: { name: "close-loops-btn" }, onclick: closeLoops }, "关闭"),
-    ]);
-
-    var win = el("div", { className: "loops-window", dataset: { name: "loops-window" } }, [sidebar, viewport, panel]);
-    overlay = el("div", { className: "loops-modal", dataset: { name: "loops-modal" } }, [win]);
+    var win = el("div", { className: "loops-window", dataset: { name: "loops-window" } }, [viewport]);
+    overlay = el("div", { className: "loops-modal", dataset: { name: "loops-page" } }, [win]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closeLoops(); });
-    document.body.appendChild(overlay);
+    window.App.mountViewPage(overlay, "loops");
   }
 
   // ---- Open / close ----
   async function openLoops() {
     if (!overlay) buildShell();
-    overlay.style.display = "flex";
+    overlay.hidden = false;
     try {
       await loadData();
       refresh();
@@ -347,9 +371,29 @@
       if (window.uiAlert) window.uiAlert("加载循环配置失败：" + (e.message || e));
     }
   }
-  function closeLoops() { if (overlay) overlay.style.display = "none"; }
+  function closeLoops() { if (overlay) overlay.hidden = true; window.App.showView("chat"); }
 
   ready(function () {
+    if (window.App && window.App.registerView) {
+      // 表头右槽只放：当前引擎指示器 + 「更多」里的恢复默认 hooks（危险操作）。
+      window.App.registerView("loops", {
+        title: "循环",
+        header: function () {
+          var flat = window.document.createElement("div");
+          flat.className = "view-actions";
+          // 表头只放指示器与低频/危险操作的入口：保存 / 撤销修改在表尾。
+          flat.appendChild(window.App.buildViewActions([
+            // 与「撤销修改」区别：这会写后端，把配置整体替换成仓库默认值。
+            { label: "恢复默认 hooks（丢弃当前配置）", className: "reset-defaults-btn", danger: true, onClick: resetDefaults },
+          ]));
+          // 当前引擎只读指示器（点击看说明），与聊天页的「模式」同类。
+          flat.insertBefore(buildEngineIndicator(), flat.firstChild);
+          renderEngineIndicator();
+          syncEditButtons();
+          return flat;
+        },
+      });
+    }
     var btn = document.getElementById("loopsBtn");
     if (btn) btn.addEventListener("click", openLoops);
   });

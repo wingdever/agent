@@ -23,7 +23,8 @@
     },
     "required": ["description", "command"]
   },
-  "type": "bash",
+  "mode": "write",
+  "group": "shell",
   "entry": "run.js",
   "defaultVisible": true,
   "timeoutMs": 120000,

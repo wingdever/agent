@@ -27,7 +27,8 @@
     },
     "required": ["card_url", "prompt"]
   },
-  "type": "control",
+  "mode": "both",
+  "group": "channel",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "Outbound A2A call: `a2a_call` fetches a remote AgentCard, sends one text message, and polls the remote task to completion. Requires the remote agent to speak A2A v1.0 JSON-RPC.",

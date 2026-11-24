@@ -19,7 +19,8 @@
     },
     "required": ["pattern"]
   },
-  "type": "fs",
+  "mode": "read",
+  "group": "fs",
   "entry": "run.js",
   "defaultVisible": true,
   "timeoutMs": 30000,

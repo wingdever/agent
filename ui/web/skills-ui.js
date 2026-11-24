@@ -196,16 +196,19 @@
   // ---- Shell ----
   function buildShell() {
     treeEl = el("div", { className: "provider-skill-tree-list", dataset: { name: "provider-skill-tree-list" } });
-    searchEl = el("input", {
-      className: "tree-search-input", dataset: { name: "tree-search-input" }, type: "text",
-      placeholder: "过滤技能名…",
-      oninput: function () { renderTree(searchEl.value); },
-    });
+    // 搜索框放在表头右槽（本页的页级筛选），左栏只留分组列表。
+    // 搜索框归表头右槽所有；这里只确保它存在并接上过滤逻辑（表头工厂可能已建过）。
+    if (!searchEl) {
+      searchEl = el("input", {
+        className: "tree-search-input header-search", dataset: { name: "tree-search-input" }, type: "text",
+        placeholder: "过滤技能名…",
+      });
+    }
+    searchEl.addEventListener("input", function () { renderTree(searchEl.value); });
     var sidebar = el("div", { className: "skills-sidebar", dataset: { name: "skills-sidebar" } }, [
       el("div", { className: "tab-header", dataset: { name: "tab-header" } }, [
         el("span", { className: "tab-title", dataset: { name: "tab-title" } }, "技能目录"),
       ]),
-      searchEl,
       treeEl,
     ]);
 
@@ -220,24 +223,38 @@
       ]),
     ]);
 
-    var panel = el("div", { className: "skills-panel", dataset: { name: "skills-panel" } }, [
-      el("button", { className: "close-skills-btn", dataset: { name: "close-skills-btn" }, onclick: closeSkills }, "关闭"),
-    ]);
-
-    var win = el("div", { className: "skills-window", dataset: { name: "skills-window" } }, [sidebar, viewport, panel]);
-    overlay = el("div", { className: "skills-modal", dataset: { name: "skills-modal" } }, [win]);
+    // 第三列已取消：本页只有浏览用途，回聊天走左栏，不再保留「关闭」列。
+    var win = el("div", { className: "skills-window", dataset: { name: "skills-window" } }, [sidebar, viewport]);
+    overlay = el("div", { className: "skills-modal", dataset: { name: "skills-page" } }, [win]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closeSkills(); });
-    document.body.appendChild(overlay);
+    window.App.mountViewPage(overlay, "skills");
   }
 
   async function openSkills() {
     if (!overlay) buildShell();
-    overlay.style.display = "flex";
+    overlay.hidden = false;
     await loadAndRender();
   }
-  function closeSkills() { if (overlay) overlay.style.display = "none"; }
+  function closeSkills() { if (overlay) overlay.hidden = true; window.App.showView("chat"); }
 
   ready(function () {
+    if (window.App && window.App.registerView) {
+      // 本页进表头右槽的内容：技能名过滤框。
+      window.App.registerView("skills", {
+        title: "技能",
+        header: function () {
+          // 页面建好前 searchEl 还是 null：此时先给一个占位输入框；
+          // 页面建好后每次切页都换成页面里那一个，保证输入框只有一份。
+          if (!searchEl) {
+            searchEl = el("input", {
+              className: "tree-search-input header-search", dataset: { name: "tree-search-input" }, type: "text",
+              placeholder: "过滤技能名…",
+            });
+          }
+          return searchEl;
+        },
+      });
+    }
     var btn = document.getElementById("skillsBtn");
     if (btn) btn.addEventListener("click", openSkills);
   });

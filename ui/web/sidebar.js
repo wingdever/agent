@@ -12,12 +12,45 @@
   App.getSessionMode = function getSessionMode() { return App.currentSessionId ? "persisted" : "bare"; };
   App.isBare = function isBare() { return App.getSessionMode() === "bare"; };
 
+  // 过滤范围：会话名 + 所在工作区名（输工作区名时能看到该工作区下全部会话）。
+  // 过滤后整棵树没有任何可见会话时，显示一条空态，而不是留一片空白。
   function applySessionFilter(q) {
-    document.querySelectorAll(".session-item").forEach(function (n) {
-      var label = n.querySelector(".session-name-label");
-      var name = label ? label.textContent.toLowerCase() : "";
-      n.style.display = (!q || name.indexOf(q) !== -1) ? "" : "none";
+    var query = (q || "").toLowerCase();
+    var anyShown = false;
+    document.querySelectorAll(".workspace-item").forEach(function (wsNode) {
+      var wsLabel = wsNode.querySelector(".workspace-name-label");
+      var wsName = wsLabel ? wsLabel.textContent.toLowerCase() : "";
+      var wsMatch = !!query && wsName.indexOf(query) !== -1;
+      var shownInWs = 0;
+      wsNode.querySelectorAll(".session-item").forEach(function (n) {
+        if (n.classList.contains("deleted")) return;
+        var label = n.querySelector(".session-name-label");
+        var name = label ? label.textContent.toLowerCase() : "";
+        var match = !query || wsMatch || name.indexOf(query) !== -1;
+        n.style.display = match ? "" : "none";
+        if (match) shownInWs += 1;
+      });
+      // 工作区下没有可见会话时整块收起（原本就没有会话的工作区在过滤时同样收起）
+      var hasSessions = wsNode.querySelectorAll(".session-item:not(.deleted)").length > 0;
+      var hideWs = !!query && shownInWs === 0 && (hasSessions || !wsMatch);
+      wsNode.style.display = hideWs ? "none" : "";
+      if (shownInWs > 0) anyShown = true;
     });
+
+    var treeList = document.querySelector(".workspace-session-tree-list");
+    if (!treeList) return;
+    var emptyEl = treeList.querySelector("[data-name='session-filter-empty']");
+    var needEmpty = !!query && !anyShown;
+    if (needEmpty && !emptyEl) {
+      emptyEl = document.createElement("div");
+      emptyEl.className = "empty-hint";
+      emptyEl.setAttribute("data-name", "session-filter-empty");
+      treeList.appendChild(emptyEl);
+    }
+    if (emptyEl) {
+      if (needEmpty) emptyEl.textContent = "没有匹配「" + q + "」的会话或工作区";
+      else if (emptyEl.parentNode) emptyEl.parentNode.removeChild(emptyEl);
+    }
   }
   App.applySessionFilter = applySessionFilter;
 
@@ -28,7 +61,10 @@
       var deleted = (list || []).filter(function (s) { return s.deleted_at != null; });
       if (!deleted.length) { container.innerHTML = '<div class="empty-hint">回收站为空</div>'; return; }
       deleted.forEach(function (s) { renderDeletedSession(s, container); });
-    } catch (e) { container.innerHTML = '<div class="empty-hint">回收站加载失败</div>'; }
+    } catch (e) {
+      container.innerHTML = '<div class="empty-hint">回收站加载失败</div>';
+      if (App.reportError) App.reportError("加载回收站失败", e);
+    }
   };
 
   function renderDeletedSession(sess, container) {
@@ -47,13 +83,86 @@
     purgeBtn.textContent = "彻底删除";
     node.appendChild(label); node.appendChild(restoreBtn); node.appendChild(purgeBtn);
     restoreBtn.addEventListener("click", async function () {
-      try { await window.AgentClient.call("session.restore", { payload: { id: sess.id } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
+      try {
+        await window.AgentClient.call("session.restore", { payload: { id: sess.id } });
+        if (node.parentNode) node.parentNode.removeChild(node);
+        await App.loadWorkspaces(); // 恢复后回到所属工作区的会话列表
+        if (App.toast) App.toast("会话已恢复");
+      } catch (e) { if (App.reportError) App.reportError("恢复会话失败", e); }
     });
     purgeBtn.addEventListener("click", async function () {
       if (!(await App.uiConfirm("彻底删除该会话？不可恢复"))) return;
-      try { await window.AgentClient.call("session.delete", { payload: { id: sess.id, hard: true } }); if (node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
+      try {
+        await window.AgentClient.call("session.delete", { payload: { id: sess.id, hard: true } });
+        if (node.parentNode) node.parentNode.removeChild(node);
+      } catch (e) { if (App.reportError) App.reportError("彻底删除失败", e); }
     });
     container.appendChild(node);
+  }
+
+  // 行内「⋯」菜单：主操作（新建会话 / 选中会话）留在行上，次要操作（重命名、删除）收进这里。
+  // items: [{ label, onClick, danger? }]
+  var openMenuEl = null;
+  function closeRowMenu() {
+    if (openMenuEl && openMenuEl.parentNode) openMenuEl.parentNode.removeChild(openMenuEl);
+    openMenuEl = null;
+    document.removeEventListener("click", onDocClickMenu, true);
+  }
+  function onDocClickMenu(ev) {
+    if (openMenuEl && !openMenuEl.contains(ev.target)) closeRowMenu();
+  }
+  function buildRowMenu(items) {
+    var btn = document.createElement("button");
+    btn.className = "row-menu-btn";
+    btn.setAttribute("data-name", "row-menu-btn");
+    btn.title = "更多操作";
+    btn.textContent = "⋯";
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation(); // 不要触发行点击（选中会话）
+      if (openMenuEl) { closeRowMenu(); return; }
+      var menu = document.createElement("div");
+      menu.className = "row-menu";
+      menu.setAttribute("data-name", "row-menu");
+      items.forEach(function (item) {
+        var b = document.createElement("button");
+        b.className = "row-menu-item" + (item.danger ? " danger" : "");
+        b.textContent = item.label;
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          closeRowMenu();
+          item.onClick();
+        });
+        menu.appendChild(b);
+      });
+      btn.parentNode.appendChild(menu);
+      openMenuEl = menu;
+      document.addEventListener("click", onDocClickMenu, true);
+    });
+    return btn;
+  }
+
+  // 工作区的完整位置：后端 workspace.list 给出 absolute_path（folder_path 可能是相对路径，
+  // 如 "Downloads"）；老数据没有该字段时退回 folder_path。
+  function workspacePath(ws) {
+    return ws.absolute_path || ws.folder_path || "";
+  }
+
+  // 展示用路径：家目录前缀简写成 ~（/home/<user>/x -> ~/x），其余部分原样。
+  function humanizePath(p) {
+    var text = String(p || "");
+    var m = text.match(/^\/(?:home|Users)\/[^/]+(?=\/|$)/);
+    if (m) return "~" + text.slice(m[0].length);
+    if (/^\/root(?=\/|$)/.test(text)) return "~" + text.slice(5);
+    return text;
+  }
+
+  // 目录末段名：优先从完整路径取最后一段，取不到再退回 folder_name。
+  function workspaceBaseName(ws) {
+    function base(p) {
+      var parts = String(p || "").split("/").filter(function (x) { return x && x !== "."; });
+      return parts.length ? parts[parts.length - 1] : "";
+    }
+    return base(workspacePath(ws)) || ws.folder_name || "（未命名）";
   }
 
   function renderWorkspace(ws, treeList) {
@@ -66,24 +175,35 @@
     header.className = "workspace-header";
     header.setAttribute("data-name", "workspace-header");
 
+    // 名称与提示条拆成两层：外层截断长名称，内层承载悬停路径条。
+    // （不能把提示条放进一个 overflow:hidden 的节点里，否则溢出部分会被裁掉。）
     var label = document.createElement("span");
     label.className = "workspace-name-label";
     label.setAttribute("data-name", "workspace-name-label");
-    label.textContent = ws.folder_name + (ws.folder_path ? "  (" + ws.folder_path + ")" : "");
-
-    var delBtn = document.createElement("button");
-    delBtn.className = "del-workspace-btn";
-    delBtn.setAttribute("data-name", "del-workspace-btn");
-    delBtn.textContent = "删除";
+    var labelText = document.createElement("span");
+    labelText.className = "workspace-name-text";
+    labelText.setAttribute("data-name", "workspace-name-text");
+    labelText.textContent = workspaceBaseName(ws);
+    var pathTip = document.createElement("span");
+    pathTip.className = "workspace-path-tip";
+    pathTip.setAttribute("data-name", "workspace-path-tip");
+    pathTip.textContent = humanizePath(workspacePath(ws)) || workspaceBaseName(ws);
+    label.appendChild(labelText);
+    label.appendChild(pathTip);
 
     var addBtn = document.createElement("button");
     addBtn.className = "add-session-btn";
     addBtn.setAttribute("data-name", "add-session-btn");
     addBtn.textContent = "+ 会话";
 
+    var delBtn = buildRowMenu([
+      { label: "删除工作区…", danger: true, onClick: function () { App.deleteWorkspace(ws.id, node); } },
+    ]);
+    delBtn.setAttribute("data-name", "workspace-menu-btn");
+
     header.appendChild(label);
-    header.appendChild(delBtn);
     header.appendChild(addBtn);
+    header.appendChild(delBtn);
 
     var sessionList = document.createElement("div");
     sessionList.className = "session-list";
@@ -93,10 +213,9 @@
     node.appendChild(sessionList);
     treeList.appendChild(node);
 
-    delBtn.addEventListener("click", function () { deleteWorkspace(ws.id, node); });
-    addBtn.addEventListener("click", async function () { var name = await App.uiPrompt("新建会话"); if (name) addSession(ws.id, sessionList, name); });
+    addBtn.addEventListener("click", async function () { var name = await App.uiPrompt("新建会话"); if (name) App.addSession(ws.id, sessionList, name); });
 
-    loadSessions(ws.id, sessionList);
+    App.loadSessions(ws.id, sessionList);
     return node;
   }
   App.renderWorkspace = renderWorkspace;
@@ -107,7 +226,10 @@
       var treeList = document.querySelector(".workspace-session-tree-list");
       if (treeList) treeList.innerHTML = "";
       (list || []).forEach(function (ws) { renderWorkspace(ws, treeList); });
-    } catch (e) { /* 后端未就绪时静默 */ }
+    } catch (e) {
+      console.error("load workspaces failed:", e);
+      if (App.reportError) App.reportError("加载工作区失败", e);
+    }
   };
 
   App.addWorkspace = async function addWorkspace(folderPath) {
@@ -119,7 +241,10 @@
       });
       var treeList = document.querySelector(".workspace-session-tree-list");
       renderWorkspace(ws, treeList);
-    } catch (e) { console.error("add workspace failed:", e); }
+    } catch (e) {
+      console.error("add workspace failed:", e);
+      if (App.reportError) App.reportError("添加工作区失败", e);
+    }
   };
 
   function findSessionList(wsId) {
@@ -151,23 +276,15 @@
     label.setAttribute("data-name", "session-name-label");
     label.textContent = sess.name || ("会话 " + sess.id);
 
-    var renameBtn = document.createElement("button");
-    renameBtn.className = "rename-session-btn";
-    renameBtn.setAttribute("data-name", "rename-session-btn");
-    renameBtn.textContent = "改名";
-
-    var delBtn = document.createElement("button");
-    delBtn.className = "delete-session-btn";
-    delBtn.setAttribute("data-name", "delete-session-btn");
-    delBtn.textContent = "删除";
+    var menuBtn = buildRowMenu([
+      { label: "重命名…", onClick: function () { App.renameSession(sess.id, label); } },
+      { label: "删除会话…", danger: true, onClick: function () { App.deleteSession(sess.id, node); } },
+    ]);
+    menuBtn.setAttribute("data-name", "session-menu-btn");
 
     node.appendChild(label);
-    node.appendChild(renameBtn);
-    node.appendChild(delBtn);
+    node.appendChild(menuBtn);
     if (container) container.appendChild(node);
-
-    renameBtn.addEventListener("click", function () { renameSession(sess.id, label); });
-    delBtn.addEventListener("click", function () { deleteSession(sess.id, node); });
     node.addEventListener("click", function (e) {
       if (e.target.closest("button")) return;
       App.selectSession(sess, node);
@@ -181,7 +298,10 @@
       var list = await window.AgentClient.call("session.list", { workspace_id: workspaceId });
       container.innerHTML = "";
       (list || []).forEach(function (s) { renderSession(s, workspaceId, container); });
-    } catch (e) { /* 静默 */ }
+    } catch (e) {
+      console.error("load sessions failed:", e);
+      if (App.reportError) App.reportError("加载会话失败", e);
+    }
   };
 
   App.addSession = async function addSession(workspaceId, container, name) {
@@ -190,7 +310,10 @@
       var sess = await window.AgentClient.call("session.create", { payload: { workspace_id: workspaceId, name: name, activity: App.selectedInitialActivity } });
       var node = renderSession(sess, workspaceId, container);
       App.selectSession(sess, node);
-    } catch (e) { console.error("add session failed:", e); }
+    } catch (e) {
+      console.error("add session failed:", e);
+      if (App.reportError) App.reportError("新建会话失败", e);
+    }
   };
 
   App.renameSession = async function renameSession(sessionId, label) {
@@ -199,7 +322,10 @@
     try {
       var sess = await window.AgentClient.call("session.update", { payload: { id: sessionId, name: name } });
       label.textContent = (sess && sess.name) || name;
-    } catch (e) { console.error("rename session failed:", e); }
+    } catch (e) {
+      console.error("rename session failed:", e);
+      if (App.reportError) App.reportError("重命名失败", e);
+    }
   };
 
   App.deleteSession = async function deleteSession(sessionId, node) {
@@ -207,7 +333,12 @@
     try {
       await window.AgentClient.call("session.delete", { payload: { id: sessionId } });
       if (node && node.parentNode) node.parentNode.removeChild(node);
-    } catch (e) { console.error("delete session failed:", e); }
+      // 软删除：可到回收站恢复，告诉用户一句，避免以为丢数据
+      if (App.toast) App.toast("会话已移入回收站（🗑 可恢复）");
+    } catch (e) {
+      console.error("delete session failed:", e);
+      if (App.reportError) App.reportError("删除会话失败", e);
+    }
   };
 
   App.deleteWorkspace = async function deleteWorkspace(workspaceId, node) {
@@ -215,7 +346,11 @@
     try {
       await window.AgentClient.call("workspace.delete", { payload: { id: workspaceId } });
       if (node && node.parentNode) node.parentNode.removeChild(node);
-    } catch (e) { console.error("delete workspace failed:", e); }
+      if (App.toast) App.toast("工作区已删除");
+    } catch (e) {
+      console.error("delete workspace failed:", e);
+      if (App.reportError) App.reportError("删除工作区失败", e);
+    }
   };
 
   // ---------- 绑定（DOMContentLoaded 内调用） ----------
@@ -263,6 +398,7 @@
           var container = findSessionList(ws.id);
           if (!container) { await App.loadWorkspaces(); container = findSessionList(ws.id); }
           await App.addSession(ws.id, container, name);
+          App.showView("chat"); // 新建会话是聊天页的动作，右栏其它页面切回聊天
         } catch (e) { console.error("new session failed:", e); }
       });
     }

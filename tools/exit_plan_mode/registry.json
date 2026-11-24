@@ -11,7 +11,8 @@
     },
     "required": ["plan"]
   },
-  "type": "plan",
+  "mode": "write",
+  "group": "interaction",
   "entry": "run.js",
   "defaultVisible": true
 }

@@ -6,7 +6,8 @@
     "properties": {},
     "required": []
   },
-  "type": "control",
+  "mode": "read",
+  "group": "agent",
   "entry": "run.js",
   "defaultVisible": true,
   "concurrencySafe": true,

@@ -10,7 +10,7 @@
 //   ├─ meta-viewport     → meta-codegraph-tab
 //   │    ├─ meta-codegraph-opbar  (search / fit / reload / status)
 //   │    └─ meta-codegraph-view   (cytoscape canvas + legend)
-//   └─ meta-panel        → meta-codegraph-detail (selected node edges) + close-meta-btn
+//   └─ meta-detail-drawer → meta-codegraph-detail (selected node edges), floats over the graph
 
 (function () {
   var App = (window.App = window.App || {});
@@ -36,7 +36,9 @@
   var statusEl = null;
   var searchEl = null;
   var detailEl = null;
-  var archBadge = null;
+  var detailDrawerEl = null;
+  var headerActionsEl = null;
+  var archState = null;     // 最近一次架构规则检查结果
   var archPanelEl = null;
   var cy = null;
   var data = null;
@@ -70,25 +72,10 @@
 
   function buildShell() {
     statusEl = el("span", { className: "meta-status", dataset: { name: "meta-status" } });
-    searchEl = el("input", {
-      className: "meta-graph-search",
-      dataset: { name: "meta-graph-search" },
-      type: "search",
-      placeholder: "搜索文件路径（如 loops/nodes）",
-      oninput: onSearch,
-    });
-    archBadge = el("button", {
-      className: "meta-arch-badge",
-      dataset: { name: "meta-arch-badge" },
-      onclick: toggleArchPanel,
-    }, "架构规则");
-    var opbar = el("div", { className: "meta-codegraph-opbar", dataset: { name: "meta-codegraph-opbar" } }, [
-      searchEl,
-      el("button", { dataset: { name: "meta-graph-fit-btn" }, onclick: fitGraph }, "适应窗口"),
-      el("button", { dataset: { name: "meta-graph-reload-btn" }, onclick: function () { loadGraph(true); } }, "重新加载"),
-      archBadge,
-      statusEl,
-    ]);
+    if (!headerActionsEl) buildHeaderActions();
+    // 搜索 / 适应窗口 / 重新加载 / 架构规则 是页级操作，在表头右槽里；
+    // 页内只留状态行（数据来源、节点数等）。
+    var opbar = el("div", { className: "meta-codegraph-opbar", dataset: { name: "meta-codegraph-opbar" } }, [statusEl]);
 
     canvasEl = el("div", { className: "meta-codegraph-canvas", dataset: { name: "meta-codegraph-canvas" } });
     var legend = el("div", { className: "meta-codegraph-legend", dataset: { name: "meta-codegraph-legend" }, html:
@@ -114,18 +101,37 @@
       navBtn,
     ]);
 
+    // 第三列已取消：节点详情改成浮在代码图右下角的抽屉卡，图区铺满剩余宽度。
     detailEl = el("div", { className: "meta-codegraph-detail", dataset: { name: "meta-codegraph-detail" } });
+    var detailCard = el("div", { className: "meta-detail-drawer", dataset: { name: "meta-detail-drawer" } }, [
+      el("div", { className: "meta-detail-drawer-head" }, [
+        el("span", { className: "meta-detail-drawer-title" }, "节点详情"),
+        el("button", {
+          className: "meta-detail-drawer-close",
+          dataset: { name: "meta-detail-drawer-close" },
+          title: "收起",
+          onclick: function () { detailCard.hidden = true; },
+        }, "×"),
+      ]),
+      detailEl,
+    ]);
+    detailCard.hidden = true;
+    // 选中节点时展开抽屉（clearSelection / selectNode 里控制）。
+    detailDrawerEl = detailCard;
 
     var viewport = el("div", { className: "meta-viewport", dataset: { name: "meta-viewport" } }, [tab]);
-    var panel = el("div", { className: "meta-panel", dataset: { name: "meta-panel" } }, [
-      detailEl,
-      el("button", { className: "close-meta-btn", dataset: { name: "close-meta-btn" }, onclick: closeMeta }, "关闭"),
-    ]);
+    tab.querySelector(".meta-codegraph-view").appendChild(detailCard);
 
-    var win = el("div", { className: "meta-window", dataset: { name: "meta-window" } }, [sidebar, viewport, panel]);
-    overlay = el("div", { className: "meta-modal", dataset: { name: "meta-modal" } }, [win]);
+    var win = el("div", { className: "meta-window", dataset: { name: "meta-window" } }, [sidebar, viewport]);
+    if (window.App && window.App.registerView) {
+      window.App.registerView("meta", {
+        title: "本体",
+        header: function () { return headerActionsEl; },
+      });
+    }
+    overlay = el("div", { className: "meta-modal", dataset: { name: "meta-page" } }, [win]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closeMeta(); });
-    document.body.appendChild(overlay);
+    window.App.mountViewPage(overlay, "meta");
     clearSelection();
   }
 
@@ -143,16 +149,17 @@
   // ---- Open / close ----
   function openMeta() {
     if (!overlay) buildShell();
-    overlay.style.display = "flex";
+    overlay.hidden = false;
     loadGraph(false);
-    // The canvas is measured only after the modal is laid out.
+    // The canvas is measured only after the page is laid out.
     requestAnimationFrame(function () {
       if (cy) { cy.resize(); fitGraph(); }
     });
   }
 
   function closeMeta() {
-    if (overlay) overlay.style.display = "none";
+    if (overlay) overlay.hidden = true;
+    window.App.showView("chat");
   }
 
   // ---- Data ----
@@ -312,20 +319,23 @@
   }
 
   // ---- Architecture rules ----
+  // 菜单项文字：架构规则 通过 / N 警告 / N 违规（结果在「更多」菜单里显示）。
+  function archMenuLabel() {
+    if (!archState || !archState.summary) return "架构规则";
+    var s = archState.summary;
+    if (s.error) return "架构规则 " + s.error + " 违规";
+    if (s.warn) return "架构规则 " + s.warn + " 警告";
+    return "架构规则 通过";
+  }
+
   function renderArch(arch) {
-    if (!archBadge || !archPanelEl) return;
+    archState = arch || null;
+    if (!archPanelEl) return;
     if (!arch) {
-      archBadge.textContent = "架构规则 —";
-      archBadge.setAttribute("data-state", "unknown");
+      archPanelEl.innerHTML = "";
       return;
     }
     var s = arch.summary;
-    archBadge.textContent = s.error
-      ? "架构规则 " + s.error + " 违规"
-      : s.warn
-        ? "架构规则 " + s.warn + " 警告"
-        : "架构规则 通过";
-    archBadge.setAttribute("data-state", s.error ? "error" : s.warn ? "warn" : "ok");
     archPanelEl.innerHTML = archPanelHtml(arch);
     Array.prototype.forEach.call(archPanelEl.querySelectorAll("[data-focus]"), function (node) {
       node.addEventListener("click", function () {
@@ -435,6 +445,7 @@
   function clearSelection() {
     selectedId = null;
     if (cy) cy.elements().removeClass("selected incoming outgoing neighbor-in neighbor-out faded");
+    if (detailDrawerEl) detailDrawerEl.hidden = true;
     if (detailEl) {
       detailEl.innerHTML = '<div class="meta-detail-hint">点击文件节点查看两类边：谁依赖它（入边）、它依赖谁（出边）；虚线边来自运行时规则表。</div>';
     }
@@ -442,6 +453,7 @@
 
   function showNodeDetail(nodeData, incoming, outgoing) {
     if (!detailEl) return;
+    if (detailDrawerEl) detailDrawerEl.hidden = false;
     var html = [];
     html.push('<div class="meta-detail-title">' + esc(nodeData.id) + "</div>");
     html.push('<div class="meta-detail-meta">层级 ' + esc(nodeData.layer) + " · " + esc(String(nodeData.lines)) + " 行</div>");
@@ -490,9 +502,40 @@
 
   // ---- Public surface ----
   App.initGraph = function initGraph() {
+    // 表头右槽先建好（搜索 + 「更多」），页面本身仍由 openMeta 懒建；
+    // 两者共用同一个 headerActionsEl。
+    if (window.App && window.App.registerView && !headerActionsEl) {
+      buildHeaderActions();
+      window.App.registerView("meta", {
+        title: "本体",
+        header: function () { return headerActionsEl; },
+      });
+    }
     var btn = document.getElementById("metaBtn");
     if (btn) btn.addEventListener("click", openMeta);
   };
+
+  // 表头右槽：只放搜索框（输入）与「更多」菜单（适应窗口 / 重新加载 / 架构规则是低频看图工具）。
+  function buildHeaderActions() {
+    searchEl = el("input", {
+      className: "meta-graph-search",
+      dataset: { name: "meta-graph-search" },
+      type: "search",
+      placeholder: "搜索文件路径（如 loops/nodes）",
+      oninput: onSearch,
+    });
+    // 架构规则检查结果先存在 archState 里；「更多」菜单每次打开时按它渲染菜单项文字。
+    headerActionsEl = el("div", { className: "meta-header-actions" }, [
+      searchEl,
+      window.App.buildViewActions([
+        { label: "适应窗口", className: "meta-graph-fit-btn", onClick: fitGraph },
+        { label: "重新加载", className: "meta-graph-reload-btn", onClick: function () { loadGraph(true); } },
+        {
+          label: archMenuLabel(), className: "meta-arch-menu-btn", onClick: toggleArchPanel,
+        },
+      ]),
+    ]);
+  }
 
   // Read-only inspection surface for debugging the panel.
   App.meta = {

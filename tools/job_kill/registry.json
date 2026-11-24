@@ -11,7 +11,8 @@
     },
     "required": ["job_id"]
   },
-  "type": "read",
+  "mode": "write",
+  "group": "job",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "job_kill: cancel a background job (`job_...`) or a pending user job (`ujob_...`) by `job_id`. Completed or already-cancelled jobs cannot be killed.",

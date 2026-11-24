@@ -15,7 +15,8 @@
     },
     "required": ["agent", "message"]
   },
-  "type": "control",
+  "mode": "write",
+  "group": "agent",
   "entry": "run.js",
   "defaultVisible": true,
   "concurrencySafe": true,

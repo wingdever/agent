@@ -1,12 +1,12 @@
 "use strict";
 // tools-modal: 只读工具浏览弹窗（按 ui.md 的 tools-modal 布局树实现）。
-//   - Left (tools-sidebar): tool-type-tree-list，按 type 分组列出 listFunctions 返回的
+//   - Left (tools-sidebar): tool-type-tree-list，按 registry 的 group 分组列出 listFunctions 返回的
 //     工具（tree-search-input 过滤名/描述），点击 tool-name-label 在右侧视口查看。
-//   - Right (tools-viewport): tool-tab 展示 tool-meta（type / 名称 / 描述 / parameters
-//     只读）+ tool-content（prompt 经 AgentMarkdown 渲染）。
-//   - Panel (tools-panel): close-tools-btn 关闭。
+//   - Tabs (tool-source-tabs): 内置工具 / MCP 工具，切换目录来源。
+//   - Right (tools-viewport): tool-tab 展示 tool-meta（读写特性 mode / 分组 group / 名称 /
+//     描述 / parameters 只读）+ tool-content（prompt 经 AgentMarkdown 渲染）。
 // 仅浏览，无编辑/保存，与后端 listFunctions（只读）一致。listFunctions 已包含
-// parameters / type / prompt，故无需单独的 get op。
+// parameters / mode / group / prompt，故无需单独的 get op。
 // 布局树见 docs/ui/ui.md tools-modal；模块在 DOMContentLoaded 自绑定 toolsBtn。
 (function () {
   function ready(fn) {
@@ -48,50 +48,138 @@
   var tabTitleEl = null, metaEl = null, contentEl = null;
   var list = [];                // 最近一次 listFunctions 结果
   var currentName = null;       // 当前视口选中的工具名
+  // 目录来源子标签：builtin = 内置工具（按 type 分组），mcp = MCP 服务器提供的工具（按服务器分组）
+  var activeSource = "builtin";
+  var sourceTabBarEl = null;
 
   // ---- Data helpers ----
-  // 按 type 分组（对应 registry 的 type 字段：fs / web / goal / plan / interaction / todo …）；
-  // 与 skills-modal 按 source 分组同理，但技能无 fee，工具无 provider，换成 type。
+  // MCP 服务器工具名约定 mcp__<server>__<tool>；拆出服务器名与服务器内工具名。
+  // 只看名字前缀，不看 type：list_mcp_resources / list_mcp_resource_templates /
+  // read_mcp_resource 的 type 也是 "mcp"，但它们是共享注册的内置工具（服务名是参数），
+  // 不属于任何单个服务器提供的一批工具，应留在「内置工具」里。
+  var MCP_PREFIX = "mcp__";
+  function isMcpTool(tool) { return String(tool.name || "").indexOf(MCP_PREFIX) === 0; }
+  function mcpServerOf(name) {
+    var rest = String(name || "").slice(MCP_PREFIX.length);
+    var i = rest.indexOf("__");
+    return i === -1 ? rest : rest.slice(0, i);
+  }
+  function mcpToolNameOf(name) {
+    var rest = String(name || "").slice(MCP_PREFIX.length);
+    var i = rest.indexOf("__");
+    return i === -1 ? rest : rest.slice(i + 2);
+  }
+  function toolsOfSource(source) {
+    return list.filter(function (t) { return source === "mcp" ? isMcpTool(t) : !isMcpTool(t); });
+  }
+
+  // 按 registry 的 group 字段分组（能力分组，与读写特性 mode 无关）。
+  // 分组顺序按 GROUP_ORDER，未列出的组排在后面；组内按工具名排序。
+  var GROUP_ORDER = ["fs", "shell", "web", "browser", "job", "agent", "team", "schedule", "goal", "interaction", "channel", "skill", "mcp", "utility"];
+  // 组名一律一个词，直接作为标题显示，不做「X / Y」这类复合名。
+  var GROUP_LABEL = {
+    fs: "文件", shell: "命令", web: "网络", browser: "浏览器", job: "任务",
+    agent: "Agent", team: "团队", schedule: "定时", goal: "目标",
+    interaction: "交互", channel: "渠道", skill: "技能", mcp: "MCP", utility: "通用",
+  };
+  function groupLabel(key) { return GROUP_LABEL[key] || key; }
   function groupTools(items) {
     var map = new Map();
     items.forEach(function (s) {
-      var key = s.type != null && s.type ? s.type : "other";
+      var key = s.group != null && s.group ? s.group : "utility";
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(s);
     });
-    var out = [];
-    Array.from(map.keys()).sort().forEach(function (key) {
+    var keys = Array.from(map.keys()).sort(function (a, b) {
+      var ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b);
+      if (ia === -1) ia = GROUP_ORDER.length;
+      if (ib === -1) ib = GROUP_ORDER.length;
+      return ia - ib || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    return keys.map(function (key) {
       var tools = map.get(key).slice().sort(function (a, b) {
         return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
       });
-      out.push({ key: key, tools: tools });
+      return { key: key, label: groupLabel(key), tools: tools };
+    });
+  }
+
+  // 按 MCP 服务器名分组；组内按工具名排序，显示时用去掉前缀的短名。
+  function groupMcpTools(items) {
+    var map = new Map();
+    items.forEach(function (t) {
+      var server = mcpServerOf(t.name) || "unknown";
+      if (!map.has(server)) map.set(server, []);
+      map.get(server).push({ tool: t, shortName: mcpToolNameOf(t.name) });
+    });
+    var out = [];
+    Array.from(map.keys()).sort().forEach(function (server) {
+      var entries = map.get(server).sort(function (a, b) {
+        return a.shortName < b.shortName ? -1 : a.shortName > b.shortName ? 1 : 0;
+      });
+      out.push({ key: server, tools: entries });
     });
     return out;
   }
 
-  // ---- Sidebar: type → tool tree ----
+  // 来源子标签：内置工具 / MCP 工具。切换只影响左栏目录，右侧详情不变。
+  function buildSourceTabs() {
+    sourceTabBarEl = el("div", { className: "tool-source-tabs", dataset: { name: "tool-source-tabs" } });
+    [["builtin", "内置工具"], ["mcp", "MCP 工具"]].forEach(function (pair) {
+      var btn = el("button", {
+        className: "tool-source-tab" + (activeSource === pair[0] ? " active" : ""),
+        dataset: { name: "tool-source-tab" },
+        "data-source": pair[0],
+        onclick: function () {
+          if (activeSource === pair[0]) return;
+          activeSource = pair[0];
+          Array.prototype.forEach.call(sourceTabBarEl.children, function (b) {
+            b.classList.toggle("active", b.getAttribute("data-source") === activeSource);
+          });
+          renderTree(searchEl ? searchEl.value : "");
+          var first = toolsOfSource(activeSource)[0];
+          if (first) selectTool(first);
+          else clearDetail();
+        },
+      }, pair[1]);
+      sourceTabBarEl.appendChild(btn);
+    });
+    return sourceTabBarEl;
+  }
+
+  function clearDetail() {
+    if (tabTitleEl) tabTitleEl.textContent = activeSource === "mcp" ? "MCP 工具" : "内置工具";
+    if (metaEl) metaEl.innerHTML = "";
+    if (contentEl) contentEl.innerHTML = '<div class="empty-hint">' + (activeSource === "mcp" ? "没有可用的 MCP 工具" : "没有可用的内置工具") + "</div>";
+  }
+
+  // ---- Sidebar: type / MCP server → tool tree ----
   function renderTree(filter) {
     if (!treeEl) return;
     treeEl.innerHTML = "";
     filter = (filter || "").trim().toLowerCase();
-    var groups = groupTools(list);
+    var groups = activeSource === "mcp" ? groupMcpTools(toolsOfSource("mcp")) : groupTools(toolsOfSource("builtin"));
     var anyVisible = false;
 
     groups.forEach(function (g) {
-      var tools = g.tools.filter(function (s) {
+      var tools = g.tools.filter(function (entry) {
         if (!filter) return true;
-        return (s.name + " " + (s.description || "")).toLowerCase().indexOf(filter) !== -1;
+        var s = entry.tool || entry;
+        var hay = (s.name + " " + (entry.shortName || "") + " " + (s.description || "")).toLowerCase();
+        return hay.indexOf(filter) !== -1;
       });
       if (!tools.length) return;
       anyVisible = true;
 
       var listWrap = el("div", { className: "tool-type-list" });
-      tools.forEach(function (s) {
+      tools.forEach(function (entry) {
+        var s = entry.tool || entry;                 // MCP 组内是 { tool, shortName }
+        var labelText = entry.shortName || s.name;
         var label = el("div", {
           className: "tool-name-label" + (s.name === currentName ? " selected" : ""),
           dataset: { name: "tool-name-label", tool: s.name },
           onclick: function () { selectTool(s); },
-        }, s.name);
+        }, labelText);
         listWrap.appendChild(label);
       });
 
@@ -104,7 +192,7 @@
             toggle.textContent = collapsed ? "▾" : "▸";
           },
         }, "▾"),
-        el("span", { className: "tool-type-label", dataset: { name: "tool-type-label" } }, g.key),
+        el("span", { className: "tool-type-label", dataset: { name: "tool-type-label", group: g.key } }, g.label),
       ]);
       var toggle = header.querySelector(".tool-type-collapse-toggle");
 
@@ -121,9 +209,14 @@
     if (!metaEl) return;
     metaEl.innerHTML = "";
 
-    metaEl.appendChild(el("div", { className: "meta-row", dataset: { name: "type-display" } }, [
-      el("span", { className: "meta-key" }, "类型"),
-      el("span", { className: "meta-val" }, tool.type || "other"),
+    var MODE_LABEL = { read: "只读", write: "可写", both: "视情况可写" };
+    metaEl.appendChild(el("div", { className: "meta-row", dataset: { name: "mode-display" } }, [
+      el("span", { className: "meta-key" }, "读写"),
+      el("span", { className: "mode-badge mode-" + (tool.mode || "write"), dataset: { name: "mode-badge" } }, MODE_LABEL[tool.mode] || "可写"),
+    ]));
+    metaEl.appendChild(el("div", { className: "meta-row", dataset: { name: "group-display" } }, [
+      el("span", { className: "meta-key" }, "分组"),
+      el("span", { className: "meta-val" }, groupLabel(tool.group || "utility")),
     ]));
 
     metaEl.appendChild(el("div", { className: "meta-row" }, [
@@ -170,8 +263,14 @@
 
   function selectTool(tool) {
     currentName = tool.name;
+    activeSource = isMcpTool(tool) ? "mcp" : "builtin";
+    if (sourceTabBarEl) {
+      Array.prototype.forEach.call(sourceTabBarEl.children, function (b) {
+        b.classList.toggle("active", b.getAttribute("data-source") === activeSource);
+      });
+    }
     renderTree(searchEl ? searchEl.value : "");
-    if (tabTitleEl) tabTitleEl.textContent = tool.name;
+    if (tabTitleEl) tabTitleEl.textContent = tool.name; // 详情标题保留完整名（mcp__server__tool）
     renderMeta(tool);
     renderContent(tool);
   }
@@ -184,26 +283,33 @@
       if (window.uiAlert) window.uiAlert("加载工具列表失败：" + (e.message || e));
     }
     currentName = null;
-    if (tabTitleEl) tabTitleEl.textContent = "工具";
-    renderTree("");
+    renderTree(searchEl ? searchEl.value : "");
     if (metaEl) metaEl.innerHTML = "";
     if (contentEl) contentEl.innerHTML = "";
-    if (list.length) selectTool(list[0]);
+    // MCP tab 有服务器时才切过去；否则停在有内容的那一侧。
+    if (activeSource === "mcp" && !toolsOfSource("mcp").length) activeSource = "builtin";
+    var first = toolsOfSource(activeSource)[0];
+    if (first) selectTool(first);
+    else clearDetail();
   }
 
   // ---- Shell ----
   function buildShell() {
     treeEl = el("div", { className: "tool-type-tree-list", dataset: { name: "tool-type-tree-list" } });
-    searchEl = el("input", {
-      className: "tree-search-input", dataset: { name: "tree-search-input" }, type: "text",
-      placeholder: "过滤工具名 / 描述…",
-      oninput: function () { renderTree(searchEl.value); },
-    });
+    // 搜索框放在表头右槽（本页的页级筛选），左栏只留分组列表。
+    // 搜索框归表头右槽所有；这里只确保它存在并接上过滤逻辑（表头工厂可能已建过）。
+    if (!searchEl) {
+      searchEl = el("input", {
+        className: "tree-search-input header-search", dataset: { name: "tree-search-input" }, type: "text",
+        placeholder: "过滤工具名 / 描述…",
+      });
+    }
+    searchEl.addEventListener("input", function () { renderTree(searchEl.value); });
     var sidebar = el("div", { className: "tools-sidebar", dataset: { name: "tools-sidebar" } }, [
       el("div", { className: "tab-header", dataset: { name: "tab-header" } }, [
         el("span", { className: "tab-title", dataset: { name: "tab-title" } }, "工具目录"),
       ]),
-      searchEl,
+      buildSourceTabs(),
       treeEl,
     ]);
 
@@ -218,24 +324,38 @@
       ]),
     ]);
 
-    var panel = el("div", { className: "tools-panel", dataset: { name: "tools-panel" } }, [
-      el("button", { className: "close-tools-btn", dataset: { name: "close-tools-btn" }, onclick: closeTools }, "关闭"),
-    ]);
-
-    var win = el("div", { className: "tools-window", dataset: { name: "tools-window" } }, [sidebar, viewport, panel]);
-    overlay = el("div", { className: "tools-modal", dataset: { name: "tools-modal" } }, [win]);
+    // 第三列已取消：本页只有浏览用途，回聊天走左栏，不再保留「关闭」列。
+    var win = el("div", { className: "tools-window", dataset: { name: "tools-window" } }, [sidebar, viewport]);
+    overlay = el("div", { className: "tools-modal", dataset: { name: "tools-page" } }, [win]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closeTools(); });
-    document.body.appendChild(overlay);
+    window.App.mountViewPage(overlay, "tools");
   }
 
   async function openTools() {
     if (!overlay) buildShell();
-    overlay.style.display = "flex";
+    overlay.hidden = false;
     await loadAndRender();
   }
-  function closeTools() { if (overlay) overlay.style.display = "none"; }
+  function closeTools() { if (overlay) overlay.hidden = true; window.App.showView("chat"); }
 
   ready(function () {
+    if (window.App && window.App.registerView) {
+      // 本页进表头右槽的内容：工具名 / 描述过滤框。
+      window.App.registerView("tools", {
+        title: "工具",
+        header: function () {
+          // 页面建好前 searchEl 还是 null：此时先给一个占位输入框；
+          // 页面建好后每次切页都换成页面里那一个，保证输入框只有一份。
+          if (!searchEl) {
+            searchEl = el("input", {
+              className: "tree-search-input header-search", dataset: { name: "tree-search-input" }, type: "text",
+              placeholder: "过滤工具名 / 描述…",
+            });
+          }
+          return searchEl;
+        },
+      });
+    }
     var btn = document.getElementById("toolsBtn");
     if (btn) btn.addEventListener("click", openTools);
   });

@@ -11,7 +11,8 @@
     },
     "required": ["job_id"]
   },
-  "type": "read",
+  "mode": "read",
+  "group": "job",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "job_output: read the result or status of a background job (`job_...`) or a user job (`ujob_...`). Returns the result plus recent output when settled, otherwise a status line.",

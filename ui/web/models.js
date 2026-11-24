@@ -220,6 +220,11 @@
     if (!viewport) return;
     viewport.innerHTML = "";
     var v = state.view;
+    // 切换/重绘表单后，当前状态即基线（未改动）
+    setTimeout(function () {
+      rewatchForm();
+      resetFormBaseline();
+    }, 0);
     if (!v) { viewport.appendChild(el("div", { className: "viewport-empty" }, "从左侧选择供应者或模型，或新增一个。")); return; }
     if (v.kind === "provider-add") return viewport.appendChild(buildProviderAddTab());
     if (v.kind === "provider-edit") {
@@ -524,12 +529,29 @@
     return tabShell("编辑模型", el("div", null, [form, meta]), footer, err);
   }
 
+  var formWatcher = null;
+  // 表单脏检查：整页一个 watcher，基线在每次重新渲染后重建（见 renderViewport）。
+  function rewatchForm() {
+    if (formWatcher) { formWatcher.reprobe(); return; }
+    if (!viewport) return;
+    formWatcher = window.App.watchFormDirty({ view: "models", container: viewport });
+  }
+  function resetFormBaseline() {
+    if (formWatcher) formWatcher.refresh();
+    else if (window.App && window.App.setViewDirty) window.App.setViewDirty("models", false);
+  }
+
   function tabShell(title, body, footer, err) {
-    return el("div", { className: "models-tab" }, [
+    var tab = el("div", { className: "models-tab" }, [
       el("div", { className: "tab-header", dataset: { name: "tab-header" } }, [el("span", { className: "tab-title", dataset: { name: "tab-title" } }, title)]),
       el("div", { className: "tab-body-inner" }, [err, body]),
       footer,
     ]);
+    // 保存成功后把当前值记为基线，徽标消失
+    Array.prototype.forEach.call(footer ? footer.querySelectorAll(".save-btn") : [], function (btn) {
+      btn.addEventListener("click", function () { setTimeout(resetFormBaseline, 0); });
+    });
+    return tab;
   }
   function showErr(errEl, msg) { errEl.textContent = msg; errEl.hidden = false; }
 
@@ -649,23 +671,13 @@
 
     viewport = el("div", { className: "models-viewport", dataset: { name: "models-viewport" } });
 
-    var panel = el("div", { className: "models-panel", dataset: { name: "models-panel" } }, [
-      el("button", { className: "import-config-btn", dataset: { name: "import-config-btn" }, onclick: importConfig }, "导入配置"),
-      el("button", { className: "export-config-btn", dataset: { name: "export-config-btn" }, onclick: exportConfig }, "导出配置"),
-      el("div", { className: "danger-zone", dataset: { name: "danger-zone" } },
-        el("button", { className: "clear-all-btn", onclick: clearAll }, "清空所有配置")
-      ),
-      el("button", { className: "close-models-btn", dataset: { name: "close-models-btn" }, onclick: closeModels }, "关闭"),
-    ]);
-
     var win = el("div", { className: "models-window" }, [
       el("div", { className: "models-sidebar", dataset: { name: "models-sidebar" } }, [treeList]),
       viewport,
-      panel,
     ]);
-    overlay = el("div", { className: "models-modal", dataset: { name: "models-modal" } }, [win]);
+    overlay = el("div", { className: "models-modal", dataset: { name: "models-page" } }, [win]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closeModels(); });
-    document.body.appendChild(overlay);
+    window.App.mountViewPage(overlay, "models");
   }
 
   async function clearAll() {
@@ -680,13 +692,26 @@
   async function openModels() {
     if (!overlay) buildShell();
     state.view = null; state.search = "";
-    overlay.style.display = "flex";
+    overlay.hidden = false;
     await loadData();
     refresh();
   }
-  function closeModels() { if (overlay) overlay.style.display = "none"; }
+  function closeModels() { if (overlay) overlay.hidden = true; window.App.showView("chat"); }
 
   ready(function () {
+    if (window.App && window.App.registerView) {
+      // 本页进表头右槽的内容：配置级操作都收在「更多」菜单里（破坏性操作不与列表混排）。
+      window.App.registerView("models", {
+        title: "模型",
+        header: function () {
+          return window.App.buildViewActions([
+            { label: "导入配置", className: "import-config-btn", onClick: importConfig },
+            { label: "导出配置", className: "export-config-btn", onClick: exportConfig },
+            { label: "清空所有配置", className: "clear-all-btn", danger: true, onClick: clearAll },
+          ]);
+        },
+      });
+    }
     var btn = document.getElementById("modelsBtn");
     if (btn) btn.addEventListener("click", openModels);
   });

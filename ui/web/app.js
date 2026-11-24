@@ -24,9 +24,29 @@ document.addEventListener("DOMContentLoaded", function () {
   App.footerContextUsed = document.querySelector(".context-used");
   App.trajectoryTab = document.getElementById("trajectoryTab");
   App.chatScroller = App.chatTab ? App.chatTab.closest(".tab-body") : null;
+  // 主视图容器与表头中随视图切换的两个槽位（modals.js App.showView）。
+  App.mainView = document.getElementById("mainView");
+  App.chatView = document.querySelector(".chat-view");
+  App.viewTitleLabel = document.querySelector(".chat-header .view-title");
+  App.viewDirtyBadge = document.querySelector(".chat-header .view-dirty-badge");
+  App.viewHeaderSlot = document.querySelector(".chat-header .view-header-slot");
+  App.sessionHeaderControls = document.querySelector(".chat-header .session-header-controls");
+
+  // ---------- 2) 主视图注册（视图名 = index.html 左栏按钮的 data-view） ----------
+  // 会话类页（聊天/轨迹）右槽用常驻的会话控制组，其余页的 header 由各域文件自注册时补上。
+  App.registerView("chat", { title: "聊天", sessionHeader: true });
+  App.registerView("trajectory", { title: "轨迹", sessionHeader: true });
+  App.registerView("flow", { title: "流程" });
+  App.registerView("models", { title: "模型" });
+  App.registerView("tools", { title: "工具" });
+  App.registerView("skills", { title: "技能" });
+  App.registerView("permissions", { title: "权限" });
+  App.registerView("loops", { title: "循环" });
+  App.registerView("meta", { title: "本体" });
+  App.registerView("settings", { title: "设置" });
 
   // ---------- 2) 各域 init（DOMContentLoaded 内，DOM 已就绪） ----------
-  App.initTabSwitch();      // modals.js：标签切换 + 折叠按钮
+  App.initTabSwitch();      // modals.js：左栏主视图切换 + 折叠按钮
   App.initToolDetail();     // modals.js：tool-call 检视器 DOM 缓存
   App.initArtifactPreview();// modals.js：产物预览 DOM 缓存
   App.initSidebar();        // sidebar.js：工作区/会话树/回收站/搜索 绑定
@@ -50,6 +70,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (App.resetTrajectory) App.resetTrajectory(); // 切换会话后轨迹需重新拉取
     if (App.sessionNameLabel) App.sessionNameLabel.textContent = sess.name || ("会话 " + sess.id);
     App.scheduleHeaderEval(); // 会话名变了（D2 可能撑大左组）→ 重新评估紧凑（D6）
+    App.showView("chat");     // 点会话即回到聊天页（主视图由左栏切换，选会话是聊天页的动作）
     document.querySelectorAll(".session-item").forEach(function (n) { n.classList.remove("active"); });
     if (node) node.classList.add("active");
     App.renderSessionMessages(sess.id);

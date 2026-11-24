@@ -23,7 +23,8 @@
     },
     "required": ["file_path", "old_string", "new_string"]
   },
-  "type": "fs",
+  "mode": "write",
+  "group": "fs",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session."

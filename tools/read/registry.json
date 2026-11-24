@@ -21,7 +21,8 @@
       "file_path"
     ]
   },
-  "type": "fs",
+  "mode": "read",
+  "group": "fs",
   "entry": "run.js",
   "prompt": "Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.",
   "defaultVisible": true

@@ -223,12 +223,12 @@
       ]),
     ]);
 
-    overlay = el("div", { className: "settings-modal", dataset: { name: "settings-modal" } }, [card]);
+    overlay = el("div", { className: "settings-modal", dataset: { name: "settings-page" } }, [card]);
     overlay.addEventListener("click", function (e) { if (e.target === overlay) closeSettings(); });
-    document.body.appendChild(overlay);
+    window.App.mountViewPage(overlay, "settings");
     // 模型配置（增删 provider / model）变更后，重新同步下拉列表
     window.addEventListener("providers-changed", function () {
-      if (overlay && overlay.style.display === "flex") {
+      if (overlay && !overlay.hidden) {
         loadProviders().then(function () { populateProviders(); populateModels(); });
       }
     });
@@ -236,7 +236,7 @@
 
   async function openSettings() {
     if (!overlay) buildShell();
-    overlay.style.display = "flex";
+    overlay.hidden = false;
     await loadSettings();
     await loadProviders();
     populateProviders();
@@ -248,7 +248,10 @@
       reasoningControlSel.value = state.reasoningControl || "think-switch";
     }
   }
-  function closeSettings() { if (overlay) overlay.style.display = "none"; }
+  function closeSettings() {
+    if (overlay) overlay.hidden = true;
+    window.App.showView("chat");
+  }
 
   function modeSelect(dataName) {
     var wrap = document.querySelector("." + dataName);

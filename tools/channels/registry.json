@@ -16,7 +16,8 @@
     },
     "required": ["action"]
   },
-  "type": "channels",
+  "mode": "both",
+  "group": "channel",
   "entry": "run.js",
   "prompt": "Use this tool only when the user asks for a channel to be connected or disconnected. Never start a channel on your own initiative: an open connection makes an external platform believe this machine is online on the user's behalf. Call list first when you do not know the instance id.",
   "defaultVisible": true,

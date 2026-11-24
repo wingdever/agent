@@ -13,6 +13,13 @@ const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
 const TOOLS_DIR = path.join(__dirname, "..", "..", "tools");
 const EMPTY_SCHEMA = { type: "object", properties: {}, required: [] };
 
+// mode 描述写特性（权限判定用），group 描述能力分组（UI 分类用），两者互不依赖。
+const MODES = new Set(["read", "write", "both"]);
+const GROUPS = new Set([
+  "fs", "shell", "web", "browser", "job", "agent", "team", "schedule",
+  "goal", "interaction", "channel", "skill", "mcp", "utility",
+]);
+
 function positiveNumber(value) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
@@ -40,6 +47,13 @@ async function loadTools() {
       continue;
     }
 
+    if (!MODES.has(reg.mode)) {
+      console.error("[tools] registry without a valid mode (read/write/both):", reg.name);
+    }
+    if (!GROUPS.has(reg.group)) {
+      console.error("[tools] registry without a valid group:", reg.name);
+    }
+
     const entryFile = reg.entry || "run.js";
     const resolved = path.resolve(dir, entryFile);
     if (resolved !== dir && !resolved.startsWith(dir + path.sep)) {
@@ -64,7 +78,8 @@ async function loadTools() {
       name: reg.name,
       description: typeof reg.description === "string" ? reg.description : "",
       parameters: reg.parameters && typeof reg.parameters === "object" ? reg.parameters : EMPTY_SCHEMA,
-      type: typeof reg.type === "string" ? reg.type : entry.name,
+      mode: MODES.has(reg.mode) ? reg.mode : "write",   // 缺省按最保守处理
+      group: GROUPS.has(reg.group) ? reg.group : "utility",
       prompt: typeof reg.prompt === "string" ? reg.prompt : "",
       promptSection: typeof reg.promptSection === "string" && reg.promptSection.trim()
         ? reg.promptSection.trim()

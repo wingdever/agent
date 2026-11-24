@@ -6,7 +6,8 @@
     "properties": {},
     "required": []
   },
-  "type": "builtin",
+  "mode": "read",
+  "group": "utility",
   "entry": "run.js",
   "defaultVisible": false
 }

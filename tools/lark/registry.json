@@ -48,7 +48,8 @@
       "action"
     ]
   },
-  "type": "lark",
+  "mode": "both",
+  "group": "channel",
   "entry": "run.js",
   "prompt": "Use the lark tool when the task needs the user's own Feishu identity (their documents, their drive, their name). Do not guess a proxy id when several are configured; call list_proxies first.",
   "defaultVisible": true,

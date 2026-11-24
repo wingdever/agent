@@ -6,7 +6,8 @@
     "properties": {},
     "required": []
   },
-  "type": "read",
+  "mode": "read",
+  "group": "job",
   "entry": "run.js",
   "defaultVisible": true,
   "prompt": "job_list: list the background jobs (`job_...`) and the user jobs (`ujob_...`) for this session, each with its `job_id`, status, and a short label or description.",

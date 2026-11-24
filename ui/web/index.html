@@ -18,7 +18,6 @@
     <button class="new-session-button" data-name="new-session-button">+ 新建会话</button>
     <div class="workspace-bar" data-name="workspace-bar">
       <button class="search-btn" data-name="search-btn" title="搜索会话">搜索</button>
-      <button class="view-options-btn" data-name="view-options-btn" title="视图选项">视图</button>
       <button class="add-workspace-btn" data-name="add-workspace-btn">+ 工作区</button>
       <button class="trash-btn" data-name="trash-btn" title="回收站">🗑</button>
       <input class="search-input" data-name="search-input" type="text" placeholder="过滤会话名…" hidden />
@@ -29,14 +28,28 @@
     <div class="deleted-sessions-list" data-name="deleted-sessions-list" hidden>
       <!-- 回收站：已软删的会话 -->
     </div>
-    <button class="models-btn" id="modelsBtn" data-name="models-btn">🧩 模型</button>
-    <button class="tools-btn" id="toolsBtn" data-name="tools-btn">🛠 工具</button>
-    <button class="skills-btn" id="skillsBtn" data-name="skills-btn">📖 技能</button>
-    <button class="permissions-btn" id="permissionsBtn" data-name="permissions-btn">🔐 权限</button>
-    <button class="loops-btn" id="loopsBtn" data-name="loops-btn">🔁 循环</button>
-    <button class="flow-btn-sidebar" id="flowBtn" data-name="flow-btn">🔀 流程</button>
-    <button class="meta-btn" id="metaBtn" data-name="meta-btn">🧬 本体</button>
-    <button class="settings-btn" id="settingsBtn" data-name="settings-btn">⚙ 设置</button>
+    <!-- 主视图入口：左栏是唯一导航，点一下右侧「顶栏 + 内容区」整体切到对应页。
+         导航分三组：会话（聊天/轨迹）、编排（模型/工具/技能/流程/循环/本体）、配置（权限/设置）。 -->
+    <nav class="sidebar-nav" data-name="sidebar-nav">
+      <div class="sidebar-nav-group" data-name="sidebar-nav-group">
+        <button class="view-btn chat-view-btn" data-view="chat" data-name="chat-view-btn">💬 聊天</button>
+        <button class="view-btn trajectory-view-btn" data-view="trajectory" data-name="trajectory-view-btn">🧭 轨迹</button>
+      </div>
+      <div class="sidebar-nav-group" data-name="sidebar-nav-group">
+        <div class="sidebar-nav-title" data-name="sidebar-nav-title">编排</div>
+        <button class="models-btn" id="modelsBtn" data-view="models" data-name="models-btn">🧩 模型</button>
+        <button class="tools-btn" id="toolsBtn" data-view="tools" data-name="tools-btn">🛠 工具</button>
+        <button class="skills-btn" id="skillsBtn" data-view="skills" data-name="skills-btn">📖 技能</button>
+        <button class="flow-btn-sidebar" id="flowBtn" data-view="flow" data-name="flow-btn">🔀 流程</button>
+        <button class="loops-btn" id="loopsBtn" data-view="loops" data-name="loops-btn">🔁 循环</button>
+        <button class="meta-btn" id="metaBtn" data-view="meta" data-name="meta-btn">🧬 本体</button>
+      </div>
+      <div class="sidebar-nav-group" data-name="sidebar-nav-group">
+        <div class="sidebar-nav-title" data-name="sidebar-nav-title">配置</div>
+        <button class="permissions-btn" id="permissionsBtn" data-view="permissions" data-name="permissions-btn">🔐 权限</button>
+        <button class="settings-btn" id="settingsBtn" data-view="settings" data-name="settings-btn">⚙ 设置</button>
+      </div>
+    </nav>
   </aside>
 
   <!-- chat-viewport: 中间聊天主视口 -->
@@ -45,72 +58,82 @@
       <div class="header-left-group">
         <button class="left-collapse-button" id="leftCollapse" data-name="left-collapse-button" title="折叠">«</button>
         <span class="session-name" data-name="session-name"></span>
+        <span class="view-title" data-name="view-title" hidden></span>
+        <!-- 当前页有未保存改动时显示，离开页面前提示 -->
+        <span class="view-dirty-badge" data-name="view-dirty-badge" hidden title="当前页有未保存的改动">未保存</span>
       </div>
       <div class="header-controls-group" data-name="header-controls-group">
-        <span class="session-mode-indicator" id="sessionModeIndicator" data-name="session-mode-indicator" data-mode="bare" title="会话模式">模式: bare-chat</span>
-        <button class="activity-indicator" id="activityIndicator" data-name="activity-indicator" title="当前活动（点击切换）">活动: research</button>
-        <button class="presence-switch" id="presenceSwitch" data-name="presence-mode-switch" title="在场状态（in/out，自动推断，可手动切换）">在场: in</button>
-        <button class="autonomy-switch" id="autonomySwitch" data-name="autonomy-mode-switch" title="自主度（supervised/autonomous，可手动提权/降权）">自主: supervised</button>
-        <div class="tab-icons" data-name="tab-icons">
-          <button class="chat-tab-icon active" data-target="chat-tab" data-name="chat-tab-icon">聊天</button>
-          <button class="trajectory-icon" data-target="trajectory-tab" data-name="trajectory-icon">轨迹</button>
+        <!-- 表头右槽：内容由当前主视图决定（modals.js showView / applyHeaderSlot）。
+             聊天/轨迹页放会话控制组，其它页放各自的页级操作。 -->
+        <div class="view-header-slot" data-name="view-header-slot"></div>
+        <div class="session-header-controls" data-name="session-header-controls" hidden>
+          <span class="session-mode-indicator" id="sessionModeIndicator" data-name="session-mode-indicator" data-mode="bare" title="会话模式">模式: bare-chat</span>
+          <button class="activity-indicator" id="activityIndicator" data-name="activity-indicator" title="当前活动（点击切换）">活动: research</button>
+          <button class="presence-switch" id="presenceSwitch" data-name="presence-mode-switch" title="在场状态（in/out，自动推断，可手动切换）">在场: in</button>
+          <button class="autonomy-switch" id="autonomySwitch" data-name="autonomy-mode-switch" title="自主度（supervised/autonomous，可手动提权/降权）">自主: supervised</button>
         </div>
         <button class="right-collapse-button" id="rightCollapse" data-name="right-collapse-button" title="折叠右栏">»</button>
       </div>
     </div>
 
-    <div class="tab-body" data-name="tab-body">
-      <!-- chat-tab: 聊天标签页（层级：turn* > step* > (agent-request? + model-response(thought?/answer?/tool-call-card*))） -->
-      <div class="chat-tab" id="chatTab" data-name="chat-tab">
-        <div class="empty-hint">还没有对话，发送消息开始吧</div>
-      </div>
+    <!-- main-view: 主视图容器。聊天 / 轨迹 / 流程 / 模型 / 工具 / 技能 / 权限 / 循环 / 本体 / 设置
+         各页都挂在这里，同一时刻只显示一页（见 modals.js App.showView）。 -->
+    <div class="main-view" id="mainView" data-name="main-view" data-view="chat">
+      <div class="chat-view" data-view="chat" data-name="chat-view">
+        <div class="tab-body" data-name="tab-body">
+          <!-- chat-tab: 聊天标签页（层级：turn* > step* > (agent-request? + model-response(thought?/answer?/tool-call-card*))） -->
+          <div class="chat-tab" id="chatTab" data-name="chat-tab">
+            <div class="empty-hint">还没有对话，发送消息开始吧</div>
+          </div>
 
-      <!-- trajectory-tab: 轨迹标签页（空状态，默认隐藏） -->
-      <div class="trajectory-tab" id="trajectoryTab" data-name="trajectory-tab" hidden>
-        <div class="empty-hint">暂无轨迹</div>
-      </div>
-    </div>
-
-    <!-- composer: 输入区 -->
-    <div class="composer" data-name="composer">
-      <div class="model-http-status" data-name="model-http-status">
-        <span class="state on-wait">wait</span>
-        <span class="state on-post" hidden>post</span>
-        <span class="state on-get" hidden>get</span>
-      </div>
-      <div class="ref-chips" data-name="ref-chips" hidden></div>
-      <textarea class="input-textarea" data-name="input-textarea" placeholder="输入消息，Enter 发送（Shift+Enter 换行）；输入 @ 或点 @ 按钮引用文件/会话；/compact 压缩上下文"></textarea>
-      <div class="composer-footer" data-name="composer-footer">
-        <button class="think-switch" id="thinkSwitch" data-name="think-switch" title="思考模式">思考</button>
-        <button class="search-switch" id="searchSwitch" data-name="search-switch" title="联网搜索">搜索</button>
-        <select class="permission-selector" id="permissionSelector" data-name="permission-selector" title="权限预设">
-          <option value="read-only">只读模式</option>
-          <option value="workspace-write">写工作区</option>
-          <option value="full-access">完全访问</option>
-          <option value="fine-grained">精细配置</option>
-        </select>
-        <div class="model-effort-selector" data-name="model-effort-selector">
-          <select class="model-selector" id="modelSelector" data-name="model-selector" title="模型"></select>
-          <select class="effort-selector" id="effortSelector" data-name="effort-selector" title="推理等级">
-            <option value="low">low</option>
-            <option value="medium" selected>medium</option>
-            <option value="high">high</option>
-          </select>
+          <!-- trajectory-tab: 轨迹标签页（空状态，默认隐藏） -->
+          <div class="trajectory-tab" id="trajectoryTab" data-name="trajectory-tab" hidden>
+            <div class="empty-hint">暂无轨迹</div>
+          </div>
         </div>
-        <button class="ref-btn" id="refBtn" data-name="ref-btn" title="引用文件或会话（@）">@</button>
-        <button class="send-or-stop-btn" data-name="send-or-stop-btn">发送</button>
-      </div>
-    </div>
 
-    <!-- chat-footer: 聊天底部状态区（DSH 风格：turns/steps/tok-s · token 用量/缓存 · 上下文占用） -->
-    <div class="chat-footer" data-name="chat-footer">
-      <span class="session-statistics" data-name="session-statistics"></span>
-      <span class="token-usage" data-name="token-usage"></span>
-      <span class="context-used" data-name="context-used"></span>
+        <!-- composer: 输入区 -->
+        <div class="composer" data-name="composer">
+          <div class="model-http-status" data-name="model-http-status">
+            <span class="state on-wait">wait</span>
+            <span class="state on-post" hidden>post</span>
+            <span class="state on-get" hidden>get</span>
+          </div>
+          <div class="ref-chips" data-name="ref-chips" hidden></div>
+          <textarea class="input-textarea" data-name="input-textarea" placeholder="输入消息，Enter 发送（Shift+Enter 换行）；输入 @ 或点 @ 按钮引用文件/会话；/compact 压缩上下文"></textarea>
+          <div class="composer-footer" data-name="composer-footer">
+            <button class="think-switch" id="thinkSwitch" data-name="think-switch" title="思考模式">思考</button>
+            <button class="search-switch" id="searchSwitch" data-name="search-switch" title="联网搜索">搜索</button>
+            <select class="permission-selector" id="permissionSelector" data-name="permission-selector" title="权限预设">
+              <option value="read-only">只读模式</option>
+              <option value="workspace-write">写工作区</option>
+              <option value="full-access">完全访问</option>
+              <option value="fine-grained">精细配置</option>
+            </select>
+            <div class="model-effort-selector" data-name="model-effort-selector">
+              <select class="model-selector" id="modelSelector" data-name="model-selector" title="模型"></select>
+              <select class="effort-selector" id="effortSelector" data-name="effort-selector" title="推理等级">
+                <option value="low">low</option>
+                <option value="medium" selected>medium</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+            <button class="ref-btn" id="refBtn" data-name="ref-btn" title="引用文件或会话（@）">@</button>
+            <button class="send-or-stop-btn" data-name="send-or-stop-btn">发送</button>
+          </div>
+        </div>
+
+        <!-- chat-footer: 聊天底部状态区（DSH 风格：turns/steps/tok-s · token 用量/缓存 · 上下文占用） -->
+        <div class="chat-footer" data-name="chat-footer">
+          <span class="session-statistics" data-name="session-statistics"></span>
+          <span class="token-usage" data-name="token-usage"></span>
+          <span class="context-used" data-name="context-used"></span>
+        </div>
+      </div>
     </div>
   </main>
 
-  <!-- context-panel: 右侧上下文面板（默认隐藏） -->
+  <!-- context-panel: 右侧上下文面板（默认隐藏，仅聊天页可见） -->
   <aside class="context-panel" id="contextPanel" data-name="context-panel" hidden>
     <div class="context-default">点击左侧任意 <b>tool-call</b> 卡片查看其参数与结果摘要。文件写类工具可点卡片上的「预览」查看产物。</div>
     <div class="artifact-preview" id="artifactPreview" data-name="artifact-preview" hidden>
@@ -145,6 +168,7 @@
 <script src="compaction-ui.js"></script>
 <script src="composer.js"></script>
 <script src="app.js"></script>
+<script src="shortcuts.js"></script>
 <script src="models.js"></script>
 <script src="settings.js"></script>
 <script src="skills-ui.js"></script>

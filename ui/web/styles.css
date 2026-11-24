@@ -1,5 +1,5 @@
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2937; background: #f3f4f6; }
+body { margin: 0; --sidebar-width: 240px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2937; background: #f3f4f6; }
 button { font-family: inherit; cursor: pointer; }
 select, textarea, input { font-family: inherit; }
 
@@ -7,20 +7,23 @@ select, textarea, input { font-family: inherit; }
 .shell { display: flex; height: 100vh; }
 
 /* thread-sidebar */
-.thread-sidebar { width: 240px; flex: 0 0 240px; background: #fafafa; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; padding: 10px; gap: 10px; transition: margin-left .15s ease; }
-.thread-sidebar.collapsed { margin-left: -240px; }
+.thread-sidebar { --sidebar-width: 240px; width: var(--sidebar-width); flex: 0 0 var(--sidebar-width); background: #fafafa; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; padding: 10px; gap: 10px; transition: margin-left .15s ease; }
+.thread-sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width)); }
 .sidebar-header { display: flex; align-items: center; justify-content: space-between; }
 .agent-badge { font-weight: 600; background: #2563eb; color: #fff; padding: 2px 10px; border-radius: 999px; font-size: 13px; }
 .left-collapse-button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; width: 28px; height: 28px; }
 .new-session-button { border: 1px dashed #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 8px; padding: 8px; }
 
-/* workspace-bar */
-.workspace-bar { display: flex; gap: 6px; }
-.workspace-bar button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; height: 32px; font-size: 12px; }
-.workspace-bar .search-btn, .workspace-bar .view-options-btn { flex: 0 0 40px; }
-.workspace-bar .add-workspace-btn { flex: 1; }
-.workspace-bar .search-input { flex: 1; border: 1px solid #d1d5db; border-radius: 6px; padding: 0 8px; font-size: 12px; height: 32px; }
+/* workspace-bar：搜索框展开时占剩余宽度，三个按钮保持固定宽度不被挤成竖排 */
+.workspace-bar { display: flex; gap: 6px; align-items: center; }
+.workspace-bar button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; height: 32px; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
+.workspace-bar .search-btn { flex: 0 0 40px; padding: 0; }
+.workspace-bar .add-workspace-btn { flex: 1 1 auto; min-width: 0; }
+.workspace-bar .search-input { flex: 1 1 auto; min-width: 0; border: 1px solid #d1d5db; border-radius: 6px; padding: 0 8px; font-size: 12px; height: 32px; }
 .workspace-bar .trash-btn { flex: 0 0 36px; font-size: 14px; }
+/* 搜索框展开时把「+ 工作区」收成一个窄按钮，避免挤压换行 */
+.workspace-bar:has(.search-input:not([hidden])) .add-workspace-btn { flex: 0 0 32px; padding: 0; overflow: hidden; text-indent: -9999px; position: relative; }
+.workspace-bar:has(.search-input:not([hidden])) .add-workspace-btn::after { content: "+"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-indent: 0; font-size: 16px; }
 .deleted-sessions-list { border-top: 1px dashed #e5e7eb; margin-top: 6px; padding-top: 6px; max-height: 40%; overflow: auto; }
 .deleted-sessions-list .empty-hint { font-size: 12px; color: #9ca3af; padding: 6px; }
 
@@ -32,13 +35,32 @@ select, textarea, input { font-family: inherit; }
 
 /* chat-viewport */
 .chat-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #fff; }
-.chat-header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #e5e7eb; flex-wrap: nowrap; min-width: 0; }
+/* 表头内容不随页面滚动：它是三栏之上的固定带；overflow 允许「更多」菜单向下溢出 */
+.chat-header { position: relative; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #e5e7eb; flex-wrap: nowrap; min-width: 0; background: #fff; }
+.header-controls-group > * { flex: 0 0 auto; }
+.view-header-slot { flex: 0 1 auto; min-width: 0; }
 .header-left-group { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 0 auto; }
 .session-name { font-weight: 600; flex: 0 0 auto; white-space: nowrap; min-width: 0; }
 .header-controls-group { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
-.tab-icons { display: flex; gap: 6px; }
-.chat-tab-icon, .trajectory-icon { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 4px 10px; font-size: 13px; }
-.chat-tab-icon.active, .trajectory-icon.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.view-header-slot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.view-header-slot:empty { display: none; }
+.session-header-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.session-header-controls[hidden] { display: none; }
+.view-title { font-weight: 600; color: #374151; }
+/* 页级未保存标记：与标题同行的小胶囊 */
+.view-dirty-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 500; color: #b45309; background: #fffbeb; border: 1px solid #fcd34d; white-space: nowrap; }
+.view-dirty-badge[hidden] { display: none; }
+/* 表头右槽里各页自带的控件：统一 28px 高、12px 字 */
+.chat-header .view-header-slot button,
+.chat-header .view-header-slot .header-action { height: 28px; box-sizing: border-box; border-radius: 6px; padding: 0 10px; font-size: 12px; line-height: 1; border: 1px solid #d1d5db; background: #fff; color: #374151; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: 0 0 auto; }
+.chat-header .view-header-slot .meta-header-actions,
+.chat-header .view-header-slot .flow-header-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chat-header .view-header-slot button:hover { background: #f3f4f6; }
+.chat-header .view-header-slot button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.chat-header .view-header-slot button.primary:hover { background: #1d4ed8; }
+.chat-header .view-header-slot button:disabled { color: #9ca3af; border-color: #e5e7eb; background: #f9fafb; cursor: default; }
+.chat-header .view-header-slot button.primary:disabled { background: #93c5fd; border-color: #93c5fd; color: #fff; cursor: default; }
+.chat-header .view-header-slot .header-search { height: 28px; box-sizing: border-box; border-radius: 6px; border: 1px solid #d1d5db; padding: 0 10px; font-size: 12px; width: 220px; }
 .right-collapse-button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; width: 28px; height: 28px; }
 
 /* chat-header: 统一所有控件到 28px 高 / radius 6px / padding 0 10px / font 12px */
@@ -47,9 +69,7 @@ select, textarea, input { font-family: inherit; }
 .chat-header .session-mode-indicator,
 .chat-header .activity-indicator,
 .chat-header .presence-switch,
-.chat-header .autonomy-switch,
-.chat-header .chat-tab-icon,
-.chat-header .trajectory-icon { height: 28px; box-sizing: border-box; border-radius: 6px; padding: 0 10px; font-size: 12px; line-height: 1; }
+.chat-header .autonomy-switch { height: 28px; box-sizing: border-box; border-radius: 6px; padding: 0 10px; font-size: 12px; line-height: 1; }
 .chat-header .left-collapse-button,
 .chat-header .right-collapse-button { width: 28px; padding: 0; flex: 0 0 28px; }
 /* session-mode-indicator 是 span（非 button），被 flex 块化后需显式垂直居中，
@@ -64,10 +84,16 @@ select, textarea, input { font-family: inherit; }
 /* chat-header: 折叠态按钮视觉弱化 */
 .chat-header [data-collapsed="1"] { border-color: #e5e7eb; background: #fafafa; color: #9ca3af; }
 
-/* tab-body + tab 切换：面板显隐由 viewport[data-active-tab] 决定 */
+/* 主视图：左栏是唯一导航，main-view 里同一时刻只显示一页。
+   聊天页的两份内容（chat-tab / trajectory-tab）由 viewport[data-view] 决定显隐。 */
+.main-view { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.main-view > [data-view] { flex: 1; min-height: 0; min-width: 0; }
+.main-view > [data-view][hidden] { display: none; }
+.chat-view { display: flex; flex-direction: column; min-height: 0; }
+.chat-view[hidden] { display: none; }
 .tab-body { flex: 1; overflow: auto; padding: 16px; }
-.chat-viewport:not([data-active-tab="chat-tab"]) .chat-tab { display: none; }
-.chat-viewport:not([data-active-tab="trajectory-tab"]) .trajectory-tab { display: none; }
+.chat-viewport:not([data-view="chat"]) .chat-tab { display: none; }
+.chat-viewport:not([data-view="trajectory"]) .trajectory-tab { display: none; }
 
 /* 空状态提示 */
 .empty-hint { color: #9ca3af; text-align: center; padding: 48px 0; font-size: 14px; }
@@ -246,9 +272,17 @@ select, textarea, input { font-family: inherit; }
 .ctx-section pre { margin: 0; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; font-size: 12px; overflow: auto; }
 
 /* workspace-session-tree: 侧栏会话树 */
-.workspace-item { margin-bottom: 8px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; overflow: hidden; }
+/* overflow 必须可见：工作区名悬停时的路径条要溢出卡片显示 */
+.workspace-item { margin-bottom: 8px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; overflow: visible; }
 .workspace-header { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: #f1f5f9; }
-.workspace-name-label { flex: 1 1 auto; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #0f172a; }
+/* 外层只负责定位与截断宽度；overflow 必须可见，提示条才能溢出显示 */
+.workspace-name-label { position: relative; flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: 13px; color: #0f172a; display: block; overflow: visible; }
+.workspace-name-text { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 悬停时在名称下方展开完整路径（不依赖 title 的原生提示） */
+.workspace-path-tip { display: none; position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; max-width: 340px; padding: 4px 8px; background: #0f172a; color: #e5e7eb; font-weight: 400; font-size: 11px; line-height: 1.5; border-radius: 6px; white-space: normal; word-break: break-all; box-shadow: 0 6px 16px rgba(15,23,42,.24); }
+/* 悬停时把整条工作区卡片抬到会话项之上，否则路径条会被后面的 session-item 盖住 */
+.workspace-item:hover { position: relative; z-index: 32; }
+.workspace-name-label:hover .workspace-path-tip { display: block; }
 .workspace-header button { flex: 0 0 auto; border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 2px 8px; font-size: 12px; }
 .workspace-header .add-session-btn { color: #1d4ed8; border-color: #93c5fd; background: #eff6ff; }
 .workspace-header .del-workspace-btn { color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
@@ -257,13 +291,28 @@ select, textarea, input { font-family: inherit; }
 .session-item:hover { background: #f8fafc; }
 .session-name-label { flex: 1 1 auto; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #334155; }
 .session-item button { flex: 0 0 auto; border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 1px 7px; font-size: 11px; }
-.session-item .rename-session-btn { color: #1d4ed8; border-color: #bfdbfe; }
-.session-item .delete-session-btn { color: #b91c1c; border-color: #fca5a5; }
+/* 行内「⋯」菜单：主操作留在行上，重命名 / 删除收进菜单 */
+.workspace-header, .session-item { position: relative; }
+.row-menu-btn { border: none; background: transparent; color: #6b7280; padding: 0 6px; font-size: 15px; line-height: 1; border-radius: 6px; flex: 0 0 auto; }
+.row-menu-btn:hover { background: #e5e7eb; color: #111827; }
+.row-menu { position: absolute; right: 4px; top: calc(100% + 2px); z-index: 40; min-width: 150px; display: flex; flex-direction: column; padding: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 10px 24px rgba(15,23,42,.16); }
+.row-menu-item { border: none; background: transparent; text-align: left; padding: 7px 10px; font-size: 13px; color: #374151; border-radius: 6px; }
+.row-menu-item:hover { background: #f3f4f6; }
+.row-menu-item.danger { color: #b91c1c; }
+.row-menu-item.danger:hover { background: #fef2f2; }
 .session-item.deleted { opacity: 0.75; background: #fef2f2; }
 .session-item .restore-session-btn { color: #15803d; border-color: #bbf7d0; }
 .session-item .purge-session-btn { color: #b91c1c; border-color: #fca5a5; }
 
 /* 模态框：替代 window.prompt / confirm / alert */
+/* toast：右上角轻量提示，自动消失，点击可关 */
+.toast-host { position: fixed; top: 14px; right: 16px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.toast { pointer-events: auto; max-width: 380px; padding: 9px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; color: #f8fafc; background: #1f2937; box-shadow: 0 8px 24px rgba(15,23,42,.22); cursor: pointer; animation: toast-in .16s ease-out; word-break: break-word; }
+.toast-warn { background: #92400e; }
+.toast-error { background: #991b1b; }
+.toast-leaving { opacity: 0; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
 .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-box { background: #fff; border-radius: 12px; padding: 18px 20px; width: 320px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
 .modal-title { font-weight: 600; font-size: 15px; margin-bottom: 12px; color: #1f2937; }
@@ -279,8 +328,8 @@ select, textarea, input { font-family: inherit; }
 .ref-chip.ref-skill { background: #faf5ff; border-color: #e9d5ff; }
 
 /* ============ models-modal ============ */
-.models-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.models-window { display: flex; width: 92vw; max-width: 1100px; height: 82vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.models-modal:not([hidden]) { display: flex; flex: 1; min-height: 0; min-width: 0; background: #f6f7f9; }
+.models-window { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
 
 /* 侧栏：供应者/模型树 */
 .models-sidebar { width: 270px; flex: 0 0 270px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
@@ -355,16 +404,10 @@ select, textarea, input { font-family: inherit; }
 .form-footer .save-btn { background: #2563eb; border-color: #2563eb; color: #fff; }
 
 /* 右侧操作栏 */
-.models-panel { width: 160px; flex: 0 0 160px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
-.models-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
-.import-config-btn, .export-config-btn { color: #1d4ed8; border-color: #bfdbfe; }
-.danger-zone { margin-top: 4px; }
-.danger-zone .clear-all-btn { width: 100%; color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
-.close-models-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
 
 /* ============ permissions-modal ============ */
-.permissions-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.permissions-window { display: flex; width: 92vw; max-width: 1100px; height: 82vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.permissions-modal:not([hidden]) { display: flex; flex: 1; min-height: 0; min-width: 0; background: #f6f7f9; }
+.permissions-window { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
 
 /* 侧栏：配置文件切换标签 + 概要 */
 .permissions-sidebar { width: 270px; flex: 0 0 270px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; padding: 12px; gap: 10px; }
@@ -411,18 +454,13 @@ select, textarea, input { font-family: inherit; }
 .config-footer .save-btn { background: #2563eb; border-color: #2563eb; color: #fff; }
 
 /* 右侧操作栏 */
-.permissions-panel { width: 170px; flex: 0 0 170px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
-.permissions-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
-.danger-zone { margin-top: 4px; }
-.danger-zone .reset-defaults-btn { width: 100%; color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
-.close-permissions-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
 
 /* 侧栏底部：权限按钮 */
-.thread-sidebar .permissions-btn { margin-top: 4px; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
+.thread-sidebar .permissions-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .permissions-btn:hover { background: #eff6ff; color: #1d4ed8; }
 
 /* 侧栏底部：设置按钮 */
-.thread-sidebar .settings-btn { margin-top: auto; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
+.thread-sidebar .settings-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .settings-btn:hover { background: #eff6ff; color: #1d4ed8; }
 
 /* 拉取远端模型：编辑供应者 tab 内 */
@@ -440,8 +478,8 @@ select, textarea, input { font-family: inherit; }
 .remote-add-btn.added { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; cursor: default; }
 
 /* ============ settings-modal（运行时设置：流式开关 + 模型选择） ============ */
-.settings-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.settings-card { width: 380px; max-width: 92vw; background: #fff; border-radius: 12px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.settings-modal:not([hidden]) { display: flex; flex: 1; min-height: 0; overflow: auto; background: #f6f7f9; padding: 20px; }
+.settings-card { width: 420px; max-width: 100%; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px 22px; }
 .settings-card h3 { margin: 0 0 16px; font-size: 16px; color: #1f2937; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; margin: 12px 0; font-size: 14px; color: #374151; }
 .stream-switch { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 6px 14px; font-size: 13px; color: #6b7280; }
@@ -450,9 +488,38 @@ select, textarea, input { font-family: inherit; }
 .settings-actions { margin-top: 18px; text-align: right; }
 .settings-actions .close-settings-btn { border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 8px; padding: 7px 18px; font-size: 13px; }
 
-/* 侧栏：模型按钮（与设置按钮相邻） */
+/* 侧栏底部：模型按钮（与设置按钮相邻） */
 .thread-sidebar .models-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .models-btn:hover, .thread-sidebar .meta-btn:hover, .thread-sidebar .settings-btn:hover { background: #eef2f7; }
+
+/* 侧栏底部的行内按钮：主视图入口与各设置页共用一套外观，当前页高亮 */
+.thread-sidebar .models-btn,
+.thread-sidebar .tools-btn,
+.thread-sidebar .skills-btn,
+.thread-sidebar .permissions-btn,
+.thread-sidebar .loops-btn,
+.thread-sidebar .flow-btn-sidebar,
+.thread-sidebar .meta-btn,
+.thread-sidebar .settings-btn,
+.thread-sidebar .view-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; margin: 0; }
+.thread-sidebar [data-view].active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+/* 左栏导航分组：会话 / 编排 / 配置，组间留白 + 细分隔线 + 组标题 */
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; flex: 0 0 auto; }
+.sidebar-nav-group { display: flex; flex-direction: column; gap: 1px; }
+.sidebar-nav-group + .sidebar-nav-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
+.sidebar-nav-title { font-size: 11px; color: #9ca3af; padding: 0 6px 4px; letter-spacing: .04em; }
+/* 设置固定在底部：它是最后一组里的最后一项，由下面的规则把它推下去 */
+.sidebar-nav-group:last-child { margin-top: auto; }
+
+/* 页内操作菜单：各主视图页用它承载导入/导出/清空/恢复默认等页级操作 */
+.view-actions { position: relative; display: flex; justify-content: flex-end; }
+.view-actions-toggle { border: 1px solid #d1d5db; background: #fff; color: #4b5563; border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+.view-actions-toggle:hover { background: #f3f4f6; }
+.view-actions-menu { position: absolute; right: 0; top: calc(100% + 4px); min-width: 180px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 10px 24px rgba(15,23,42,.14); padding: 4px; z-index: 20; display: flex; flex-direction: column; }
+.view-actions-item { border: none; background: transparent; text-align: left; padding: 7px 10px; font-size: 13px; color: #374151; border-radius: 6px; }
+.view-actions-item:hover { background: #f3f4f6; }
+.view-actions-item.danger { color: #b91c1c; }
+.view-actions-item.danger:hover { background: #fef2f2; }
 
 .tool-call.approval { border-color: #d97706; background: #fffbeb; }
 
@@ -557,17 +624,14 @@ select, textarea, input { font-family: inherit; }
 .traj-compaction { font-size: 12px; color: #1e40af; line-height: 1.6; }
 
 /* ============ loops-modal ============ */
-.loops-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.loops-window { display: flex; width: 92vw; max-width: 1100px; height: 82vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.loops-modal:not([hidden]) { display: flex; flex: 1; min-height: 0; min-width: 0; background: #f6f7f9; }
+.loops-window { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
 
-/* Sidebar: summary (read-only) */
-.loops-sidebar { width: 270px; flex: 0 0 270px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
-.loops-summary { margin: 12px; padding: 10px; border: 1px dashed #cbd5e1; border-radius: 8px; font-size: 12px; color: #475569; display: flex; flex-direction: column; gap: 6px; }
-.current-engine-label { font-weight: 600; color: #334155; font-size: 13px; }
-.engine-note { color: #6b7280; font-size: 11px; }
-.loop-node-count-label, .loop-edge-count-label { color: #475569; }
+/* 表头右槽：当前引擎指示器：只读，点击弹说明，样式与聊天表头的「模式」一致 */
+.engine-indicator { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 0 10px; height: 28px; font-size: 12px; color: #374151; font-weight: 500; white-space: nowrap; }
+.engine-indicator:hover { background: #f3f4f6; }
 
-/* Viewport: left/right split (topology 40% / table flex 1) */
+/* 视口：拓扑与节点表左右分栏（拓扑 40% / 表占其余） */
 .loops-viewport { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .loops-viewport-split { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 .loop-topology { flex: 0 0 40%; overflow: auto; padding: 14px 12px; border-right: 1px solid #e5e7eb; background: #fafafa; box-sizing: border-box; }
@@ -600,15 +664,13 @@ select, textarea, input { font-family: inherit; }
 .config-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid #e5e7eb; background: #fafafa; }
 .config-footer button { border-radius: 8px; padding: 6px 16px; font-size: 13px; border: 1px solid #d1d5db; background: #fff; color: #374151; }
 .config-footer .save-btn { background: #2563eb; border-color: #2563eb; color: #fff; }
-.loops-panel { width: 170px; flex: 0 0 170px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
-.loops-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
-.danger-zone { margin-top: 4px; }
-.danger-zone .reset-defaults-btn { width: 100%; color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
-.close-loops-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
+.config-footer button:disabled { color: #9ca3af; border-color: #e5e7eb; background: #f9fafb; cursor: default; }
+.config-footer .save-btn:disabled { background: #93c5fd; border-color: #93c5fd; color: #fff; }
+.config-footer-spacer { flex: 1; }
 
 /* ============ skills-modal ============ */
-.skills-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.skills-window { display: flex; width: 92vw; max-width: 1000px; height: 80vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.skills-modal:not([hidden]) { display: flex; flex: 1; min-height: 0; min-width: 0; background: #f6f7f9; }
+.skills-window { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
 
 /* Sidebar: provider → skill tree */
 .skills-sidebar { width: 280px; flex: 0 0 280px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
@@ -641,13 +703,20 @@ select, textarea, input { font-family: inherit; }
 .skill-content-body { line-height: 1.65; }
 
 /* Panel */
-.skills-panel { width: 150px; flex: 0 0 150px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
-.skills-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
-.close-skills-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
 
 /* ============ tools-modal ============ */
-.tools-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.tools-window { display: flex; width: 92vw; max-width: 1000px; height: 80vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.tools-modal:not([hidden]) { display: flex; flex: 1; min-height: 0; min-width: 0; background: #f6f7f9; }
+.tools-window { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
+/* 工具目录来源子标签：内置工具 / MCP 工具 */
+.tool-source-tabs { display: flex; gap: 6px; padding: 6px 10px 8px; border-bottom: 1px solid #e5e7eb; }
+.tool-source-tab { flex: 1; border: 1px solid #d1d5db; background: #fff; color: #4b5563; border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+.tool-source-tab:hover { background: #f3f4f6; }
+.tool-source-tab.active { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; font-weight: 600; }
+/* 工具详情：读写特性徽标 */
+.mode-badge { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 12px; border: 1px solid #d1d5db; background: #f9fafb; color: #374151; }
+.mode-badge.mode-read { border-color: #bbf7d0; background: #f0fdf4; color: #15803d; }
+.mode-badge.mode-write { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.mode-badge.mode-both { border-color: #fcd34d; background: #fffbeb; color: #b45309; }
 
 /* Sidebar: type → tool tree */
 .tools-sidebar { width: 280px; flex: 0 0 280px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; min-height: 0; background: #fafafa; }
@@ -674,22 +743,19 @@ select, textarea, input { font-family: inherit; }
 .tool-content-body { line-height: 1.65; }
 
 /* Panel */
-.tools-panel { width: 150px; flex: 0 0 150px; border-left: 1px solid #e5e7eb; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fafafa; }
-.tools-panel button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px; font-size: 13px; text-align: left; }
-.close-tools-btn { margin-top: auto; border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; text-align: center; }
 .skill-badge-visible { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
 .skill-badge-hidden { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
 
 /* Sidebar button: tools sits between models and skills */
 .thread-sidebar .tools-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
-.thread-sidebar .tools-btn:hover { background: #f0fdf4; color: #15803d; }
+.thread-sidebar .tools-btn:hover { background: #eef2f7; }
 
 /* Sidebar button: skills sits between tools and permissions */
 .thread-sidebar .skills-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
-.thread-sidebar .skills-btn:hover { background: #faf5ff; color: #7c3aed; }
+.thread-sidebar .skills-btn:hover { background: #eef2f7; }
 
 /* Sidebar bottom: loops button (sits between permissions and settings) */
-.thread-sidebar .loops-btn { margin-top: 4px; border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
+.thread-sidebar .loops-btn { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .loops-btn:hover { background: #eff6ff; color: #1d4ed8; }
 
 /* 会话模式指示器（只读，派生自 currentSessionId：bare-chat / turn-step） */
@@ -703,8 +769,8 @@ select, textarea, input { font-family: inherit; }
 .thread-sidebar .flow-btn-sidebar { border: none; background: transparent; color: #4b5563; text-align: left; padding: 8px 6px; font-size: 13px; border-radius: 8px; }
 .thread-sidebar .flow-btn-sidebar:hover { background: #eef2f7; }
 .thread-sidebar .meta-btn:hover { background: #eef2f7; color: #1d4ed8; }
-.meta-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 2000; align-items: center; justify-content: center; }
-.meta-window { display: flex; width: 92vw; max-width: 1180px; height: 84vh; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.meta-modal:not([hidden]) { display: flex; flex: 1; min-height: 0; min-width: 0; background: #f6f7f9; }
+.meta-window { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
 .meta-sidebar { width: 200px; flex: 0 0 200px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 4px; min-height: 0; background: #fafafa; padding: 12px 10px; }
 .meta-sidebar-title { font-size: 12px; color: #6b7280; padding: 2px 6px 8px; }
 .meta-codegraph-btn { border: 1px solid transparent; background: transparent; color: #374151; text-align: left; padding: 8px 10px; font-size: 13px; border-radius: 8px; }
@@ -717,9 +783,20 @@ select, textarea, input { font-family: inherit; }
 .meta-codegraph-opbar .meta-graph-search { flex: 0 1 240px; border: 1px solid #d1d5db; border-radius: 6px; padding: 0 8px; font-size: 12px; height: 28px; }
 .meta-codegraph-opbar button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; height: 28px; padding: 0 10px; font-size: 12px; }
 .meta-codegraph-opbar button:hover { border-color: #93c5fd; background: #eff6ff; }
+/* 本体页的页级操作在表头右槽里（搜索 / 适应窗口 / 重新加载 / 架构规则） */
+.meta-header-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.meta-header-actions .meta-graph-search { flex: 0 1 240px; min-width: 90px; border: 1px solid #d1d5db; border-radius: 6px; padding: 0 10px; font-size: 12px; height: 28px; }
+/* 窄窗口：页级操作只留图标化文字，搜索框再收窄 */
+@media (max-width: 900px) {
+  .chat-header .view-header-slot .meta-graph-search { flex: 0 1 140px; }
+  .chat-header .view-header-slot .flow-header-name { max-width: 140px; }
+}
+/* 流程页的页级操作在表头右槽里（流程图名 + 保存 + 运行） */
+.flow-header-actions { display: flex; align-items: center; gap: 8px; }
+.flow-header-name { font-size: 12px; color: #6b7280; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meta-status { margin-left: auto; color: #6b7280; }
 .meta-status[data-state="error"] { color: #b91c1c; }
-.meta-codegraph-view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px; gap: 6px; }
+.meta-codegraph-view { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px; gap: 6px; }
 .meta-codegraph-canvas { flex: 1; min-height: 0; border: 1px solid #e5e7eb; border-radius: 8px; background: #fbfcfe; }
 .meta-codegraph-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6b7280; flex-wrap: wrap; }
 .meta-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 8px; margin-right: 2px; }
@@ -730,8 +807,14 @@ select, textarea, input { font-family: inherit; }
 .meta-dot.dot-dyn { background: transparent; border: 1px dashed #6b7280; }
 .meta-dot.dot-in { background: #2563eb; }
 .meta-dot.dot-out { background: #16a34a; }
-.meta-panel { width: 260px; flex: 0 0 260px; border-left: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 8px; background: #fafafa; padding: 12px 10px; min-height: 0; }
-.meta-codegraph-detail { flex: 1; overflow: auto; font-size: 12px; }
+.meta-codegraph-detail { flex: 1; overflow: auto; font-size: 12px; min-height: 0; }
+/* 节点详情抽屉：浮在代码图右下角，不占固定列宽 */
+.meta-detail-drawer { position: absolute; right: 18px; bottom: 18px; width: 320px; max-height: 60%; display: flex; flex-direction: column; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 10px 30px rgba(15,23,42,.16); padding: 10px 12px; z-index: 5; }
+.meta-detail-drawer[hidden] { display: none; }
+.meta-detail-drawer-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.meta-detail-drawer-title { font-size: 12px; font-weight: 600; color: #374151; }
+.meta-detail-drawer-close { border: none; background: transparent; color: #9ca3af; font-size: 16px; line-height: 1; padding: 0 2px; }
+.meta-detail-drawer-close:hover { color: #374151; }
 .meta-detail-hint { color: #9ca3af; line-height: 1.6; }
 .meta-detail-title { font-weight: 600; font-size: 13px; color: #111827; word-break: break-all; margin-bottom: 2px; }
 .meta-detail-meta { color: #6b7280; margin-bottom: 2px; word-break: break-all; }
@@ -740,13 +823,8 @@ select, textarea, input { font-family: inherit; }
 .meta-side-item { text-align: left; border: none; background: transparent; padding: 2px 4px; border-radius: 4px; font-size: 12px; color: #1d4ed8; word-break: break-all; }
 .meta-side-item:hover { background: #e0e7ff; }
 .meta-side-empty { color: #9ca3af; padding-left: 4px; }
-.close-meta-btn { border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 8px; padding: 8px; font-size: 13px; }
 
-/* 架构规则检查（meta-codegraph-opbar 徽标 + 面板） */
-.meta-arch-badge { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; height: 28px; padding: 0 10px; font-size: 12px; }
-.meta-arch-badge[data-state="ok"] { border-color: #86efac; background: #f0fdf4; color: #15803d; }
-.meta-arch-badge[data-state="warn"] { border-color: #fcd34d; background: #fffbeb; color: #b45309; }
-.meta-arch-badge[data-state="error"] { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+/* 架构规则检查（面板；入口在表头的「更多」菜单里） */
 .meta-arch-panel { max-height: 42%; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 10px 12px; font-size: 12px; }
 .meta-arch-head { font-weight: 600; color: #111827; margin-bottom: 8px; }
 .meta-arch-ok { color: #15803d; }
@@ -764,13 +842,10 @@ select, textarea, input { font-family: inherit; }
 .meta-arch-tag.candidate { color: #b45309; background: #fef3c7; }
 
 /* ---- flow canvas (flow-canvas.js, docs/flow/flow.md) ---- */
-/* 画布占满左侧会话栏之外的整个窗口。打开画布时会话栏被折叠（margin-left: -240px），
-   所以左边界从侧栏宽度处开始；侧栏的过渡结束后画布正好贴住它的新位置。 */
-.flow-overlay { position: fixed; left: 240px; right: 0; top: 0; bottom: 0; z-index: 60; background: #0f172a; color: #e5e7eb; display: flex; flex-direction: column; transition: left .15s ease; }
-.flow-overlay[hidden] { display: none; }
-.flow-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #111827; border-bottom: 1px solid #1f2937; }
-.flow-head-title { font-size: 14px; color: #93c5fd; }
-.flow-title { flex: 0 1 320px; background: #1f2937; border: 1px solid #374151; color: #e5e7eb; border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+/* 流程是 main-view 里的一页：占用表头下方的全部内容区，不盖住侧栏和表头。 */
+.flow-page { display: flex; flex-direction: column; height: 100%; background: #0f172a; color: #e5e7eb; }
+/* 表尾操作条：当前流程图的常用操作（返回聊天 / 保存 / 运行） */
+.flow-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #111827; border-top: 1px solid #1f2937; }
 .flow-body { flex: 1; display: flex; min-height: 0; }
 .flow-list { width: 220px; border-right: 1px solid #1f2937; padding: 8px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
 .flow-list-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }

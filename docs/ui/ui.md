@@ -1,4 +1,4 @@
-以下为按“布局树为第一真值”校正后的 `ui.md`。主要处理：删除布局树中不存在的布局节点（`Header`、`debug-switch`、`Context-strip`、`Footer`、`AttachmentDropzone`）；补充布局树新增节点（`chat-tab`、`trajectory-tab`、`ask-user-prompt`、`left/right-collapse-button` 等）；统一为小写连字符命名；横切组件仅作为嵌入/展示组件，锚点必须使用布局树节点。
+布局树为第一真值：所有页面的 DOM 层级以下文 §2 为准，横切组件（弹层、抽屉、菜单）作为布局树节点的子节点出现，锚点必须使用布局树节点名。命名统一为全单词小写并以 `-` 连接。
 
 ---
 
@@ -21,11 +21,12 @@
   - [2.1 布局树（第一真值）](#布局树第一真值)
 - [3. 事件回调](#3-事件回调)
   - [3.1 会话栏（shell 外）](#31-会话栏shell-外)
-  - [3.2 models-modal](#32-models-modal)
-  - [3.3 permissions-modal](#33-permissions-modal)
+  - [3.2 models-page](#32-models-page)
+  - [3.3 permissions-page](#33-permissions-page)
   - [3.4 user-job（运行期交互）](#34-user-job运行期交互)
-  - [3.5 loops-modal](#35-loops-modal)
-  - [3.6 meta-modal](#36-meta-modal)
+  - [3.5 loops-page](#35-loops-page)
+  - [3.6 meta-page](#36-meta-page)
+  - [3.7 快捷键](#37-快捷键)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
 - [6. 前端文件构成与调用关系（M0 拆分）](#6-前端文件构成与调用关系m0-拆分)
@@ -39,6 +40,8 @@
 | Name | Desc |
 |---|---|
 | **shell** | 整体界面外壳 |
+| **toast-host** | 轻量提示条容器（右上角，操作失败 / 已删除等非阻断反馈） |
+| **toast*** | 单条提示（kind：info / warn / error；自动消失，点击可关） |
 | **thread-sidebar** | 左侧会话栏 |
 | **sidebar-header** | 会话栏头部 |
 | **agent-badge** | 当前 Agent 标识 |
@@ -46,36 +49,47 @@
 | **new-session-button** | 新建会话按钮 |
 | **workspace-bar** | 工作区工具条（搜索/视图/新增/回收站 + 搜索输入框） |
 | **search-btn** | 工作区搜索按钮：切换搜索输入框，按会话名过滤 `session-item` |
-| **search-input** | 会话名过滤输入框（hidden 默认，点击 search-btn 显示） |
+| **search-input** | 过滤输入框（hidden 默认，点击 search-btn 显示）：按会话名与工作区名过滤；无匹配时在树底部显示空态 |
 | **trash-btn** | 回收站按钮：切换 `deleted-sessions-list` 已软删会话视图 |
 | **deleted-sessions-list** | 回收站：列出 `deleted_at` 非空的会话，提供 恢复 / 彻底删除 |
-| **view-options-btn** | 视图选项按钮 |
 | **add-workspace-btn** | 新增工作区按钮 → folder-selector |
 | **workspace-session-tree-list** | 工作区/会话树列表（仅未软删会话） |
 | **workspace** | 工作区节点，可重复 |
 | **workspace-header** | 工作区头部 |
 | **workspace-name-label** | 工作区名称 |
-| **del-workspace-btn** | 删除工作区按钮 |
+| **workspace-menu-btn** | 工作区行内「⋯」菜单开关（次要操作收纳） |
+| **row-menu** | 行内下拉菜单（workspace-header / session-item 内），点菜单外关闭 |
+| **row-menu-item*** | 单个菜单项（danger 修饰用于删除类操作） |
 | **add-session-btn** | 新增会话按钮 → name-prompt |
 | **session** | 会话节点，可重复 |
 | **session-name-label** | 会话名称标签 |
-| **rename-session-btn** | 重命名会话按钮 |
-| **delete-session-btn** | 删除会话按钮（软删除：标记 deleted_at，保留历史，可从回收站恢复） |
+| **session-menu-btn** | 会话行内「⋯」菜单开关；菜单含「重命名…」与「删除会话…」（软删除：标记 deleted_at，保留历史，可从回收站恢复） |
 | **restore-session-btn** | 回收站内：恢复已软删会话（清除 deleted_at） |
 | **purge-session-btn** | 回收站内：彻底删除（hard 删，不可恢复） |
-| **permissions-btn** | 权限配置按钮 → permissions-modal |
-| **loops-btn** | 循环编排按钮 → loops-modal |
-| **meta-btn** | 本体按钮 → meta-modal（项目本体的内省窗口入口） |
-| **settings-btn** | 设置按钮 → settings-modal |
+| **sidebar-nav** | 左栏导航容器（分三组：会话 / 编排 / 配置，组间分隔线 + 组标题，最后一组贴底） |
+| **sidebar-nav-group*** | 导航分组 |
+| **sidebar-nav-title** | 分组标题（编排 / 配置；会话组无标题） |
+| **chat-view-btn** | 主视图入口：聊天（chat-view） |
+| **trajectory-view-btn** | 主视图入口：轨迹（trajectory-tab） |
+| **models-btn** | 主视图入口：模型（models-page） |
+| **tools-btn** | 主视图入口：工具（tools-page） |
+| **skills-btn** | 主视图入口：技能（skills-page） |
+| **permissions-btn** | 主视图入口：权限（permissions-page） |
+| **loops-btn** | 主视图入口：循环（loops-page） |
+| **meta-btn** | 主视图入口：本体（meta-page，项目本体的内省窗口） |
+| **settings-btn** | 主视图入口：设置（settings-page），位于「配置」分组，该组以 margin-top:auto 贴底 |
 | **chat-viewport** | 中间聊天主视口 |
-| **chat-header** | 聊天头部；两段式布局：左组贴左（left-collapse-button + session-name，普通布局包裹、无 data-name），右组 `header-controls-group` 由 `margin-left:auto` 靠右；中间为弹性空白 |
-| **session-name** | 当前会话名（左组，尽量完整展开不省略；空间不足时挤压右组） |
-| **header-controls-group** | 聊天头部右侧控件组（chat-header：靠右合并容器，含 session-mode-indicator / activity-indicator / presence-mode-switch / autonomy-mode-switch / tab-icons / right-collapse-button；由 margin-left:auto 推到右侧；空间不足时切紧凑样式，见 app.js 的 ResizeObserver） |
-| **tab-icons** | 标签图标组 |
-| **chat-tab-icon** | 聊天标签图标 |
-| **trajectory-icon** | 轨迹标签图标 |
-| **right-collapse-button** | 右侧面板折叠按钮 |
-| **tab-body** | 标签内容区 |
+| **chat-header** | 顶部表头；两段式布局：左组贴左（left-collapse-button + session-name / view-title），右组 `header-controls-group` 由 `margin-left:auto` 靠右；中间为弹性空白。结构恒定，内容随主视图变化 |
+| **session-name** | 当前会话名（左组；仅会话类视图 chat / trajectory 显示，尽量完整展开不省略） |
+| **view-title** | 当前主视图页名（左组；非会话类视图显示，与 session-name 互斥） |
+| **view-dirty-badge** | 当前页「未保存」标记（左组，仅该页有未保存改动时显示）；切页前有未保存改动会弹确认，选「确定」后放弃改动 |
+| **header-controls-group** | 右侧控件组（chat-header：靠右合并容器，含 view-header-slot / session-header-controls / right-collapse-button；由 margin-left:auto 推到右侧；空间不足时切紧凑样式，见 composer.js 的 ResizeObserver） |
+| **view-header-slot** | 表头右槽：由当前主视图声明内容（聊天/轨迹放会话控制组，各页放自己的指示器与页级入口，见 §3.7） |
+| **session-header-controls** | 会话控制组（view-header-slot 内，仅 chat / trajectory 显示）：session-mode-indicator / activity-indicator / presence-mode-switch / autonomy-mode-switch |
+| **right-collapse-button** | 右侧上下文面板折叠按钮 |
+| **main-view** | 主视图容器（main-view 内同一时刻只显示一页；data-view 标记当前页） |
+| **chat-view** | 聊天页容器：tab-body + composer + chat-footer（chat / trajectory 视图共用） |
+| **tab-body** | 聊天页内容区（chat-tab 与 trajectory-tab 由 viewport[data-view] 切换显隐） |
 | **chat-tab** | 聊天标签页 |
 | **request-prompt** | 用户请求/提示词 |
 | **response-message** | Agent 响应消息 |
@@ -106,17 +120,18 @@
 | **search-switch** | 联网搜索开关 |
 | **permission-selector** | 权限预设选择器（composer-footer）：`read-only`(只读工具 allow，其余 deny) / `workspace-write`(只读+工作区写 allow，其余 deny) / `full-access`(全 allow) / `fine-grained`(沿用 user/* 配置，点击打开权限 modal) |
 | **model-effort-selector** | 模型+推理等级组合选择器，含两个子选择器 `model-selector` 与 `effort-selector`；`effort-selector` 的可见性由 `reasoningControl` 设置控制 |
-| **model-selector** | 模型选择器（composer-footer，按 provider 标题用 `<optgroup>` 分组；选中持久化到 settings.model；同时 settings-modal 内仍有独立入口）（选中跨 provider 的模型应同步切换 settings.provider 以对齐凭据；模型配置变更后应重新同步下拉列表） |
+| **model-selector** | 模型选择器（composer-footer，按 provider 标题用 `<optgroup>` 分组；选中持久化到 settings.model；同时 settings-page 内仍有独立入口）（选中跨 provider 的模型应同步切换 settings.provider 以对齐凭据；模型配置变更后应重新同步下拉列表） |
 | **effort-selector** | 推理等级选择器（仅当 `reasoningControl==="effort-selector"` 时显示）；选项由 `modelCapabilities` RPC 获取——优先读 `user/providers.json` 缓存的 `effort.supported_levels`，缺失时回退网络（`effort.supported_levels` / `model_spec.capabilities.reasoningEffortOptions`），再兜底 `low/medium/high`；列表首位固定为 `off`（关闭推理）。选中持久化到 settings.effort 并透传 core：`off`→`{"thinking":{"type":"disabled"}}`，其余→`{"reasoning_effort":"<level>"}` |
-| **reasoningControl 设置** | settings-modal 中的「推理参数控件」下拉：`effort-selector` / `think-switch` 二值，持久化到 `settings.reasoningControl`（默认 `think-switch`）。决定 composer 渲染哪个推理控件——二者语义冲突（都向模型注入推理参数），只能显示一个 |
+| **reasoningControl 设置** | settings-page 中的「推理参数控件」下拉：`effort-selector` / `think-switch` 二值，持久化到 `settings.reasoningControl`（默认 `think-switch`）。决定 composer 渲染哪个推理控件——二者语义冲突（都向模型注入推理参数），只能显示一个 |
 | **ref-btn** | `@` 引用按钮：打开引用菜单（历史会话 / 本地文件），选中的引用以 chip 展示于 `ref-chips` |
 | **ref-chips** | 引用 chip 容器（hidden 默认，有引用时显示），每个 chip 可单独移除 |
 | **ref-chip** | 单个引用 chip（`ref-file` / `ref-session` 修饰），含移除按钮 |
-| **presence-mode-switch** | 在场状态开关（**chat-header**：in / out，运行时自动态，可手动切换） |
-| **autonomy-mode-switch** | 自主度开关（**chat-header**：supervised / autonomous，用户显式提权/降权） |
-| **activity-indicator** | 当前活动指示器（chat-header：点击打开切换菜单；显示 `活动: <当前活动>` 与完成态 `✓`；建会话时选定初始活动，运行后可自然流转或强制切换（未完成强制切需二次确认））。取值（9）：plan-mode / intent-recog / goal-mode / build-code / discuss-doc / research / review-proj / human-learn / diagnose，默认 `research`。其中 plan-mode 驱动内置计划态（POLICY + exit_plan_mode），其余为占位枚举由模型自判。注：`bare-chat` 不是 activity 取值，而是会话模式（session mode：bare = 未选会话 / persisted = 选中会话），由 `currentSessionId` 派生，见 `docs/agent-mode.md` 会话模式层 |
-| **session-mode-indicator** | 会话模式指示器（chat-header，只读；显示 `模式: bare-chat` / `模式: turn-step`，附 `data-mode` 着色与 title 说明；由 `currentSessionId` 派生 `getSessionMode()`，不提供切换，进入方式仍为「不选/选会话」） |
+| **presence-mode-switch** | 在场状态开关（**session-header-controls**：in / out，运行时自动态，可手动切换） |
+| **autonomy-mode-switch** | 自主度开关（**session-header-controls**：supervised / autonomous，用户显式提权/降权） |
+| **activity-indicator** | 当前活动指示器（session-header-controls：点击打开切换菜单；显示 `活动: <当前活动>` 与完成态 `✓`；建会话时选定初始活动，运行后可自然流转或强制切换（未完成强制切需二次确认））。取值（9）：plan-mode / intent-recog / goal-mode / build-code / discuss-doc / research / review-proj / human-learn / diagnose，默认 `research`。其中 plan-mode 驱动内置计划态（POLICY + exit_plan_mode），其余为占位枚举由模型自判。注：`bare-chat` 不是 activity 取值，而是会话模式（session mode：bare = 未选会话 / persisted = 选中会话），由 `currentSessionId` 派生，见 `docs/agent-mode.md` 会话模式层 |
+| **session-mode-indicator** | 会话模式指示器（session-header-controls，只读；显示 `模式: bare-chat` / `模式: turn-step`，附 `data-mode` 着色与 title 说明；由 `currentSessionId` 派生 `getSessionMode()`，不提供切换，进入方式仍为「不选/选会话」） |
 | **send-or-stop-btn** | 发送/停止按钮 |
+| **shortcut-handler** | 全局快捷键处理器（shortcuts.js，document 级 keydown） |
 | **chat-footer** | 聊天底部状态栏（DSH 风格三段；活动/权限/自主度由各自控件承载，不重复） |
 | **session-statistics** | 左段：`⟳ N turns M steps · K tok/s`（图标 + 会话累计 turns/steps + 最近一轮 TPS，turns/steps 间空格） |
 | **token-usage** | 中段：`▤ X.XM tok · Cache hit NN%`（图标 + total tokens 人类可读 + 缓存命中率） |
@@ -124,10 +139,17 @@
 | **compaction-card** | 聊天区 checkpoint 卡：按最新 `compaction/summary` 事件的 `boundaryMessageId` 插在**边界消息之后**（切点可能落在 turn 内部；找不到消息时退回 `boundaryTurnSeq` 的 turn 末尾）；标题显示压缩 turn 数 / `~tokensBefore → ~tokensAfter` / 边界 message / 模型 / 时间，正文为模型写的 8 段 summary（默认展开；preamble 与 `<compacted-summary>` 标签只给模型看，卡片不显示）。原始 turns/steps 仍然全部展示（DSH transcript 语义），卡片只标出模型视角被替换的位置 |
 | **compaction-notice** | 压缩状态提示行（`compaction` 事件驱动）：start / prune / overflow / done / failed 的短文案，压缩完成后由重建的会话视图与 checkpoint 卡取代 |
 | **/compact 斜杠命令** | composer 输入以 `/` 开头时在发送前拦截：`/compact`（无参数）触发手动压缩；bare-chat 提示不可用；未知命令提示可用命令。不进入对话历史 |
-| **auto-compact 设置** | settings-modal 的「自动压缩」开关（`settings.autoCompact`，默认开）：开启后每个 step 请求前按窗口 80% 检查压力，先裁剪超长 tool result，仍超限则写 checkpoint；关闭后只剩手动 `/compact` |
+| **auto-compact 设置** | settings-page 的「自动压缩」开关（`settings.autoCompact`，默认开）：开启后每个 step 请求前按窗口 80% 检查压力，先裁剪超长 tool result，仍超限则写 checkpoint；关闭后只剩手动 `/compact` |
 | **traj-compactions / traj-compaction** | 轨迹面板顶部的压缩标记列表（summary 事件的 trigger / 边界 turn / turns / token 变化）；原始 turns/steps 仍完整保留 |
 | **context-panel** | 右侧上下文面板：**产物预览**（`#artifactPreview`，写文件类工具「预览」按钮触发，按扩展名渲染 md/html/图片/代码 + 在编辑器打开）+ 工具检视器（`#contextDetail`，点击 tool-call 看参数/结果） |
-| **permissions-modal** | 权限配置弹窗（工具档位 + bash 命令策略 + 文件写精细策略） |
+| **flow-page** | 流程图编辑页（主视图一页）：左流程图列表 + 中间画布 + 右属性面板，底部操作条 |
+| **flow-list** | 流程图列表（flow-list-item*，当前项 active） |
+| **flow-toolbar** | 画布顶部工具条（添加节点按钮组） |
+| **flow-canvas** | 节点画布（自绘 div 节点 + SVG 边；滚轮缩放、中键/空白处拖平移） |
+| **flow-status** | 运行/校验状态行 |
+| **flow-panel** | 选中节点或连线的属性面板 |
+| **flow-foot** | 表尾操作条：返回聊天 / 保存 / 运行 |
+| **permissions-page** | 权限配置页（主视图一页；工具档位 + bash 命令策略 + 文件写精细策略） |
 | **permissions-sidebar** | 权限弹窗左侧栏（配置文件切换 + 概要） |
 | **config-file-tabs** | 配置文件切换标签组 |
 | **tool-permissions-tab-btn** | 工具权限标签按钮 → tool-permissions-tab（对应 permissions.json） |
@@ -173,14 +195,10 @@
 | **path-input** | 路径 glob（** 跨层 / * 单段 / ? 单字符；支持绝对或相对 workspace） |
 | **permission-select** | 路径权限选择（allow / deny；先扫 deny 命中即拒） |
 | **add-fs-rule-btn** | 新增 fs 规则行 |
-| **permissions-panel** | 权限弹窗右侧常驻操作栏 |
-| **reset-defaults-btn** | 恢复默认按钮（default=ask，清空所有显式档位与规则） |
-| **close-permissions-btn** | 关闭权限弹窗按钮 |
-| **loops-modal** | 循环编排弹窗（节点拓扑 + hooks 覆写编辑） |
-| **loops-sidebar** | 循环弹窗左侧栏（概要） |
-| **loops-summary** | 循环概要区（当前引擎、节点数、loop 边数） |
-| **current-engine-label** | 当前引擎展示（只读；显示 `AGENT_LOOP_ENGINE` 值，标注「重启生效」；不提供引擎切换） |
-| **loops-viewport** | 循环弹窗中间视口 |
+| **reset-defaults-btn** | 恢复默认按钮（default=ask，清空所有显式档位与规则）；在 view-header-slot 的「更多」菜单内 |
+| **loops-page** | 循环编排页（主视图一页）：节点拓扑 + hooks 覆写编辑 |
+| **engine-indicator** | 当前引擎指示器（view-header-slot；只读，显示 `AGENT_LOOP_ENGINE` 值；点击弹出提示：引擎来源（重启生效）、节点数（含 builtin）、循环边数） |
+| **loops-viewport** | 循环页视口 |
 | **loop-topology** | 左侧只读拓扑：静态 `next` 链 + `decide-next→pre-step` 回环 + 实时 hooks 虚线指向 target 节点 |
 | **loop-nodes-table** | 右侧可编辑节点表 |
 | **loop-node-row*** | 单个节点行（core + builtin 均展示） |
@@ -192,32 +210,44 @@
 | **hook-add-btn** | 新增 hook 行 |
 | **hook-target-select** | hook target 下拉（列出所有节点 id：core + builtin） |
 | **hook-remove-btn** | 删除 hook 行 |
-| **loops-panel** | 循环弹窗右侧常驻操作栏 |
-| **close-loops-btn** | 关闭循环弹窗按钮 |
-| **meta-modal** | 本体模态框（项目本体内省窗口；左侧页导航 + 中间视口 + 右侧详情栏） |
-| **meta-sidebar** | 本体弹窗左侧页导航栏 |
+
+| **meta-page** | 本体页（主视图一页，项目本体内省窗口；左侧页导航 + 中间视口，节点详情为浮层抽屉） |
+| **meta-sidebar** | 本体页左侧页导航栏 |
 | **meta-codegraph-btn** | 代码图页入口（→ meta-codegraph-tab） |
 | **meta-viewport** | 本体弹窗中间视口，承载各内省页 |
 | **meta-codegraph-tab** | 代码图页：文件级依赖图谱 |
-| **meta-codegraph-opbar** | 代码图操作条（搜索 / 适应窗口 / 重新加载 / 状态） |
-| **meta-graph-search** | 文件路径过滤输入框（不匹配的节点淡出） |
-| **meta-graph-fit-btn** | 适应窗口按钮（缩放到全图可见） |
-| **meta-graph-reload-btn** | 重新加载按钮（重新读取 graph-data.json） |
+| **meta-codegraph-opbar** | 代码图状态行（仅 meta-status） |
+| **meta-graph-search** | 文件路径过滤输入框（view-header-slot；不匹配的节点淡出） |
+| **meta-graph-fit-btn** | 适应窗口按钮（view-header-slot 的「更多」菜单；缩放到全图可见） |
+| **meta-graph-reload-btn** | 重新加载按钮（view-header-slot 的「更多」菜单；重新读取 graph-data.json） |
 | **meta-status** | 数据状态（文件数 / 边数 / 生成时间；失败时显示原因） |
-| **meta-arch-badge** | 架构规则徽标：错误数 / 警告数 / 通过；点击展开或收起 meta-arch-panel |
 | **meta-codegraph-view** | 代码图视图区（画布 + 图例 + 架构规则面板） |
 | **meta-arch-panel** | 架构规则检查面板：按规则分组列出违规边（from → to、依赖类型、是否为候选公共设施），项可点击跳转到图上节点；含静态依赖环 |
 | **meta-arch-item*** | 单条违规边（或环成员链） |
 | **meta-arch-file*** | 违规边端点文件按钮（点击选中并居中对应节点） |
 | **meta-codegraph-canvas** | 依赖图画布（Cytoscape，dagre 左→右分层；节点按层级着色，运行时规则边为虚线） |
 | **meta-codegraph-legend** | 图例（层级颜色、虚线语义、入边/出边颜色） |
-| **meta-panel** | 本体弹窗右侧详情栏 |
+| **meta-detail-drawer** | 节点详情抽屉：浮在代码图右下角，选中节点时展开、点 × 或空白处收起 |
+| **meta-detail-drawer-head** | 抽屉头部（标题 + 收起按钮） |
+| **meta-detail-drawer-close** | 收起详情抽屉按钮 |
 | **meta-codegraph-detail** | 选中节点的明细（路径、层级、行数；入边列表「谁依赖我」与出边列表「我依赖谁」，可点击跳转）；选中边时显示类型与命中的运行时规则 |
 | **meta-side-item*** | 明细中的文件项按钮（点击选中并居中对应节点） |
-| **close-meta-btn** | 关闭本体弹窗按钮 |
-| **settings-modal** | 设置弹窗（运行时设置：流式开关 + 供应者/模型选择） |
-| **tools-modal** | 工具查看弹窗（只读浏览当前可用工具：按 type 分组，展示 name / description / parameters / prompt；对应 `AgentClient.call("listFunctions")` 返回的工具清单） |
-| **settings-sidebar** | 设置弹窗左侧栏 |
+| **settings-page** | 设置页（主视图一页；运行时设置：流式开关 + 供应者/模型选择） |
+| **skills-page** | 技能浏览页（主视图一页；只读） |
+| **tools-page** | 工具浏览页（主视图一页；只读浏览当前可用工具：按 group 分组，展示 name / description / parameters / prompt / 读写特性；对应 `AgentClient.call("tools.list")` 返回的工具清单） |
+| **view-actions** | 页级「更多」菜单容器（view-header-slot 内，排列在指示器/输入框之后） |
+| **view-actions-toggle** | 「更多」菜单开关按钮 |
+| **view-actions-menu** | 展开的菜单（view-actions-item*；点菜单外自动收起） |
+| **view-actions-item*** | 单个低频/危险操作项（可带 danger 修饰，用于恢复默认、清空配置等） |
+| **tool-tab** | 工具详情标签页（tab-header + tool-meta + tool-content） |
+| **tool-meta** | 工具元信息（读写特性 mode / 分组 group / 名称 / 描述 / parameters，均只读） |
+| **tool-content** | 工具 prompt 片段（AgentMarkdown 渲染；无 prompt 时显示空态提示） |
+| **tool-type-tree-list** | 工具按分组列出的树（tool-type*，组内 tool*） |
+| **tool-type-header** | 分组头部（折叠开关 + 组名） |
+| **tool-type-collapse-toggle** | 展开/折叠该分组 |
+| **tool-type-label** | 分组名（`data-group` 为 group 键；显示单字组名：文件 / 命令 / 网络 / 浏览器 / 任务 / agent / 团队 / 定时 / 目标 / 交互 / 渠道 / 技能 / mcp / 通用） |
+| **tool-name-label** | 工具名（MCP 工具显示去掉 `mcp__<server>__` 前缀的短名） |
+| **settings-sidebar** | 设置页左侧栏 |
 | **provider-model-tree-list** | 供应者/模型树列表 |
 | **tree-search-input** | 树过滤输入框（按名称过滤） |
 | **add-provider-btn** | 新增供应者按钮 → provider-add-tab |
@@ -270,7 +300,45 @@
 | **import-config-btn** | 导入配置按钮 |
 | **export-config-btn** | 导出配置按钮 |
 | **danger-zone** | 危险区（可选：清空配置） |
-| **close-settings-btn** | 关闭设置按钮 |
+| **settings-card** | 设置页内容卡（流式 / 翻译 / 自动压缩 开关 + provider / 模型 / 推理参数控件选择） |
+| **models-page** | 模型配置页（主视图一页） |
+| **models-sidebar** | 模型页左侧栏（供应者/模型树） |
+| **models-viewport** | 模型页右侧编辑区（按选中项切换 provider/model 的增改标签页） |
+| **tree-search-wrap** | 模型页树列表的搜索框容器（sticky，随列表滚动固定） |
+| **tools-sidebar** | 工具页左侧栏（来源标签 + 分组树） |
+| **tools-viewport** | 工具页右侧详情区 |
+| **flow-body** | 流程页主体（flow-list | flow-main | flow-panel 三列） |
+| **flow-main** | 流程页中间列（工具条 + 画布 + 状态行） |
+| **flow-list-item*** | 单个流程图条目（名称 + 描述，当前编辑项 active） |
+| **flow-header-name** | 当前流程图名（view-header-slot，只读） |
+| **flow-return-btn** | 返回聊天按钮（flow-foot） |
+| **flow-save-btn** | 保存当前流程图（flow-foot） |
+| **flow-run-btn** | 运行当前流程图（flow-foot；需先保存） |
+| **loops-viewport-split** | 循环页左右分栏容器（拓扑 / 节点表） |
+| **mode-display** | 工具读写特性行（tool-meta，只读） |
+| **tool-source-tabs** | 工具目录来源子标签组（内置工具 / MCP 工具） |
+| **tool-source-tab*** | 单个来源标签（`data-source`＝builtin / mcp） |
+| **tool-type*** | 工具目录中的单个分组 |
+| **tool*** | 分组内的工具条目 |
+| **tool-visibility** | 工具的默认可见性徽标（默认可见 / 默认隐藏） |
+| **parameters-view** | 工具参数 JSON（只读） |
+| **mode-badge** | 工具读写特性徽标（read=只读 / write=可写 / both=视情况可写，按 mode 着色） |
+| **group-display** | 工具所属 group（只读展示） |
+| **skills-sidebar** | 技能页左侧栏（按来源分组的技能树） |
+| **skills-viewport** | 技能页右侧详情区 |
+| **skill-tab** | 技能详情标签页 |
+| **skill-meta** | 技能元信息（来源 / 名称 / 描述，只读） |
+| **skill-content** | 技能正文（Markdown 渲染） |
+| **skill-name-label** | 技能名 |
+| **provider-skill-tree-list** | 按来源（provider/source）分组的技能树 |
+| **skill-ref-selector** | 技能引用选择器（弹层）：搜索 + 技能列表 |
+| **skill-search-input** | 技能引用选择器的搜索框 |
+| **skill-list** | 技能引用选择器的结果列表 |
+| **skill-element*** | 技能列表中的单行 |
+| **provider-selector** | 设置页供应者选择器 |
+| **stream-switch** | 设置页流式输出开关 |
+| **translate-switch** | 设置页自动翻译开关 |
+| **auto-compact-switch** | 设置页自动压缩开关 |
 
 > 运行期动态节点（thought / tool-call 及其子类型 / approval-request / ask-user-question / user-job-request / action-bar / branch-picker / sub-agent-tree / agent-trace-node 等）不再单列「过程要素 / 人控要素」分块，已并入上表并作为布局树的子节点呈现（见 §2 包含关系）。布局树为第一真值。
 
@@ -287,7 +355,6 @@ shell
 │  ├─ workspace-bar
 │  │  ├─ search-btn
 │  │  ├─ search-input
-│  │  ├─ view-options-btn
 │  │  ├─ add-workspace-btn
 │  │  └─ trash-btn
 │  ├─ workspace-session-tree-list
@@ -295,345 +362,356 @@ shell
 │  │  └─ workspace*
 │  │      ├─ workspace-header
 │  │      │  ├─ workspace-name-label
-│  │      │  ├─ del-workspace-btn
-│  │      │  └─ add-session-btn
+│  │      │  ├─ add-session-btn
+│  │      │  └─ workspace-menu-btn
+│  │      │     └─ row-menu?
+│  │      │        └─ row-menu-item*
 │  │      └─ session*
 │  │          ├─ session-name-label
-│  │          ├─ rename-session-btn
-│  │          └─ delete-session-btn
-│  ├─ models-btn
-│  ├─ tools-btn
-│  ├─ skills-btn
-│  ├─ permissions-btn
-│  ├─ loops-btn
-│  ├─ meta-btn
-│  └─ settings-btn
+│  │          └─ session-menu-btn
+│  │             └─ row-menu?
+│  │                └─ row-menu-item*
+│  └─ sidebar-nav
+│     ├─ sidebar-nav-group（会话）
+│     │  ├─ chat-view-btn
+│     │  └─ trajectory-view-btn
+│     ├─ sidebar-nav-group（编排）
+│     │  ├─ sidebar-nav-title
+│     │  ├─ models-btn
+│     │  ├─ tools-btn
+│     │  ├─ skills-btn
+│     │  ├─ flow-btn-sidebar
+│     │  ├─ loops-btn
+│     │  └─ meta-btn
+│     └─ sidebar-nav-group（配置，贴底）
+│        ├─ sidebar-nav-title
+│        ├─ permissions-btn
+│        └─ settings-btn
 ├─ chat-viewport
 │  ├─ chat-header
 │  │  ├─ left-collapse-button
-│  │  ├─ session-name
+│  │  ├─ session-name?
+│  │  ├─ view-title?
+│  │  ├─ view-dirty-badge?
 │  │  └─ header-controls-group
-│  │     ├─ session-mode-indicator
-│  │     ├─ activity-indicator
-│  │     ├─ presence-mode-switch
-│  │     ├─ autonomy-mode-switch
-│  │     ├─ tab-icons
-│  │     │  ├─ chat-tab-icon
-│  │     │  └─ trajectory-icon
+│  │     ├─ view-header-slot
+│  │     │  ├─ session-header-controls?          （chat / trajectory）
+│  │     │  │  ├─ session-mode-indicator
+│  │     │  │  ├─ activity-indicator
+│  │     │  │  ├─ presence-mode-switch
+│  │     │  │  └─ autonomy-mode-switch
+│  │     │  ├─ flow-header-name?                 （flow）
+│  │     │  ├─ tree-search-input?                （models / tools / skills）
+│  │     │  ├─ meta-graph-search + view-actions? （meta）
+│  │     │  ├─ engine-indicator? + view-actions? （loops）
+│  │     │  └─ view-actions?                     （models / permissions）
+│  │     │     ├─ view-actions-toggle
+│  │     │     └─ view-actions-menu?
+│  │     │        └─ view-actions-item*
 │  │     └─ right-collapse-button
-│  ├─ tab-body
-│  │  ├─ chat-tab
-│  │  │  └─ turn*
-│  │  │     └─ step*
-│  │  │         ├─ agent-request?
-│  │  │         │  ├─ system-prompt?
-│  │  │         │  └─ user-input
-│  │  │         │      ├─ chinese-primary-user-input 
-│  │  │         │      └─ english-translate-user-input
-│  │  │         └─ model-response
-│  │  │             ├─ thought?
-│  │  │             │  ├─ english-primary-thought 
-│  │  │             │  └─ chinese-translate-thought
-│  │  │             ├─ answer?
-│  │  │             │  ├─ english-primary-answer 
-│  │  │             │  └─ chinese-translate-answer
-│  │  │             ├─ ask-user-prompt?
-│  │  │             ├─ branch-picker?
-│  │  │             └─ tool-call-card*
-│  │  │                 ├─ tool-call-desc
-│  │  │                 ├─ approval-request
-│  │  │                 ├─ ask-user-question?
-│  │  │                 ├─ user-job-request?
-│  │  │                 ├─ action-bar?
-│  │  │                 └─ tool-result
-│  │  │                 （工具类型：text-file / bash / sql / script / web）
-│  │  └─ trajectory-tab
-│  │     ├─ sub-agent-tree
-│  │     └─ agent-trace-node
-│  ├─ composer
-│  │  ├─ model-http-status(on-wait|on-post|on-get)
-│  │  ├─ ref-chips
-│  │  ├─ input-textarea
-│  │  └─ composer-footer
-│  │     ├─ think-switch?
-│  │     ├─ search-switch
-│  │     ├─ permission-selector
-│  │     ├─ model-effort-selector
-│  │     │   ├─ model-selector
-│  │     │   └─ effort-selector?
-│  │     ├─ ref-btn
-│  │     └─ send-or-stop-btn
-│  └─ chat-footer
-│     ├─ session-statistics
-│     ├─ token-usage
-│     └─ context-used
-└─ context-panel
+│  └─ main-view
+│     ├─ chat-view                          （chat / trajectory）
+│     │  ├─ tab-body
+│     │  │  ├─ chat-tab
+│     │  │  │  └─ turn*
+│     │  │  │     └─ step*
+│     │  │  │         ├─ agent-request?
+│     │  │  │         │  ├─ system-prompt?
+│     │  │  │         │  └─ user-input
+│     │  │  │         │      ├─ chinese-primary-user-input
+│     │  │  │         │      └─ english-translate-user-input
+│     │  │  │         └─ model-response
+│     │  │  │             ├─ thought?
+│     │  │  │             │  ├─ english-primary-thought
+│     │  │  │             │  └─ chinese-translate-thought
+│     │  │  │             ├─ answer?
+│     │  │  │             │  ├─ english-primary-answer
+│     │  │  │             │  └─ chinese-translate-answer
+│     │  │  │             ├─ ask-user-prompt?
+│     │  │  │             ├─ branch-picker?
+│     │  │  │             └─ tool-call-card*
+│     │  │  │                 ├─ tool-call-desc
+│     │  │  │                 ├─ approval-request
+│     │  │  │                 ├─ ask-user-question?
+│     │  │  │                 ├─ user-job-request?
+│     │  │  │                 ├─ action-bar?
+│     │  │  │                 └─ tool-result
+│     │  │  │                 （工具类型：text-file / bash / sql / script / web）
+│     │  │  └─ trajectory-tab
+│     │  │     ├─ sub-agent-tree
+│     │  │     └─ agent-trace-node
+│     │  ├─ composer
+│     │  │  ├─ model-http-status(on-wait|on-post|on-get)
+│     │  │  ├─ ref-chips
+│     │  │  ├─ input-textarea
+│     │  │  └─ composer-footer
+│     │  │     ├─ think-switch?
+│     │  │     ├─ search-switch
+│     │  │     ├─ permission-selector
+│     │  │     ├─ model-effort-selector
+│     │  │     │   ├─ model-selector
+│     │  │     │   └─ effort-selector?
+│     │  │     ├─ ref-btn
+│     │  │     └─ send-or-stop-btn
+│     │  └─ chat-footer
+│     │     ├─ session-statistics
+│     │     ├─ token-usage
+│     │     └─ context-used
+│     ├─ flow-page                            （flow）
+│     │  ├─ flow-body
+│     │  │  ├─ flow-list
+│     │  │  │  └─ flow-list-item*
+│     │  │  ├─ flow-main
+│     │  │  │  ├─ flow-toolbar
+│     │  │  │  ├─ flow-canvas
+│     │  │  │  └─ flow-status
+│     │  │  └─ flow-panel
+│     │  └─ flow-foot
+│     │     ├─ flow-return-btn（返回聊天）
+│     │     ├─ flow-save-btn
+│     │     └─ flow-run-btn
+│     ├─ models-page
+│     │  ├─ models-sidebar
+│     │  │  └─ provider-model-tree-list
+│     │  │      ├─ tree-search-wrap
+│     │  │      │  └─ tree-search-input
+│     │  │      ├─ add-provider-btn
+│     │  │      └─ provider*
+│     │  │          ├─ provider-header
+│     │  │          │  ├─ provider-collapse-toggle
+│     │  │          │  ├─ provider-name-label
+│     │  │          │  ├─ provider-rename-btn
+│     │  │          │  ├─ provider-delete-btn
+│     │  │          │  └─ add-model-btn
+│     │  │          └─ model*
+│     │  │              ├─ model-name-label
+│     │  │              ├─ model-fee-badge
+│     │  │              ├─ model-rename-btn
+│     │  │              └─ model-delete-btn
+│     │  └─ models-viewport
+│     │     ├─ provider-add-tab
+│     │     │  ├─ tab-header
+│     │     │  │  └─ tab-title
+│     │     │  ├─ provider-form
+│     │     │  │  ├─ name-input
+│     │     │  │  ├─ description-input
+│     │     │  │  ├─ baseurl-input
+│     │     │  │  └─ apikey-input
+│     │     │  └─ form-footer
+│     │     │     ├─ cancel-btn
+│     │     │     └─ save-btn
+│     │     ├─ provider-edit-tab
+│     │     │  ├─ tab-header
+│     │     │  │  └─ tab-title
+│     │     │  ├─ provider-form
+│     │     │  │  ├─ name-input
+│     │     │  │  ├─ description-input
+│     │     │  │  ├─ baseurl-input
+│     │     │  │  ├─ apikey-input
+│     │     │  │  ├─ fetch-row
+│     │     │  │  │  ├─ fetch-models-btn
+│     │     │  │  │  └─ remote-status
+│     │     │  │  └─ remote-models-section
+│     │     │  │     ├─ remote-toolbar
+│     │     │  │     │  └─ add-all-btn
+│     │     │  │     ├─ remote-model-item*
+│     │     │  │     │  ├─ remote-model-id
+│     │     │  │     │  ├─ fee-select
+│     │     │  │     │  └─ remote-add-btn
+│     │     │  │     └─ remote-model-response
+│     │     │  ├─ model-list-section
+│     │     │  │  ├─ section-header
+│     │     │  │  └─ model-item*
+│     │     │  │     ├─ model-name-label
+│     │     │  │     ├─ model-fee-badge
+│     │     │  │     └─ model-edit-btn
+│     │     │  └─ form-footer
+│     │     │     ├─ reset-btn
+│     │     │     └─ save-btn
+│     │     ├─ model-add-tab
+│     │     │  ├─ tab-header
+│     │     │  │  └─ tab-title
+│     │     │  ├─ model-form
+│     │     │  │  ├─ provider-display
+│     │     │  │  ├─ name-input
+│     │     │  │  ├─ description-input
+│     │     │  │  └─ fee-selector
+│     │     │  └─ form-footer
+│     │     │     ├─ cancel-btn
+│     │     │     └─ save-btn
+│     │     └─ model-edit-tab
+│     │        ├─ tab-header
+│     │        │  └─ tab-title
+│     │        ├─ model-form
+│     │        │  ├─ provider-display
+│     │        │  ├─ name-input
+│     │        │  ├─ description-input
+│     │        │  └─ fee-selector
+│     │        └─ form-footer
+│     │           ├─ reset-btn
+│     │           └─ save-btn
+│     ├─ tools-page
+│     │  ├─ tools-sidebar
+│     │  │  ├─ tab-header
+│     │  │  │  └─ tab-title
+│     │  │  ├─ tool-source-tabs
+│     │  │  │  └─ tool-source-tab*（builtin | mcp）
+│     │  │  └─ tool-type-tree-list
+│     │  │     └─ tool-type*
+│     │  │        ├─ tool-type-header
+│     │  │        │  ├─ tool-type-collapse-toggle
+│     │  │        │  └─ tool-type-label
+│     │  │        └─ tool*
+│     │  │           └─ tool-name-label
+│     │  └─ tools-viewport
+│     │     └─ tool-tab
+│     │        ├─ tab-header
+│     │        │  └─ tab-title
+│     │        ├─ tool-meta
+│     │        │  ├─ mode-display
+│     │        │  │  └─ mode-badge
+│     │        │  ├─ group-display
+│     │        │  ├─ name-input
+│     │        │  ├─ description-input
+│     │        │  ├─ parameters-view
+│     │        │  └─ tool-visibility
+│     │        └─ tool-content
+│     ├─ skills-page
+│     │  ├─ skills-sidebar
+│     │  │  ├─ tab-header
+│     │  │  │  └─ tab-title
+│     │  │  └─ provider-skill-tree-list
+│     │  │     └─ provider*
+│     │  │        ├─ provider-header
+│     │  │        │  ├─ provider-collapse-toggle
+│     │  │        │  └─ provider-name-label
+│     │  │        └─ skill*
+│     │  │           └─ skill-name-label
+│     │  └─ skills-viewport
+│     │     └─ skill-tab
+│     │        ├─ tab-header
+│     │        │  └─ tab-title
+│     │        ├─ skill-meta
+│     │        │  ├─ provider-display
+│     │        │  ├─ name-input
+│     │        │  └─ description-input
+│     │        └─ skill-content
+│     ├─ permissions-page
+│     │  ├─ permissions-sidebar
+│     │  │  ├─ config-file-tabs
+│     │  │  │  ├─ tool-permissions-tab-btn
+│     │  │  │  ├─ bash-policy-tab-btn
+│     │  │  │  └─ fs-policy-tab-btn
+│     │  │  └─ permission-summary
+│     │  │     ├─ default-tier-label
+│     │  │     ├─ bash-rule-count-label
+│     │  │     └─ rule-count-label
+│     │  └─ permissions-viewport
+│     │     ├─ tool-permissions-tab
+│     │     │  ├─ tab-header
+│     │     │  │  └─ tab-title
+│     │     │  ├─ default-tier-row
+│     │     │  │  ├─ default-tier-label
+│     │     │  │  └─ default-tier-select
+│     │     │  ├─ tool-permissions-table
+│     │     │  │  ├─ tool-permission-row*
+│     │     │  │  │  ├─ tool-name-label
+│     │     │  │  │  ├─ tier-select
+│     │     │  │  │  └─ clear-tier-btn?
+│     │     │  │  └─ add-tool-permission-btn
+│     │     │  └─ config-footer
+│     │     │     ├─ reset-btn
+│     │     │     └─ save-btn
+│     │     ├─ bash-policy-tab
+│     │     │  ├─ tab-header
+│     │     │  │  └─ tab-title
+│     │     │  ├─ bash-default-row
+│     │     │  │  ├─ bash-default-label
+│     │     │  │  └─ bash-default-select
+│     │     │  ├─ bash-global-env?
+│     │     │  ├─ bash-rules-table
+│     │     │  │  ├─ bash-rule-row*
+│     │     │  │  │  ├─ program-input
+│     │     │  │  │  ├─ args-input?
+│     │     │  │  │  ├─ decision-select
+│     │     │  │  │  ├─ reason-input?
+│     │     │  │  │  ├─ env-input?
+│     │     │  │  │  └─ remove-rule-btn
+│     │     │  │  └─ add-bash-rule-btn
+│     │     │  └─ config-footer
+│     │     │     ├─ reset-btn
+│     │     │     └─ save-btn
+│     │     └─ fs-policy-tab
+│     │        ├─ tab-header
+│     │        │  └─ tab-title
+│     │        ├─ fs-scope-note
+│     │        ├─ fs-rules-table
+│     │        │  ├─ fs-rule-row*
+│     │        │  │  ├─ path-input
+│     │        │  │  ├─ permission-select
+│     │        │  │  └─ remove-rule-btn
+│     │        │  └─ add-fs-rule-btn
+│     │        └─ config-footer
+│     │           ├─ reset-btn
+│     │           └─ save-btn
+│     ├─ loops-page
+│     │  └─ loops-viewport
+│     │     ├─ loops-viewport-split
+│     │     │  ├─ loop-topology
+│     │     │  └─ loop-nodes-table
+│     │     │     └─ loop-node-row*
+│     │     │        ├─ loop-node-id-label
+│     │     │        ├─ loop-node-type-label
+│     │     │        ├─ loop-next-label
+│     │     │        └─ loop-hooks-editor
+│     │     │           └─ hook-slot*
+│     │     │              ├─ hook-target-select
+│     │     │              ├─ hook-remove-btn
+│     │     │              └─ hook-add-btn
+│     │     └─ config-footer
+│     │        ├─ reset-btn（撤销修改）
+│     │        └─ save-btn
+│     ├─ meta-page
+│     │  ├─ meta-sidebar
+│     │  │  └─ meta-codegraph-btn
+│     │  └─ meta-viewport
+│     │     └─ meta-codegraph-tab
+│     │        ├─ meta-codegraph-opbar
+│     │        │  └─ meta-status
+│     │        └─ meta-codegraph-view
+│     │           ├─ meta-codegraph-canvas
+│     │           ├─ meta-codegraph-legend
+│     │           ├─ meta-arch-panel?
+│     │           │  └─ meta-arch-item*
+│     │           │     └─ meta-arch-file*
+│     │           └─ meta-detail-drawer?
+│     │              ├─ meta-detail-drawer-head
+│     │              │  ├─ 标题
+│     │              │  └─ meta-detail-drawer-close
+│     │              └─ meta-codegraph-detail
+│     │                 └─ meta-side-item*
+│     └─ settings-page
+│        └─ settings-card
+│           ├─ stream-switch
+│           ├─ translate-switch
+│           ├─ auto-compact-switch
+│           ├─ provider-selector
+│           ├─ model-selector
+│           └─ reasoningControl-selector
+└─ context-panel                             （仅 chat / trajectory 显示）
+   ├─ context-default?
    ├─ artifact-preview
    │  ├─ artifact-preview-head
    │  │  ├─ artifact-preview-title
    │  │  └─ artifact-preview-open
    │  └─ artifact-preview-body
-   └─ context-detail
-```
-
-models-modal
-├─ models-sidebar
-│  └─ provider-model-tree-list
-│      ├─ tree-search-input
-│      ├─ add-provider-btn
-│      └─ provider*                
-│          ├─ provider-header
-│          │  ├─ provider-collapse-toggle
-│          │  ├─ provider-name-label
-│          │  ├─ provider-rename-btn
-│          │  ├─ provider-delete-btn
-│          │  └─ add-model-btn
-│          └─ model*          
-│              ├─ model-name-label
-│              ├─ model-fee-badge
-│              ├─ model-rename-btn
-│              └─ model-delete-btn
-│
-├─ models-viewport
-│  ├─ provider-add-tab
-│  │  ├─ tab-header
-│  │  │  └─ tab-title
-│  │  ├─ provider-form
-│  │  │  ├─ name-input
-│  │  │  ├─ description-input
-│  │  │  ├─ baseurl-input
-│  │  │  └─ apikey-input
-│  │  └─ form-footer
-│  │     ├─ cancel-btn
-│  │     └─ save-btn
-│  │
-│  ├─ provider-edit-tab  
-│  │  ├─ tab-header
-│  │  │  └─ tab-title
-│  │  ├─ provider-form
-│  │  │  ├─ name-input
-│  │  │  ├─ description-input
-│  │  │  ├─ baseurl-input
-│  │  │  ├─ apikey-input
-│  │  │  ├─ fetch-row
-│  │  │  │  ├─ fetch-models-btn
-│  │  │  │  └─ remote-status
-│  │  │  └─ remote-models-section
-│  │  │     ├─ remote-toolbar
-│  │  │     │  └─ add-all-btn
-│  │  │     ├─ remote-model-item*
-│  │  │     │ ├─ remote-model-id
-│  │  │     │ ├─ fee-select
-│  │  │     │ └─ remote-add-btn
-│  │  │     └─ remote-model-response
-│  │  ├─ model-list-section
-│  │  │  ├─ section-header
-│  │  │  └─ model-item*
-│  │  │     ├─ model-name-label
-│  │  │     ├─ model-fee-badge
-│  │  │     └─ model-edit-btn
-│  │  └─ form-footer
-│  │     ├─ reset-btn
-│  │     └─ save-btn
-│  │
-│  ├─ model-add-tab    
-│  │  ├─ tab-header
-│  │  │  └─ tab-title
-│  │  ├─ model-form
-│  │  │  ├─ provider-display
-│  │  │  ├─ name-input
-│  │  │  ├─ description-input
-│  │  │  └─ fee-selector
-│  │  └─ form-footer
-│  │     ├─ cancel-btn
-│  │     └─ save-btn
-│  │
-│  └─ model-edit-tab      
-│     ├─ tab-header
-│     │  └─ tab-title
-│     ├─ model-form
-│     │  ├─ provider-display
-│     │  ├─ name-input
-│     │  ├─ description-input
-│     │  └─ fee-selector
-│     └─ form-footer
-│        ├─ reset-btn
-│        └─ save-btn
-│
-└─ models-panel
-   ├─ import-config-btn
-   ├─ export-config-btn
-   ├─ danger-zone
-   └─ close-models-btn
-
-skills-modal
-├─ skills-sidebar
-│  └─ provider-skill-tree-list
-│      ├─ tree-search-input
-│      └─ provider*                
-│          ├─ provider-header
-│          │  ├─ provider-collapse-toggle
-│          │  └─ provider-name-label
-│          └─ skill*
-│              └─ skill-name-label
-│
-├─ skills-viewport
-│  │
-│  └─ skill-tab      
-│     ├─ tab-header
-│     │  └─ tab-title
-│     ├─ skill-meta
-│     │  ├─ provider-display
-│     │  ├─ name-input
-│     │  └─ description-input
-│     └─ skill-content
-│
-└─ skills-panel
-   └─ close-skills-btn
-
-tools-modal
-├─ tools-sidebar
-│  └─ tool-type-tree-list
-│      ├─ tree-search-input
-│      └─ tool-type*                
-│          ├─ tool-type-header
-│          │  ├─ tool-type-collapse-toggle
-│          │  └─ tool-type-label
-│          └─ tool*
-│              └─ tool-name-label
-│
-├─ tools-viewport
-│  │
-│  └─ tool-tab      
-│     ├─ tab-header
-│     │  └─ tab-title
-│     ├─ tool-meta
-│     │  ├─ type-display
-│     │  ├─ name-input
-│     │  ├─ description-input
-│     │  └─ parameters-view
-│     └─ tool-content
-│
-└─ tools-panel
-   └─ close-tools-btn
-
-permissions-modal
-├─ permissions-sidebar
-│  ├─ config-file-tabs
-│  │  ├─ tool-permissions-tab-btn
-│  │  ├─ bash-policy-tab-btn
-│  │  └─ fs-policy-tab-btn
-│  └─ permission-summary
-│     ├─ default-tier-label
-│     ├─ bash-rule-count-label
-│     └─ rule-count-label
-├─ permissions-viewport
-│  ├─ tool-permissions-tab
-│  │  ├─ tab-header
-│  │  │  └─ tab-title
-│  │  ├─ default-tier-row
-│  │  │  ├─ default-tier-label
-│  │  │  └─ default-tier-select
-│  │  ├─ tool-permissions-table
-│  │  │  ├─ tool-permission-row*
-│  │  │  │  ├─ tool-name-label
-│  │  │  │  ├─ tier-select
-│  │  │  │  └─ clear-tier-btn?
-│  │  │  └─ add-tool-permission-btn
-│  │  └─ config-footer
-│  │     ├─ reset-btn
-│  │     └─ save-btn
-│  ├─ bash-policy-tab
-│  │  ├─ tab-header
-│  │  │  └─ tab-title
-│  │  ├─ bash-default-row
-│  │  │  ├─ bash-default-label
-│  │  │  └─ bash-default-select
-│  │  ├─ bash-global-env?
-│  │  ├─ bash-rules-table
-│  │  │  ├─ bash-rule-row*
-│  │  │  │  ├─ program-input
-│  │  │  │  ├─ args-input?
-│  │  │  │  ├─ decision-select
-│  │  │  │  ├─ reason-input?
-│  │  │  │  ├─ env-input?
-│  │  │  │  └─ remove-rule-btn
-│  │  │  └─ add-bash-rule-btn
-│  │  └─ config-footer
-│  │     ├─ reset-btn
-│  │     └─ save-btn
-│  └─ fs-policy-tab
-│     ├─ tab-header
-│     │  └─ tab-title
-│     ├─ fs-scope-note
-│     ├─ fs-rules-table
-│     │  ├─ fs-rule-row*
-│     │  │  ├─ path-input
-│     │  │  ├─ permission-select
-│     │  │  └─ remove-rule-btn
-│     │  └─ add-fs-rule-btn
-│     └─ config-footer
-│        ├─ reset-btn
-│        └─ save-btn
-└─ permissions-panel
-   ├─ reset-defaults-btn
-   ├─ danger-zone
-   └─ close-permissions-btn
-
-loops-modal
-├─ loops-sidebar
-│  └─ loops-summary
-│     └─ current-engine-label
-├─ loops-viewport
-│  ├─ loop-topology
-│  ├─ loop-nodes-table
-│  │  └─ loop-node-row*
-│  │     ├─ loop-node-id-label
-│  │     ├─ loop-node-type-label
-│  │     ├─ loop-next-label
-│  │     └─ loop-hooks-editor
-│  │        └─ hook-slot*
-│  │           ├─ hook-target-select
-│  │           ├─ hook-remove-btn
-│  │           └─ hook-add-btn
-│  └─ config-footer
-│     ├─ reset-btn
-│     └─ save-btn
-└─ loops-panel
-   ├─ reset-defaults-btn
-   └─ close-loops-btn
-
-settings-modal
-├─ stream-switch
-├─ provider-selector
-└─ model-selector
-
-meta-modal
-├─ meta-sidebar
-│  └─ meta-codegraph-btn
-├─ meta-viewport
-│  └─ meta-codegraph-tab
-│     ├─ meta-codegraph-opbar
-│     │  ├─ meta-graph-search
-│     │  ├─ meta-graph-fit-btn
-│     │  ├─ meta-graph-reload-btn
-│     │  ├─ meta-arch-badge
-│     │  └─ meta-status
-│     └─ meta-codegraph-view
-│        ├─ meta-codegraph-canvas
-│        ├─ meta-codegraph-legend
-│        └─ meta-arch-panel?
-│           └─ meta-arch-item*
-│              └─ meta-arch-file*
-└─ meta-panel
-   ├─ meta-codegraph-detail
-   └─ close-meta-btn
+   └─ context-detail?
 
 skill-ref-selector
 ├─ skill-search-input
 └─ skill-list
    └─ skill-element*
-
+```
 
 ---
 
@@ -641,15 +719,22 @@ skill-ref-selector
 
 ### 3.1 会话栏（shell 外）
 
+左栏是唯一导航：点击任一带 `data-view` 的按钮 → `App.showView(name)`，右侧「表头内容 + 内容区」整体切页。
+
 add-workspace-btn -> folder-selector -> add-workspace(folder)
 add-session-btn -> name-prompt -> add-session(worksapce,name)
-models-btn -> models-modal
-skills-btn -> skills-modal
-tools-btn -> tools-modal
-permissions-btn -> permissions-modal
-loops-btn -> loops-modal
+chat-view-btn -> chat-view
+trajectory-view-btn -> trajectory-tab
+models-btn -> models-page
+skills-btn -> skills-page
+tools-btn -> tools-page
+permissions-btn -> permissions-page
+loops-btn -> loops-page
+meta-btn -> meta-page
+settings-btn -> settings-page
+选择会话 / 新建会话 -> 自动切回 chat-view
 
-### 3.2 models-modal
+### 3.2 models-page
 
 add-provider-btn -> provider-add-tab（打开新增供应者标签页）
 add-model-btn(provider_id) -> model-add-tab（打开新增模型标签页，携带 provider_id）
@@ -659,7 +744,7 @@ fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote
 remote-add-btn -> AgentClient.call("providers", {op:"upsert", payload:<整体 providers 数组>}) -> model-list-section
 add-all-btn -> 对每条未添加 remote-model-item 触发 providers upsert
 
-### 3.3 permissions-modal
+### 3.3 permissions-page
 
 save-btn(tool-permissions) -> AgentClient.call("permissions", {op:"permissions.upsert", payload:{default, tools}}) -> 写 user/permissions.json
 save-btn(bash-policy) -> AgentClient.call("permissions", {op:"bashpolicy.upsert", payload:{default:"ask", rules}}) -> 写 user/bash-policy.json
@@ -672,30 +757,39 @@ user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文
   取消按钮 -> AgentClient.call("answerUserJob", {id, cancel:true}) -> 工具结果标记为已取消
   user-job-update(event:{id,status}) -> 将对应 user-job 卡片置为已结束/已取消
 
-### 3.5 loops-modal
+### 3.5 loops-page
 
-loops-btn -> loops-modal（打开时 loops.list 拉取 engines / nodes / builtins / hooks 覆写）
-save-btn(hooks) -> AgentClient.call("loops", {op:"upsert", payload:{hooks}}) -> 整体写回 user/loops.json（数组顺序即执行顺序，校验 slot / on / target 且禁止重复三元组）
-reset-btn -> 放弃未保存编辑，重新 loops.list 拉取
-reset-defaults-btn -> AgentClient.call("loops", {op:"upsert", payload:{hooks:<仓库默认两条 translate hook: builtin.translate-input / builtin.translate-output>}}) -> 恢复出厂（需 uiConfirm）
-close-loops-btn -> 关闭
+loops-btn -> loops-page（首次进入时 loops.get 拉取 engines / nodes / builtins / hooks 覆写）
+engine-indicator(click) -> uiAlert 提示：当前引擎（AGENT_LOOP_ENGINE，重启生效）、节点数（含 builtin）、循环边数
+save-btn(hooks) -> AgentClient.call("loops", {op:"upsert", payload:{hooks}}) -> 整体写回 user/loops.json（数组顺序即执行顺序，校验 slot / on / target 且禁止重复三元组）；无未保存改动时禁用
+reset-btn(撤销修改) -> 放弃未保存编辑，重新 loops.get 拉取；无未保存改动时禁用
+reset-defaults-btn -> AgentClient.call("loops", {op:"upsert", payload:{hooks:<仓库默认两条 translate hook: builtin.translate-input / builtin.translate-output>}}) -> 恢复出厂（需 uiConfirm）；位于「更多」菜单
 
-### 3.6 meta-modal
+### 3.6 meta-page
 
-meta-btn -> meta-modal（打开；首次打开时 fetch "graph-data.json" 渲染依赖图）
+meta-btn -> meta-page（打开；首次打开时 fetch "graph-data.json" 渲染依赖图）
 meta-codegraph-btn -> meta-codegraph-tab（页切换；当前仅代码图一页）
 meta-graph-search(input) -> 按文件路径过滤，不匹配节点淡出
-meta-graph-fit-btn -> 缩放到全图可见
-meta-graph-reload-btn -> 重新 fetch "graph-data.json" 并重建图
-meta-arch-badge -> 展开/收起 meta-arch-panel（展示 scan 求值结果 graph-data.json 的 arch 段）
+meta-graph-fit-btn -> 缩放到全图可见；位于「更多」菜单
+meta-graph-reload-btn -> 重新 fetch "graph-data.json" 并重建图；位于「更多」菜单
+架构规则 -> 展开/收起 meta-arch-panel（展示 scan 求值结果 graph-data.json 的 arch 段）；位于「更多」菜单，菜单项文字显示检查结果（通过 / N 警告 / N 违规）
 meta-arch-file(click) -> 选中并居中对应节点
 点击 meta-codegraph-canvas 节点 -> 高亮入边（谁依赖我）/ 出边（我依赖谁），其余淡出；选中节点缩放到可读级别并居中；meta-codegraph-detail 列出入边与出边清单
 点击 meta-codegraph-canvas 边 -> meta-codegraph-detail 显示 from / to / 类型（require | import | dynamic）与命中的运行时规则
 meta-side-item(click) -> 选中并居中对应节点
-close-meta-btn -> 关闭
+meta-detail-drawer-close -> 收起详情抽屉
 数据来源：node scripts/graph/scan.js 生成 ui/web/graph-data.json（静态 require/import + runtime-edges.json 规则表）
 
 ---
+
+### 3.7 快捷键
+
+Ctrl/⌘ + N -> 新建会话（同 new-session-button）
+Ctrl/⌘ + K -> 聚焦会话过滤框（自动展开 search-input）
+Esc        -> 关闭最上层弹层：modal-overlay（走取消路径）/ row-menu / view-actions-menu
+?          -> 弹出快捷键说明（焦点在输入框内时不触发）
+
+规则：有弹层打开时 Esc 优先且只关最上层；弹层打开期间其余快捷键不生效；焦点在输入控件内时不抢单键快捷键，Ctrl/⌘ 组合键仍生效。
 
 ## 4. 布局关系
 
@@ -704,8 +798,11 @@ shell
    arrange: horizontal
 
 thread-sidebar
-   children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, models-btn, permissions-btn, loops-btn, meta-btn, settings-btn
+   children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, sidebar-nav
    arrange: vertical
+   nav-groups: 会话（chat-view-btn / trajectory-view-btn）| 编排（sidebar-nav-title + models / tools / skills / flow / loops / meta）| 配置（sidebar-nav-title + permissions / settings，贴底）
+   row-actions: 工作区头部常显「+ 会话」，会话行常显名称；重命名 / 删除收进行内「⋯」菜单（点击「⋯」不触发选中会话，点菜单外关闭）
+   note: 导航按钮组在会话树之下，settings-btn 以 margin-top:auto 固定在最底部；当前页按钮带 active 高亮
 
 sidebar-header
    contains: agent-badge, left-collapse-button
@@ -716,16 +813,50 @@ workspace-session-tree-list
       children: session*
 
 chat-viewport
-   children: chat-header, tab-body, composer, chat-footer
+   children: chat-header, main-view
    arrange: vertical
 
+main-view
+   children: chat-view, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
+   arrange: 单页显示（同一时刻只显示 data-view 与当前视图名相同的一页；各页首次进入时懒建）
+   note: chat-view 承载 chat / trajectory 两个视图（内容由 tab-body 内的 data-view 切换）
+
 chat-header
-   contains: left-collapse-button, session-name, header-controls-group (session-mode-indicator, activity-indicator, presence-mode-switch, autonomy-mode-switch, tab-icons, right-collapse-button)
-   tab-icons: chat-tab-icon, trajectory-icon
-   note: 两段式，左组贴左（left-collapse-button + session-name，普通布局包裹、无 data-name）、右组 header-controls-group margin-left:auto 靠右，中间为弹性空白；session-name 尽量展开不省略；空间不足时右组切紧凑（收间距 + 文案缩写，见 app.js 的 ResizeObserver）
+   contains: left-collapse-button, session-name? / view-title?, header-controls-group
+   header-controls-group: view-header-slot, right-collapse-button
+   note: 两段式，左组贴左（left-collapse-button + session-name / view-title）、右组 header-controls-group margin-left:auto 靠右，中间为弹性空白；空间不足时右组切紧凑（收间距 + 文案缩写，见 composer.js 的 ResizeObserver）
+   note: 表头结构恒定，内容随主视图变化——聊天/轨迹显示 session-name + session-header-controls；其余页显示 view-title + 该页在 view-header-slot 里声明的内容
+
+view-header-slot
+   规则: 表头放指示器与输入；常用操作放表尾；低频/危险操作收进「更多」菜单
+   按视图:
+     chat            → session-header-controls（模式 / 活动 / 在场 / 自主）
+     trajectory      → session-header-controls
+     flow            → flow-header-name（当前流程图名，只读）
+     models          → tree-search-input + view-actions（导入配置 / 导出配置 / 清空所有配置）
+     tools           → tree-search-input
+     skills          → tree-search-input
+     permissions     → view-actions（恢复默认）
+     loops           → engine-indicator + view-actions（恢复默认 hooks）
+     meta            → meta-graph-search + view-actions（适应窗口 / 重新加载 / 架构规则）
+     settings        → 无
+
+未保存状态
+   来源: 各页自己的 dirty 状态，经 App.setViewDirty(name, dirty) 写入 view-dirty-badge
+   flow-page: 加载后干净；新增/删除节点、连线、拖动节点、改属性、改名称均置为未保存；保存成功清除
+   loops-page: 编辑 hook 后未保存；保存 / 撤销修改 / 恢复默认 hooks 后清除
+   models-page / permissions-page: 表单级脏检查（App.watchFormDirty）；控件值与进入表单时的基线不同即未保存，
+     改回原值自动清除；保存成功后基线刷新；增删规则行 / 切换 tab 也会重新判定
+   规则: 切换主视图时，若当前页有未保存改动，弹确认（确定 = 离开并放弃，取消 = 留在当前页）
+
+页尾操作
+   flow-page.flow-foot: flow-return-btn, flow-save-btn, flow-run-btn
+   loops-page.config-footer: reset-btn（撤销修改）, save-btn
+   models-page 各表单的 form-footer: save-btn / reset-btn（随编辑对象）
+   permissions-page 各标签页的 config-footer: reset-btn, save-btn
 
 tab-body
-   toggle: chat-tab | trajectory-tab
+   toggle: chat-tab | trajectory-tab（按 viewport[data-view] 决定，chat 显示 chat-tab，trajectory 显示 trajectory-tab）
 
 chat-tab
    children: request-prompt (top), model-response (bottom)
@@ -744,7 +875,7 @@ trajectory-tab
 composer
    children: ref-chips (above input-textarea), input-textarea, composer-footer
    composer-footer: think-switch, search-switch, permission-selector, model-effort-selector(model-selector + effort-selector), ref-btn, send-or-stop-btn
-   note: presence-mode-switch / autonomy-mode-switch 已移至 chat-header（见上）；权限预设与模型/推理等级在 composer-footer 提供 DSH 风格快捷选择，侧栏 permissions-btn / models-btn modal 仍作深度配置
+   note: presence-mode-switch / autonomy-mode-switch 在 chat-header 的 session-header-controls 内（见上）；权限预设与模型/推理等级在 composer-footer 提供 DSH 风格快捷选择，左栏 permissions-btn / models-btn 页仍作深度配置
 
 chat-footer
    shows: session-statistics, token-usage, context-used
@@ -757,6 +888,7 @@ chat-footer
 context-panel
    position: right
    default: hidden
+   visible: 仅 chat / trajectory 视图（切到其它页自动收起）
    shows:
      artifact-preview: 写文件类工具「预览」按钮触发，按扩展名渲染产物（md/html/图片/代码）
      context-detail: 点击普通 tool-call 触发，展示参数/结果/引用来源
@@ -768,19 +900,26 @@ collapse
 attachment
    no AttachmentDropzone node; 文件引用由 ref-btn 的「引用本地文件」承接
 
-loops-modal
-   three-part: loops-sidebar | loops-viewport | loops-panel
-   loops-viewport: loop-topology (left, read-only) + loop-nodes-table (right, editable)
-   note: current-engine-label 只读（展示 AGENT_LOOP_ENGINE，重启生效，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→pre-step 回环 + 实时 hooks 虚线
+loops-page
+   children: loops-viewport
+   loops-viewport: loops-viewport-split (loop-topology 左，只读; loop-nodes-table 右，可编辑) + config-footer
+   note: engine-indicator 只读（表头展示 AGENT_LOOP_ENGINE，点击弹出引擎来源 + 节点数 + 循环边数，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→pre-step 回环 + 实时 hooks 虚线；保存/撤销修改仅在无未保存改动以外时才可点
 
-meta-modal
-   three-part: meta-sidebar | meta-viewport | meta-panel
+meta-page
+   children: meta-sidebar | meta-viewport
    meta-sidebar: meta-codegraph-btn（页导航，可扩展为多页）
    meta-viewport: meta-codegraph-tab
-      meta-codegraph-opbar: meta-graph-search, meta-graph-fit-btn, meta-graph-reload-btn, meta-arch-badge, meta-status
-      meta-codegraph-view: meta-codegraph-canvas（上）, meta-codegraph-legend（下）, meta-arch-panel（可选，默认收起）
-   meta-panel: meta-codegraph-detail（上，选中节点/边的明细）, close-meta-btn（下）
+      meta-codegraph-opbar: meta-status
+      meta-codegraph-view: meta-codegraph-canvas, meta-codegraph-legend, meta-arch-panel（可选，默认收起）, meta-detail-drawer（可选，浮于右下角，选中节点时展开）
    note: 图数据来自 graph-data.json（scripts/graph/scan.js 生成）；节点按层级着色，运行时规则边画虚线；点击节点同时高亮入边与出边
+
+tools-page
+   children: tools-sidebar | tools-viewport
+   tools-sidebar: tab-header, tool-source-tabs（内置工具 / MCP 工具）, tool-type-tree-list
+   tool-source-tabs 规则:
+     builtin → 非 mcp__<server>__ 前缀的工具，按 group 分组（文件 / 命令 / 网络 / 浏览器 / 任务 / agent / 团队 / 定时 / 目标 / 交互 / 渠道 / 技能 / mcp / 通用）；共享注册的 MCP 资源工具（list_mcp_resources / list_mcp_resource_templates / read_mcp_resource）属内置工具的「mcp」组
+     mcp     → mcp__<server>__<tool> 形式的服务器工具，按服务器名分组，条目显示去掉前缀的短名
+   切换来源标签只影响左栏目录，右侧详情随之选中该来源的第一个工具；tree-search-input 作用于当前标签
 
 ---
 
@@ -811,7 +950,7 @@ graph LR
     CT --> APP
     CU --> APP
     CO --> APP
-    APP --> MD2["models/settings/permissions/loops.js (独立 modal)"]
+    APP --> MD2["models/settings/permissions/loops/skills/tools/graph/flow (各主视图页)"]
 ```
 
 各域文件职责与相互调用（`App.*`）：
@@ -821,7 +960,7 @@ graph TD
     APP["app.js 装配器<br/>DOMContentLoaded 内:<br/>填 App DOM 根 / 调 init* / selectSession"]
     ST["state.js<br/>App: 共享状态 + showModal/renderStatusBar/makeEl..."]
 
-    M["modals.js<br/>initTabSwitch / showToolDetail / previewArtifact"]
+    M["modals.js<br/>initTabSwitch / registerView / showView / mountViewPage / buildViewActions / showToolDetail / previewArtifact"]
     SB["sidebar.js<br/>loadWorkspaces / selectSession 被调 / getSessionMode / isBare"]
     CP["context-panel.js<br/>presence/autonomy/activity / setPresenceMode / openActivityMenu"]
     TR["trajectory.js<br/>loadTrajectory / renderTrajectoryTree"]
@@ -850,6 +989,8 @@ graph TD
     CP -->|活动切换同步 plan-mode| ST
     TU -->|渲染对照块| CT
 ```
+
+主视图链路：左栏 `[data-view]` 按钮 → `App.showView(name)` → 左栏高亮 + 表头左槽（session-name / view-title）与右槽（该页声明的 header）+ `main-view` 内对应页显隐；各页在 `registerView` 时声明 `title` / `header` / `mount`，页面 DOM 首次进入时懒建并挂进 `main-view`。
 
 运行期主链路：`composer.onSend` → `AgentClient.call("chat", …, onChatEvent)` → `chat-tab.onChatEvent` 按事件类型分发（token / tool_call / approval-request / plan-review / translation / compaction / usage / turn-end），其中 `compaction` 转 `compaction-ui.handleCompactionEvent`、`translation` 按 `isBare()` 分流到 `translation-ui`、`tool-call-card` 点击触发 `modals.showToolDetail`。
 

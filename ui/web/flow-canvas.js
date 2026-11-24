@@ -59,10 +59,10 @@
     selected: null,     // 选中节点 id
     run: null,          // { runId, nodeStatus: { nodeId: status } }
     view: { x: 0, y: 0, scale: 1 },
-    sidebarWasCollapsed: false,
+    dirty: false,        // 有未保存改动（新建未保存的流程图同样算）
   };
 
-  var dom = {};          // overlay / list / canvas / svg / panel / status
+  var dom = {};          // page / list / canvas / svg / panel / status
 
   // ---- 图模型辅助 ----
 
@@ -196,14 +196,17 @@
     var startY = ev.clientY;
     var originX = node.position.x;
     var originY = node.position.y;
+    var moved = false;
     function move(e) {
       node.position.x = Math.round(originX + (e.clientX - startX) / state.view.scale);
       node.position.y = Math.round(originY + (e.clientY - startY) / state.view.scale);
+      moved = true;
       renderCanvas();
     }
     function up() {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
+      if (moved) markFlowDirty();
     }
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
@@ -249,6 +252,7 @@
         target: targetId,
         targetPort: targetPort,
       });
+      markFlowDirty();
       renderAll();
     }
     document.addEventListener("mousemove", move);
@@ -317,6 +321,7 @@
           var def = definition();
           def.edges = def.edges.filter(function (e) { return e.id !== edge.id; });
           state.selected = null;
+          markFlowDirty();
           renderAll();
         },
       }, "删除连线"));
@@ -365,6 +370,7 @@
           node.data[fieldName] = raw;
         }
         dom.status.textContent = "";
+        markFlowDirty();
         renderAll();
       });
       label.appendChild(input);
@@ -378,6 +384,7 @@
         def.nodes = def.nodes.filter(function (n) { return n.id !== node.id; });
         def.edges = def.edges.filter(function (e) { return e.source !== node.id && e.target !== node.id; });
         state.selected = null;
+        markFlowDirty();
         renderAll();
       },
     }, "删除节点"));
@@ -402,13 +409,22 @@
           };
           def.nodes.push(node);
           state.selected = node.id;
+          markFlowDirty();
           renderAll();
         },
       }, state.types[type].label || type));
     });
+    // 「保存 / 运行」是页级主操作，放在表头右槽（buildHeaderActions）。
     dom.tools.appendChild(el("span", { className: "flow-tool-spacer" }));
-    dom.tools.appendChild(el("button", { className: "flow-btn", onclick: saveFlow }, "保存"));
-    dom.tools.appendChild(el("button", { className: "flow-btn primary", onclick: runFlow }, "运行"));
+  }
+
+  // 表头右槽：只放当前流程图名（指示器）；保存 / 运行是常用操作，放在表尾。
+  function buildHeaderActions() {
+    var box = el("div", { className: "flow-header-actions" }, [
+      el("span", { className: "flow-header-name", dataset: { name: "flow-header-name" } }, state.flow && state.flow.name ? state.flow.name : ""),
+    ]);
+    dom.headerName = box.querySelector(".flow-header-name");
+    return box;
   }
 
   function renderList() {
@@ -420,6 +436,7 @@
     state.flows.forEach(function (flow) {
       var item = el("div", {
         className: "flow-list-item" + (state.flow && state.flow.id === flow.id ? " active" : ""),
+        dataset: { name: "flow-list-item" },
         onclick: function () { openFlow(flow.id); },
       }, [
         el("div", { className: "flow-list-name" }, flow.name || ("流程图 " + flow.id)),
@@ -433,6 +450,18 @@
     dom.status.textContent = state.statusText || "";
   }
 
+  // 未保存追踪：任何改动都调这里，表头的「未保存」标记随之更新。
+  function markFlowDirty() {
+    state.dirty = true;
+    syncDirtyBadge();
+  }
+
+  function syncDirtyBadge() {
+    if (!window.App || !window.App.setViewDirty) return;
+    var dirty = !!state.dirty || !!(state.flow && state.flow.id == null);
+    window.App.setViewDirty("flow", dirty);
+  }
+
   function renderAll() {
     renderToolbar();
     renderList();
@@ -440,6 +469,9 @@
     renderPanel();
     renderStatus();
     applyView();
+    // 表头里的流程图名随当前编辑对象变化；新建未保存的流程图也算「有未保存内容」
+    if (dom.headerName) dom.headerName.textContent = state.flow && state.flow.name ? state.flow.name : "";
+    syncDirtyBadge();
   }
 
   // ---- 数据操作 ----
@@ -463,6 +495,7 @@
     state.selected = null;
     state.run = null;
     state.statusText = "";
+    state.dirty = false;
     renderAll();
   }
 
@@ -480,6 +513,7 @@
       return;
     }
     state.flow.id = result.flow.id;
+    state.dirty = false;
     state.statusText = "已保存";
     await refreshFlows();
     renderAll();
@@ -525,87 +559,83 @@
     });
   }
 
-  // ---- 覆盖层 ----
+  // ---- 主视图页（main-view 里的一页，见 modals.js App.showView） ----
 
-  function buildOverlay() {
-    dom.list = el("div", { className: "flow-list" });
-    dom.tools = el("div", { className: "flow-toolbar" });
-    dom.panel = el("div", { className: "flow-panel" });
-    dom.status = el("div", { className: "flow-status" });
+  function buildPage() {
+    dom.list = el("div", { className: "flow-list", dataset: { name: "flow-list" } });
+    dom.tools = el("div", { className: "flow-toolbar", dataset: { name: "flow-toolbar" } });
+    dom.panel = el("div", { className: "flow-panel", dataset: { name: "flow-panel" } });
+    dom.status = el("div", { className: "flow-status", dataset: { name: "flow-status" } });
     dom.edges = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     dom.edges.setAttribute("class", "flow-edges");
     dom.world = el("div", { className: "flow-world" }, [dom.edges]);
-    dom.canvas = el("div", { className: "flow-canvas" }, [dom.world]);
+    dom.canvas = el("div", { className: "flow-canvas", dataset: { name: "flow-canvas" } }, [dom.world]);
 
-    var titleInput = el("input", { className: "flow-title", value: state.flow ? state.flow.name : "" });
-    titleInput.addEventListener("change", function () {
-      if (state.flow) state.flow.name = titleInput.value;
-      renderList();
-    });
-
-    var head = el("div", { className: "flow-head" }, [
-      el("span", { className: "flow-head-title" }, "流程图"),
-      titleInput,
-      el("button", {
-        className: "flow-btn small",
-        onclick: function () { closeOverlay(); },
-      }, "关闭"),
+    // 表尾操作条：保存 / 运行（当前流程图这层对象的常用操作）。
+    var foot = el("div", { className: "flow-foot", dataset: { name: "flow-foot" } }, [
+      el("button", { className: "flow-btn small", dataset: { name: "flow-return-btn" }, onclick: function () { window.App.showView("chat"); } }, "返回聊天"),
+      el("span", { className: "flow-tool-spacer" }),
+      el("button", { className: "flow-btn", dataset: { name: "flow-save-btn" }, onclick: saveFlow }, "保存"),
+      el("button", { className: "flow-btn primary", dataset: { name: "flow-run-btn" }, onclick: runFlow }, "运行"),
     ]);
 
-    var body = el("div", { className: "flow-body" }, [
+    var body = el("div", { className: "flow-body", dataset: { name: "flow-body" } }, [
       dom.list,
-      el("div", { className: "flow-main" }, [dom.tools, dom.canvas, dom.status]),
+      el("div", { className: "flow-main", dataset: { name: "flow-main" } }, [dom.tools, dom.canvas, dom.status]),
       dom.panel,
     ]);
 
-    var overlay = el("div", { className: "flow-overlay" }, [head, body]);
-    overlay.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape") closeOverlay();
-    });
-    return overlay;
+    return el("div", { className: "flow-page", dataset: { view: "flow", name: "flow-page" } }, [body, foot]);
   }
 
-  // 画布占满「除左侧会话栏外」的全部空间：打开时自动折叠侧栏，关闭时恢复
-  // 它原来的折叠状态（用户自己折叠过的不会在关闭后被误展开）。
-  function setSidebarCollapsed(collapsed) {
-    var sidebar = window.App && window.App.sidebar;
-    if (!sidebar) return;
-    sidebar.classList.toggle("collapsed", collapsed);
-    if (window.App.syncCollapseButtons) window.App.syncCollapseButtons();
-  }
-
-  function openOverlay() {
+  // 打开流程页：首次进入时拉一次流程图列表并载入第一张，之后只是切视图。
+  // 首次进入：优先载入列表里的第一张；一张都没有才新建。
+  // 注意：init 时会预置一个 id 为 null 的空 flow 对象，所以判断「有没有载入过」
+  // 不能只看 state.flow 是否存在，要看它是否已有 id。
+  function openFlowView() {
     if (state.open) return;
     state.open = true;
-    state.sidebarWasCollapsed = !!(window.App && window.App.sidebar && window.App.sidebar.classList.contains("collapsed"));
-    setSidebarCollapsed(true);
-    dom.overlay.hidden = false;
     refreshFlows().then(function () {
-      if (!state.flow && state.flows.length) return openFlow(state.flows[0].id);
-      if (!state.flow) createFlow();
-      renderAll();
+      var current = state.flow;
+      var unsavedEdits = state.dirty;
+      if (current && current.id != null) { renderAll(); return; }
+      if (state.flows.length) return openFlow(state.flows[0].id);
+      // 没有任何已保存的流程图：保留用户正在编辑的内容，否则新建一张空的
+      if (!current || (unsavedEdits && current)) { renderAll(); return; }
+      createFlow();
     });
-  }
-
-  function closeOverlay() {
-    state.open = false;
-    if (dom.overlay) dom.overlay.hidden = true;
-    if (!state.sidebarWasCollapsed) setSidebarCollapsed(false);
   }
 
   async function init() {
-    var btn = document.getElementById("flowBtn");
-    if (!btn) return;
     try { state.types = await api("flow.nodeTypes", {}); } catch (_) { state.types = {}; }
     state.flow = { id: null, name: "新流程图", description: "", definition: emptyDefinition() };
-    dom.overlay = buildOverlay();
-    dom.overlay.hidden = true;
-    document.body.appendChild(dom.overlay);
-    bindCanvasNavigation();
-    btn.addEventListener("click", openOverlay);
-    renderAll();
+    if (!window.App || !window.App.registerView) {
+      console.warn("[flow] App.registerView 未就绪，流程页未注册");
+      return;
+    }
+    window.App.registerView("flow", {
+      header: buildHeaderActions,
+      mount: function (container) {
+        dom.page = buildPage();
+        container.appendChild(dom.page);
+        bindCanvasNavigation(); // 画布节点由 buildPage 建出，导航事件只能在这里绑
+        renderAll();
+      },
+    });
+    // 每次切到流程页：首次拉列表并载入第一张；之后只按页面实际尺寸重排画布。
+    window.App.refreshViewLayout = function (name) {
+      if (name !== "flow" || !dom.page) return;
+      if (!state.open) { openFlowView(); return; }
+      var rect = dom.canvas.getBoundingClientRect();
+      if (state.view.x === 0 && state.view.y === 0) {
+        // 首次显示时把内容居中，避免节点挤在左上角
+        state.view.x = Math.max(0, Math.round((rect.width - 740) / 2));
+        state.view.y = Math.max(0, Math.round((rect.height - 240) / 2));
+      }
+      applyView();
+    };
   }
 
-  window.FlowCanvas = { init: init, open: openOverlay };
+  window.FlowCanvas = { init: init };
   ready(function () { init().catch(function (error) { console.warn("[flow] init failed:", error); }); });
 })();
