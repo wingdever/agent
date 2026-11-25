@@ -60,6 +60,10 @@ class Agent {
     this.turn = null;
 
     this._idleWaiters = [];
+    // wait_agent marks messages it has reported without consuming them; the
+    // step boundary clears the set when it claims nextStep.
+    this.nextStepReported = new Set();
+    this._stepWaiters = [];
   }
 
   // ---- identity ----
@@ -119,6 +123,7 @@ class Agent {
     // for the next turn instead.
     if (wantStep && this.running()) {
       this.inbox.nextStep.push(item);
+      this._notifyStepWaiters();
       return "next-step";
     }
     this.inbox.nextTurn.push(item);
@@ -131,7 +136,68 @@ class Agent {
 
   claimNextStep() {
     const items = this.inbox.nextStep.splice(0);
+    this.nextStepReported.clear();
     return items;
+  }
+
+  peekNextStep() {
+    return this.inbox.nextStep.slice();
+  }
+
+  unreportedNextStep() {
+    return this.inbox.nextStep.filter((item) => !this.nextStepReported.has(item.id));
+  }
+
+  markNextStepReported(ids) {
+    for (const id of ids || []) this.nextStepReported.add(id);
+  }
+
+  // Resolve when nextStep changes, the timeout expires, or the turn aborts.
+  // The caller re-checks unreportedNextStep() after each wakeup.
+  _waitForStepSignal(timeoutMs, signal) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        const index = this._stepWaiters.indexOf(finish);
+        if (index >= 0) this._stepWaiters.splice(index, 1);
+        if (signal) signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        const index = this._stepWaiters.indexOf(finish);
+        if (index >= 0) this._stepWaiters.splice(index, 1);
+        reject(new Error("tool call aborted"));
+      };
+      this._stepWaiters.push(finish);
+      timer = setTimeout(finish, Math.max(0, timeoutMs));
+      if (signal) {
+        if (signal.aborted) { onAbort(); return; }
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+  }
+
+  async waitForNextStep({ timeoutMs = 30000, signal } = {}) {
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (true) {
+      const pending = this.unreportedNextStep();
+      if (pending.length > 0) return pending;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return null;
+      await this._waitForStepSignal(Math.min(remaining, 250), signal);
+    }
+  }
+
+  _notifyStepWaiters() {
+    const waiters = this._stepWaiters.splice(0);
+    for (const resolve of waiters) resolve();
   }
 
   hasPending() {

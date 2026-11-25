@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Agent</title>
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="vendor/xterm.css" />
 </head>
 <body>
 <!-- shell: 整体界面外壳（三栏并排） -->
@@ -71,6 +72,7 @@
           <button class="activity-indicator" id="activityIndicator" data-name="activity-indicator" title="当前活动（点击切换）">活动: research</button>
           <button class="presence-switch" id="presenceSwitch" data-name="presence-mode-switch" title="在场状态（in/out，自动推断，可手动切换）">在场: in</button>
           <button class="autonomy-switch" id="autonomySwitch" data-name="autonomy-mode-switch" title="自主度（supervised/autonomous，可手动提权/降权）">自主: supervised</button>
+          <button class="terminal-toggle" id="terminalToggle" data-name="terminal-toggle" title="打开终端侧栏">终端</button>
         </div>
         <button class="right-collapse-button" id="rightCollapse" data-name="right-collapse-button" title="折叠右栏">»</button>
       </div>
@@ -133,6 +135,24 @@
     </div>
   </main>
 
+  <!-- terminal-panel: 右侧终端侧栏。xterm 直接渲染 PTY 原始输出，
+       每个终端一条 WebSocket，首次输入即由用户接管。 -->
+  <aside class="terminal-panel" id="terminalPanel" data-name="terminal-panel" hidden>
+    <div class="terminal-panel-head" data-name="terminal-panel-head">
+      <span class="terminal-panel-title">终端</span>
+      <button class="terminal-new-btn" id="terminalNew" data-name="terminal-new" title="新建终端">+ 新建</button>
+      <button class="terminal-close-panel-btn" id="terminalClosePanel" data-name="terminal-close-panel" title="收起终端侧栏">»</button>
+    </div>
+    <div class="terminal-tabs" id="terminalTabs" data-name="terminal-tabs"></div>
+    <div class="terminal-stage" id="terminalStage" data-name="terminal-stage">
+      <div class="terminal-empty" id="terminalEmpty" data-name="terminal-empty">
+        <div>还没有可见终端</div>
+        <button class="terminal-empty-new" id="terminalEmptyNew" data-name="terminal-empty-new">新建终端</button>
+      </div>
+    </div>
+    <div class="terminal-statusbar" id="terminalStatus" data-name="terminal-status"></div>
+  </aside>
+
   <!-- context-panel: 右侧上下文面板（默认隐藏，仅聊天页可见） -->
   <aside class="context-panel" id="contextPanel" data-name="context-panel" hidden>
     <div class="context-default">点击左侧任意 <b>tool-call</b> 卡片查看其参数与结果摘要。文件写类工具可点卡片上的「预览」查看产物。</div>
@@ -156,6 +176,8 @@
 <script src="vendor/purify.min.js"></script>
 <script src="vendor/cytoscape.min.js"></script>
 <script src="vendor/cytoscape-dagre.js"></script>
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
 <script src="markdown.js"></script>
 <script src="api.js"></script>
 <script src="state.js"></script>
@@ -167,6 +189,7 @@
 <script src="chat-tab.js"></script>
 <script src="compaction-ui.js"></script>
 <script src="composer.js"></script>
+<script src="terminal-panel.js"></script>
 <script src="app.js"></script>
 <script src="shortcuts.js"></script>
 <script src="models.js"></script>

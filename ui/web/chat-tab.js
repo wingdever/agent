@@ -101,6 +101,8 @@
     App.renderToolResult(card, text, !!(evt && evt.isError));
     if (evt && evt.name === "todo_write" && evt.meta && Array.isArray(evt.meta.todos)) {
       renderTodoList(card, evt.meta.todos);
+    } else if (evt && evt.name === "present" && evt.meta && Array.isArray(evt.meta.files)) {
+      renderPresentFiles(card, evt.meta.files);
     }
   }
 
@@ -120,6 +122,55 @@
       list.appendChild(item);
     });
     card.appendChild(list);
+  }
+
+  // present 的交付卡片：一个工具调用可以携带最多 4 个文件。预览按钮复用
+  // 右栏 artifact-preview；历史回放优先用 call.result.meta.files，缺 meta 时
+  // 回落到 arguments.files（旧会话没有 result join 时仍能显示文件列表）。
+  function renderPresentFiles(card, files) {
+    if (!card) return;
+    var old = card.querySelector(".present-files");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    if (!Array.isArray(files) || !files.length) return;
+
+    var box = App.makeEl("present-files", "present-files");
+    var head = App.makeEl("present-files-head", "present-files-head");
+    head.textContent = "已交付 " + files.length + " 个文件";
+    box.appendChild(head);
+
+    files.forEach(function (file) {
+      if (!file || typeof file !== "object") return;
+      var filePath = file.path || file.file_path || "";
+      if (!filePath) return;
+      var row = App.makeEl("present-file", "present-file");
+      var info = App.makeEl("present-file-info", "present-file-info");
+      var name = App.makeEl("present-file-name", "present-file-name");
+      name.textContent = file.name || String(filePath).split(/[\\/]/).pop() || filePath;
+      name.title = filePath;
+      info.appendChild(name);
+      var detail = [];
+      if (file.description) detail.push(file.description);
+      if (typeof file.bytes === "number" && App.formatBytes) detail.push(App.formatBytes(file.bytes));
+      if (detail.length) {
+        var sub = App.makeEl("present-file-sub", "present-file-sub");
+        sub.textContent = detail.join(" · ");
+        info.appendChild(sub);
+      }
+      row.appendChild(info);
+      var preview = document.createElement("button");
+      preview.className = "present-file-preview";
+      preview.setAttribute("data-name", "present-file-preview");
+      preview.type = "button";
+      preview.textContent = "预览";
+      preview.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (App.previewArtifact) App.previewArtifact(filePath);
+      });
+      row.appendChild(preview);
+      box.appendChild(row);
+    });
+
+    if (box.querySelector(".present-file")) card.appendChild(box);
   }
 
   function parseToolArgs(call) {
@@ -754,6 +805,8 @@
         App.renderToolResult(hc, evt.content, evt.isError);
         if (evt.name === "todo_write" && evt.meta && Array.isArray(evt.meta.todos)) {
           renderTodoList(hc, evt.meta.todos);
+        } else if (evt.name === "present" && evt.meta && Array.isArray(evt.meta.files)) {
+          renderPresentFiles(hc, evt.meta.files);
         }
       }
     } else if (evt.type === "ask-user-question") {
@@ -907,6 +960,10 @@
             if (call.name === "todo_write") {
               var todoArgs = parseToolArgs(call);
               renderTodoList(card, todoArgs.todos);
+            } else if (call.name === "present") {
+              var presentFiles = call.result && call.result.meta && call.result.meta.files;
+              if (!Array.isArray(presentFiles)) presentFiles = parseToolArgs(call).files;
+              renderPresentFiles(card, presentFiles);
             }
             respNode.appendChild(card);
             (function (cc) { cc.addEventListener("click", function () { App.showToolDetail(cc); }); })(card);

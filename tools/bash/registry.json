@@ -28,5 +28,7 @@
   "entry": "run.js",
   "defaultVisible": true,
   "timeoutMs": 120000,
+  "provider": "foreground",
+  "priority": 10,
   "prompt": "Check the [exit code: N] marker on every bash result; investigate failures before moving on."
 }

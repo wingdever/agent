@@ -100,8 +100,8 @@ class SubagentRuntime {
     this.store = core.store;
     this.tasks = new Map();       // childId -> background completion promise
     this.announced = new Set();   // settlement delivered at most once per child
+    this.settleLinks = new Map(); // queued settlement inbox id -> output id
     this.controllers = new Map(); // childId -> AbortController (§6.1 独立取消通道)
-    this.steering = new Map();    // sessionId -> pending steer messages (§17)
     this.childContexts = new Map(); // childId -> { parentChatCtx, parentOnEvent } 跨轮次保留，唤醒时复用
     this._waking = new Set();     // sessionId being woken: closes the check-then-launch race
     this._deps = {
@@ -378,7 +378,7 @@ class SubagentRuntime {
     return this.tasks.has(key) || this._waking.has(key) || this.core.agent.activeSessions.has(key);
   }
 
-  // send_message（§15.1）：idle 目标起一轮，运行中目标入 steer 队列（§17）。
+  // send_message（§15.1）：idle 目标起一轮，运行中目标进入 nextStep 队列（§17）。
   // 返回投递回执，不等待目标回答。
   async sendMessage({ senderSessionId, agent, message }) {
     const targetId = await this.resolveAgent(senderSessionId, agent);
@@ -398,9 +398,11 @@ class SubagentRuntime {
     const content = `Agent ${senderName} sent a message: ${message}`;
     const messageId = crypto.randomUUID();
     if (this.isRunning(targetId)) {
-      const key = String(targetId);
-      if (!this.steering.has(key)) this.steering.set(key, []);
-      this.steering.get(key).push({ senderName, content, messageId });
+      const targetAgent = this.core.agent.get(Number(targetId));
+      if (!targetAgent) throw new Error(`agent "${agent}" is running but has no live instance`);
+      // A running target sees this at its next step boundary. It is not a
+      // settlement: it stays a user message with source=agent-message.
+      targetAgent.enqueue({ id: messageId, content, source: "agent-message" }, "next-step");
       return { messageId };
     }
     const link = await this.store.run("subagent.get", { sub_sess_id: Number(targetId) });
@@ -461,6 +463,36 @@ class SubagentRuntime {
     return rows;
   }
 
+  // wait_agent（docs/agents/inbox.md §8）：等待调用方自己的 nextStep 出现
+  // 未报告过的输入，不消费输入。send_message 与结算通知在父轮运行中时都会
+  // 进入这个队列；wait_agent 只标记已报告，真正的领取发生在下一个 step 边界。
+  async waitAgent({ callerSessionId, timeoutMs = 30000, signal } = {}) {
+    const agent = callerSessionId != null ? this.core.agent.get(Number(callerSessionId)) : null;
+    if (!agent) throw new Error("wait_agent requires a live caller agent");
+    if (!agent.running()) throw new Error("wait_agent can only run inside an active turn");
+    const timeout = Number.isInteger(timeoutMs) ? timeoutMs : 30000;
+    if (timeout < 10000 || timeout > 3600000) {
+      throw new Error("timeout_ms must be an integer between 10000 and 3600000");
+    }
+    const pending = await agent.waitForNextStep({ timeoutMs: timeout, signal });
+    if (!pending) return { timedOut: true };
+    agent.markNextStepReported(pending.map((item) => item.id));
+    return { timedOut: false, pending: pending.length };
+  }
+
+  // Called by model-call after a queued settlement has a persisted message row.
+  // The output association is best-effort and never blocks the step.
+  async linkSettlement({ inboxId, messageId } = {}) {
+    const outputId = this.settleLinks.get(inboxId);
+    if (outputId == null || messageId == null) return;
+    try {
+      await this.store.run("subagentSettle.add", { output_id: outputId, settle_id: messageId });
+    } catch (e) {
+      this._deps.logger.warn("[subagent] settle association failed:", (e && e.message) || e);
+    }
+    this.settleLinks.delete(inboxId);
+  }
+
   // 唤醒 idle 的子会话：用消息作为本轮输入起一轮，轮末照常给父发结算（§14）。
   async _wakeChild(childId, parentSessionId, content) {
     const key = String(childId);
@@ -507,14 +539,6 @@ class SubagentRuntime {
       });
     this.tasks.set(key, task);
     return task;
-  }
-
-  // 下一次模型请求前取走并清空某会话的 steer 队列（两个 loop 在压缩后调用，§17）。
-  takeSteering(sessionId) {
-    const key = String(sessionId);
-    const items = this.steering.get(key) || [];
-    this.steering.delete(key);
-    return items;
   }
 
   // 两种委派共用的子会话创建：同 workspace、kind=subagent、分配名称并写委派关联。
@@ -619,6 +643,20 @@ class SubagentRuntime {
   async _deliverSettlement(spec, childId, settleText, outputId) {
     if (this.announced.has(childId)) return;
     const parentSessionId = spec.parentSessionId;
+
+    // A running parent cannot start another turn. Put the settlement on its
+    // nextStep queue instead: wait_agent sees it immediately, and the step
+    // boundary claims and persists it with source=subagent-settle.
+    const liveParent = this.core.agent && this.core.agent.get
+      ? this.core.agent.get(parentSessionId)
+      : null;
+    if (liveParent && liveParent.running()) {
+      const inboxId = crypto.randomUUID();
+      if (outputId != null) this.settleLinks.set(inboxId, outputId);
+      liveParent.enqueue({ id: inboxId, content: settleText, source: "subagent-settle" }, "next-step");
+      this.announced.add(childId);
+      return;
+    }
 
     await this._waitParentIdle(parentSessionId);
 

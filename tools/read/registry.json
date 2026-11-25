@@ -24,6 +24,6 @@
   "mode": "read",
   "group": "fs",
   "entry": "run.js",
-  "prompt": "Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.",
+  "prompt": "Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files. For PNG/JPEG/WebP/GIF files use read_image instead; read rejects binary content.",
   "defaultVisible": true
 }

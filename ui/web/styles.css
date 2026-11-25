@@ -69,6 +69,7 @@ select, textarea, input { font-family: inherit; }
 .chat-header .session-mode-indicator,
 .chat-header .activity-indicator,
 .chat-header .presence-switch,
+.chat-header .terminal-toggle,
 .chat-header .autonomy-switch { height: 28px; box-sizing: border-box; border-radius: 6px; padding: 0 10px; font-size: 12px; line-height: 1; }
 .chat-header .left-collapse-button,
 .chat-header .right-collapse-button { width: 28px; padding: 0; flex: 0 0 28px; }
@@ -259,6 +260,17 @@ select, textarea, input { font-family: inherit; }
 .artifact-preview-body .artifact-error,
 .artifact-preview-body .artifact-note { color: #9ca3af; font-size: 12px; padding: 4px 0; }
 .artifact-preview-body .artifact-error { color: #dc2626; }
+
+/* present：交付文件卡片（工具卡内，与右栏预览联动） */
+.present-files { margin-top: 6px; border: 1px solid #ddd6fe; border-radius: 6px; background: #fff; overflow: hidden; }
+.present-files-head { padding: 5px 8px; font-size: 11px; color: #6d28d9; background: #f5f3ff; border-bottom: 1px solid #ede9fe; }
+.present-file { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid #f1f5f9; }
+.present-files-head + .present-file { border-top: 0; }
+.present-file-info { min-width: 0; flex: 1; }
+.present-file-name { display: block; font-size: 12px; color: #374151; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.present-file-sub { display: block; margin-top: 2px; font-size: 11px; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.present-file-preview { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border: 1px solid #c4b5fd; border-radius: 6px; background: #fff; color: #6d28d9; cursor: pointer; }
+.present-file-preview:hover { background: #f5f3ff; }
 
 /* 工具卡片上的「预览」按钮 */
 .tool-call-card { position: relative; }
@@ -890,3 +902,127 @@ select, textarea, input { font-family: inherit; }
 .flow-btn.small { padding: 3px 8px; font-size: 11px; }
 .flow-btn.primary { background: #1d4ed8; border-color: #2563eb; }
 .flow-btn.danger { background: #7f1d1d; border-color: #b91c1c; margin-top: 8px; }
+
+/* terminal-panel: 右侧终端侧栏。深色背景让 xterm 的 ANSI 配色接近原生终端。 */
+.terminal-panel {
+  width: clamp(300px, 40vw, 460px);
+  flex: 0 0 clamp(300px, 40vw, 460px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #0b1020;
+  color: #dbeafe;
+  border-left: 1px solid #1f2937;
+}
+.terminal-panel[hidden] { display: none; }
+.terminal-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 10px;
+  border-bottom: 1px solid #1f2937;
+  background: #111827;
+}
+.terminal-panel-title { font-size: 13px; font-weight: 600; color: #e5e7eb; }
+.terminal-new-btn,
+.terminal-close-panel-btn {
+  border: 1px solid #374151;
+  background: #1f2937;
+  color: #dbeafe;
+  border-radius: 6px;
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.terminal-new-btn { margin-left: auto; }
+.terminal-close-panel-btn { width: 28px; padding: 0; }
+.terminal-new-btn:hover,
+.terminal-close-panel-btn:hover { background: #374151; }
+.terminal-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+  overflow-x: auto;
+  background: #0f172a;
+  flex: 0 0 auto;
+}
+.terminal-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+  border: 1px solid #1f2937;
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  padding: 5px 7px 5px 9px;
+  background: #111827;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.terminal-tab.active { background: #1e293b; color: #f8fafc; border-color: #334155; }
+.terminal-tab-name { overflow: hidden; text-overflow: ellipsis; }
+.terminal-tab-mark { font-size: 10px; color: #64748b; }
+.terminal-tab.active .terminal-tab-mark { color: #93c5fd; }
+.terminal-tab-close {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.terminal-tab-close:hover { color: #fecaca; }
+.terminal-stage { position: relative; flex: 1 1 auto; min-height: 0; padding: 8px 6px 0; }
+.terminal-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #64748b;
+  font-size: 13px;
+}
+.terminal-empty[hidden] { display: none; }
+.terminal-empty-new {
+  border: 1px solid #334155;
+  background: #111827;
+  color: #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.terminal-slot { position: absolute; inset: 8px 6px 0; display: none; }
+.terminal-slot.active { display: block; }
+.terminal-host { width: 100%; height: 100%; overflow: hidden; }
+.terminal-host .xterm { height: 100%; padding: 2px 4px 0; }
+.terminal-statusbar {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 4px 10px;
+  border-top: 1px solid #1f2937;
+  background: #0f172a;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.terminal-toggle {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 6px;
+  color: #4b5563;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.terminal-toggle[data-active="1"] { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }

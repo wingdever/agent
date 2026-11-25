@@ -74,6 +74,7 @@
   // 若页面由 Electron ipc 模式加载，window.agentBridge 已存在
   var base = window.agentBridge || httpClient();
   window.AgentClient = Object.assign({}, base, {
+    baseUrl: window.agentBridge ? null : BASE,
     selectFolder: (window.agentBridge && window.agentBridge.selectFolder) || webkitFolderSelect,
   });
 })();

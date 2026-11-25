@@ -31,5 +31,17 @@ export default async function run(input, ctx) {
       console.warn("[compaction] automatic pressure pass failed:", (error && error.message) || error);
     }
   }
+
+  // Step boundary: claim all nextStep inputs (agent messages and steering),
+  // append them as user turns for this request, and let model-call persist them
+  // with the new step id. wait_agent only marked them reported; this is the
+  // actual consumption point.
+  const pendingStep = agent.claimNextStep();
+  ctx.pendingStepMessages = pendingStep;
+  for (const item of pendingStep) {
+    request.messages.push({ role: "user", content: item.content });
+    ctx.emit({ type: "inbox", queue: "next-step", source: item.source, messageId: item.id });
+  }
+
   return { output: request.header, next: "model-call" };
 };

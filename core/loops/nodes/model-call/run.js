@@ -21,6 +21,28 @@ export default async function run(input, ctx) {
   ctx.nextSeq = nextSeq;
   if (r > 0) ctx.emit({ type: "step-start", seq: r });
 
+  // nextStep inputs claimed by pre-step are persisted with this step before
+  // the assistant response, so replay and the live request share one prefix.
+  if (persist && ctx.pendingStepMessages && ctx.pendingStepMessages.length) {
+    for (const item of ctx.pendingStepMessages) {
+      try {
+        const row = await services.store.run("message.add", {
+          step_id: step.id,
+          seq: nextSeq(),
+          role: "user",
+          content: item.content,
+          source: item.source,
+        });
+        if (item.source === "subagent-settle" && services.subagents && typeof services.subagents.linkSettlement === "function") {
+          await services.subagents.linkSettlement({ inboxId: item.id, messageId: row.id });
+        }
+      } catch (e) {
+        ctx.emit({ type: "error", error: "persist next-step message failed: " + (e.message || e) });
+      }
+    }
+  }
+  ctx.pendingStepMessages = [];
+
   // r=0: persist system / catalog / user before the request. Persistence
   // failures only warn; the model response is still usable.
   if (persist && r === 0) {

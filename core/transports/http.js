@@ -1,5 +1,6 @@
 "use strict";
 import http from "http";
+import { attachTerminalWebSocket } from "./terminal-ws.js";
 
 // HTTP transport: REST + SSE. It knows only the RPC registry's streaming flag;
 // it never special-cases domain command names.
@@ -56,6 +57,7 @@ function createHttpTransport(options = {}) {
         server.on("error", reject);
         server.listen(port, host, () => {
           console.log("[http] listening on http://" + host + ":" + port);
+          attachTerminalWebSocket(server, core);
           resolve(server);
         });
       });

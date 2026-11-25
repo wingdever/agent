@@ -27,5 +27,5 @@
   "group": "fs",
   "entry": "run.js",
   "defaultVisible": true,
-  "prompt": "Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session."
+  "prompt": "Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session. For changes across several files or separated regions, prefer apply_patch over repeated edit calls."
 }

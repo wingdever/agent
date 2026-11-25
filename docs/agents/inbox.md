@@ -76,6 +76,8 @@ inbox = {
 `wait_agent` 让调用方在下一个 step 边界等待输入出现，不消费输入：
 
 - 等待条件是本 agent 的 `nextStep` 出现此前未报告过的消息。
+- 进入 `nextStep` 的来源：运行中目标收到的 `send_message`（`agent-message`），以及父会话运行中收到的子代理结算（`subagent-settle`）。
 - 有新输入立即返回 `{ timedOut: false }`；超时返回 `{ timedOut: true }`，`timeout_ms` 取值 10000–3600000，默认 30000。
 - 同一个工具调用内已报告过的消息不重复触发等待结束——它们要等本 step 结束才会真正进入请求，重复触发只会让等待空转。
+- `pre-step` 在 step 边界调用 `claimNextStep()`，把领取到的消息追加进本轮请求；`model-call` 创建 step 后按原 `source` 落库，`subagent-settle` 同时补 `subagent_settles` 关联。
 - 调用方 agent 被销毁或插件卸载时等待以错误结束，不悬挂。

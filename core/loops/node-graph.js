@@ -135,6 +135,8 @@ class NodeGraphEngine {
         subagents: core.subagents,
         workflow: core.workflow,
         jobs: core.jobs,
+        terminals: core.terminals,
+        lsp: core.lsp,
         team: core.team,
         schedule: core.schedule,
         a2a: core.a2a,
@@ -164,6 +166,7 @@ class NodeGraphEngine {
       }),
       turn: { row: null, startedAt, stepSeq: 0, steps: 0, toolsUsed: 0 },
       step: null,
+      pendingStepMessages: [],
       translatedUser: null,
       translateCfg: null,
     };

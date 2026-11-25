@@ -50,6 +50,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.initToolDetail();     // modals.js：tool-call 检视器 DOM 缓存
   App.initArtifactPreview();// modals.js：产物预览 DOM 缓存
   App.initSidebar();        // sidebar.js：工作区/会话树/回收站/搜索 绑定
+  App.initTerminalPanel();  // terminal-panel.js：右侧 xterm 终端侧栏
   App.initTrajectory();     // trajectory.js：轨迹面板 DOM 缓存
   App.initGraph();          // graph-ui.js：本体模态框入口（meta-btn）与代码图页
   App.initPresence();       // context-panel.js：presence/autonomy/activity 绑定
@@ -67,6 +68,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.selectSession = function selectSession(sess, node) {
     App.currentSessionId = sess.id;
     App.currentActivity = (sess && sess.activity) || "research";
+    if (App.terminalPanel) App.terminalPanel.setSession(sess.id);
     if (App.resetTrajectory) App.resetTrajectory(); // 切换会话后轨迹需重新拉取
     if (App.sessionNameLabel) App.sessionNameLabel.textContent = sess.name || ("会话 " + sess.id);
     App.scheduleHeaderEval(); // 会话名变了（D2 可能撑大左组）→ 重新评估紧凑（D6）

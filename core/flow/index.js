@@ -29,8 +29,9 @@ const DEFAULT_MAX_TOKENS = 4096;
  * @param {Function} deps.runTool the tool executor's runTool(tool, args, exec)
  * @param {object} [deps.capabilities] proxy/skill handles exposed to tools
  * @param {object} [deps.browser] browser service for browser_* tools
+ * @param {object} [deps.lsp] LSP service for precise navigation
  */
-function createFlowService({ store, model, config, tools, runTool, capabilities = null, browser = null }) {
+function createFlowService({ store, model, config, tools, runTool, capabilities = null, browser = null, lsp = null }) {
   const active = new Map(); // runId -> AbortController
 
   function resolveTarget(data) {
@@ -73,6 +74,7 @@ function createFlowService({ store, model, config, tools, runTool, capabilities 
         store,
         capabilities,
         browser,
+        lsp,
       }),
     };
   }

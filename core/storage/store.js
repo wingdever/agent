@@ -1071,7 +1071,15 @@ class Store {
     await this._insertRow("calls", cols, vals);
     return this.getCall({ id: cid });
   }
-  _callRow(row) { if (row) row.arguments = _j(row.arguments); return row; }
+  _callRow(row) {
+    if (!row) return row;
+    row.arguments = _j(row.arguments);
+    // `result` is only present when the SELECT joined calls.result_id. Keep it
+    // parsed here so UI history can replay tool-specific projections (e.g.
+    // present's file cards) without a second contents lookup.
+    if (row.result != null) row.result = _j(row.result);
+    return row;
+  }
   async getCall({ id }) {
     const row = await this.db.prepare(
       'SELECT id, reply_id, seq, call_id, name, description, "arguments", status, result_id, error, category, created_at, updated_at FROM calls WHERE id=$1'
@@ -1080,7 +1088,7 @@ class Store {
   }
   async listCallsByReply({ reply_id }) {
     const rows = await this.db.prepare(
-      'SELECT id, reply_id, seq, call_id, name, description, "arguments", status, result_id, error, category, created_at, updated_at FROM calls WHERE reply_id=$1 ORDER BY seq'
+      'SELECT c.id, c.reply_id, c.seq, c.call_id, c.name, c.description, c."arguments", c.status, c.result_id, c.error, c.category, c.created_at, c.updated_at, r.content AS result FROM calls c LEFT JOIN contents r ON r.id=c.result_id WHERE c.reply_id=$1 ORDER BY c.seq'
     ).all(reply_id);
     return rows.map((r) => this._callRow(r));
   }

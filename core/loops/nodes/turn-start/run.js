@@ -6,6 +6,7 @@ import path from "path";
 import { readPermissions } from "./../../../permissions.js";
 import _mod0 from "./../../../fs-policy.js";
 const { readFsPolicy } = _mod0;
+import { resolveExecutorMode, selectForExecutor } from "./../../../executor-mode.js";
 import { reset as resetTodos } from "./../../../../lib/todo-state/index.js";
 
 export default async function run(input, ctx) {
@@ -24,7 +25,11 @@ export default async function run(input, ctx) {
   const settings = services.config.readSettings();
   ctx.translateCfg = services.context.resolveTranslateConfig(settings);
 
-  ctx.request.selected = services.tools.select(ctx.toolNames);
+  ctx.executorMode = resolveExecutorMode();
+  const selection = selectForExecutor(services.tools, ctx.toolNames, ctx.executorMode);
+  ctx.request.selected = selection.selected;
+  ctx.request.nestedToolNames = selection.nestedToolNames;
+  ctx.request.sdkTools = selection.sdkTools;
   ctx.request.toolDefs = services.tools.defs(ctx.request.selected);
   ctx.request.permissions = readPermissions();
   ctx.request.fsPolicy = readFsPolicy();

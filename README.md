@@ -11,12 +11,17 @@ pnpm install         # install dependencies (includes electron 44.9.3)
 pnpm start           # launch the default electron UI + http transport
 ```
 
+`node-pty` builds a small native module during install. On Linux this needs
+`python3`, `make` and `g++`; `node-gyp` is included as a dev dependency.
+
 ### environment-variables
 
 ```bash
 AGENT_UI=electron
 AGENT_TRANSPORT=http
 AGENT_LOOP_ENGINE=node-graph
+AGENT_TOOL_PROVIDER_BASH=persistent
+AGENT_BASH_TERMINAL_BACKEND=pty
 ```
 
 - `AGENT_UI`: 
@@ -28,6 +33,15 @@ Supports `http` (default) and `ipc`.
 - `AGENT_LOOP_ENGINE`: 
 which agent-loop engine to use. 
 `node-graph` is the default and active engine; `linear` is frozen as a reference.
+- `AGENT_TOOL_PROVIDER_BASH`:
+selects the provider for the `bash` tool slot. `persistent` (default) keeps
+cwd and exported environment across calls; `foreground` keeps the one-shot
+`bash -c` behavior. Exactly one provider is registered.
+- `AGENT_BASH_TERMINAL_BACKEND`:
+selects the persistent bash transport. `pty` (default) uses `node-pty` so the
+shell has a controlling terminal; `pipe` keeps the dependency-free fallback
+with separate stdout/stderr. If `node-pty` cannot load, persistent bash falls
+back to `pipe` automatically.
 
 
 ## Architecture

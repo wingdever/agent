@@ -168,6 +168,46 @@ function resolveFsPermission(permissions, fsPolicy, toolName, filePath, cwd) {
   return permissionForTool(permissions, toolName);
 }
 
+// Resolve a multi-path tool. A deny on any path wins; otherwise the most
+// restrictive result (ask > allow) is used, and a path with no rule keeps the
+// tool-level fallback.
+function resolveFsPermissionForPaths(permissions, fsPolicy, toolName, filePaths, cwd) {
+  const paths = Array.isArray(filePaths) ? filePaths.filter((p) => typeof p === "string" && p.trim()) : [];
+  if (paths.length === 0) return permissionForTool(permissions, toolName);
+  let anyAsk = false;
+  let anyAllow = false;
+  for (const filePath of paths) {
+    const level = resolveFsPermission(permissions, fsPolicy, toolName, filePath, cwd);
+    if (level === "deny") return "deny";
+    if (level === "ask") anyAsk = true;
+    if (level === "allow") anyAllow = true;
+  }
+  if (anyAsk) return "ask";
+  if (anyAllow) return "allow";
+  return permissionForTool(permissions, toolName);
+}
+
+// Paths a filesystem-writing tool touches. apply_patch embeds its paths in the
+// patch text, so the extractor is deliberately conservative: every Add/Update/
+// Delete/Move target is checked against the policy.
+function fsPathsForTool(toolName, args = {}) {
+  if (!args || typeof args !== "object") return [];
+  if (toolName === "write" || toolName === "edit" || toolName === "read_image") {
+    return [args.file_path];
+  }
+  if (toolName === "str_replace_editor") return [args.path];
+  if (toolName === "apply_patch" && typeof args.input === "string") {
+    const found = [];
+    const re = /^\*\*\* (?:Add|Update|Delete) File:\s*(.+)$/gm;
+    let match;
+    while ((match = re.exec(args.input)) !== null) found.push(match[1].trim());
+    const moveRe = /^\*\*\* Move to:\s*(.+)$/gm;
+    while ((match = moveRe.exec(args.input)) !== null) found.push(match[1].trim());
+    return found;
+  }
+  return [];
+}
+
 function permissionForTool(permissions, toolName) {
   return permissionFor(permissions, toolName);
 }
@@ -176,7 +216,16 @@ export default {
   FS_POLICY_FILE,
   readFsPolicy,
   resolveFsPermission,
+  resolveFsPermissionForPaths,
+  fsPathsForTool,
   // exported for tests
   _matches: matches,
   _globToRegExp: globToRegExp,
+};
+export {
+  FS_POLICY_FILE,
+  readFsPolicy,
+  resolveFsPermission,
+  resolveFsPermissionForPaths,
+  fsPathsForTool,
 };

@@ -188,6 +188,7 @@ class AgentRegistry {
     const agent = this.instances.get(key);
     if (!agent) return false;
     if (agent.running()) agent.interrupt();
+    this.shared.terminals?.close(sessionId);
     this.instances.delete(key);
     this._activity.delete(key);
     if (this._selected === agent) this._selected = null;

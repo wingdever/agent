@@ -28,6 +28,8 @@ class AgentRuntime {
     this.core = null;
     this.getSubagents = () => null;
     this.jobs = null;
+    this.terminals = null;
+    this.lsp = null;
     this.team = null;
     this.bootId = crypto.randomUUID();
     this.activeSessions = new Set();
@@ -60,6 +62,16 @@ class AgentRuntime {
     this.registry.shared.jobs = jobs;
   }
 
+  setTerminals(terminals) {
+    this.terminals = terminals;
+    this.registry.shared.terminals = terminals;
+  }
+
+  setLsp(lsp) {
+    this.lsp = lsp;
+    this.registry.shared.lsp = lsp;
+  }
+
   setTeam(team) {
     this.team = team;
     this.registry.shared.team = team;
@@ -75,6 +87,8 @@ class AgentRuntime {
       interactions: this.interactions,
       subagents: this.getSubagents(),
       jobs: this.jobs,
+      terminals: this.terminals,
+      lsp: this.lsp,
       team: this.team,
       store: this.store,
       goals: this.goals,

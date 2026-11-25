@@ -75,7 +75,7 @@
 
 ### 明确不做
 
-- **PTC / `run_code` 执行器**：本项目只有 native 执行器，不引入 `run_code` 与 TypeScript SDK 声明面。
+- **PTC / `run_code` 执行器与 workflow 的融合**：本项目已实现独立的 `run_code` 入口，但 workflow 仍是 native 编排，不把脚本当作 PTC guest；两者共用“编排”和“进程执行”的表象，不共享执行器状态。
 - **沙箱相关字段**：`agent({isolation})` 以及任何沙箱分支，依据 AGENTS.md 第 7 条。
 - **嵌套 `workflow()`、journaling / resume、保存式 workflow**：与原型同为明确推迟项，本项目一并不做。
 

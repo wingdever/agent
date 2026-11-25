@@ -2,7 +2,7 @@
 
 ## 1 当前实现
 
-本项目是一个单进程、单用户、Electron + Web 双界面的 micro harness：16 个 core 子域、38 个带 registry 的工具、29 张表、事件溯源存储、node-graph 主循环、可用的 subagent 与 workflow。
+本项目是一个单进程、单用户、Electron + Web 双界面的 micro harness：16 个 core 子域、62 个带 registry 的工具、29 张表、事件溯源存储、node-graph 主循环、可用的 subagent 与 workflow。
 
 DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一套契约下提供 5 个出厂 profile 与桌面端。
 
@@ -21,7 +21,7 @@ DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一�
 | # | 能力域 | DSH 对应 | 我们现状 | 状态 | 优先级 |
 |---|---|---|---|---|---|
 | 1 | 主循环 / 轮次 | `core/agent`、`core/agent-loop` | `node-graph` 节点链、队列、busy 闸门、bare 模式 | 对齐 | — |
-| 2 | 工具与注册表 | `core/tools` | 38 个目录式工具、JSON Schema、`requires` 能力标签、权限门 | 对齐 | — |
+| 2 | 工具与注册表 | `core/tools` | 62 个目录式工具、JSON Schema、`requires` 能力标签、权限门 | 对齐 | — |
 | 3 | 上下文压缩 | `compaction/*` | `compaction` + `compaction-runner` + `tool_result_prunes` | 部分 | P1 |
 | 4 | 子代理 | `subagent/*` | spawn/fork、树、命名、消息、打断、结算、`delivery=caller` | 部分 | P1 |
 | 5 | 脚本编排 | `workflow/*` | `core/workflow` + `lib/workflow-runtime`，worker-vm、caps、meta 校验 | 对齐 | — |
@@ -34,21 +34,21 @@ DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一�
 | 12 | 存储接缝 | `storage/*` | 仅 pgmicro 单实现，无迁移 | 部分 | P2 |
 | 13 | 权限 / 沙箱 | `sandbox/*`、`permissions` | 三级工具权限 + fs 路径策略；无进程隔离 | 部分 | 不做 |
 | 14 | 循环守卫 | `guard/*` | 各工具自带 timeout；无重复调用提醒、无统一超时策略 | 缺失 | P1 |
-| 15 | MCP | `mcp/*` | 无客户端、无资源读取 | 缺失 | P1 |
-| 16 | LSP | `lsp/*` | 无语言服务器接入 | 缺失 | P2 |
-| 17 | Shell / 终端 | `shell/*`、`terminal/*`、`subprocess` | 一次性 `bash`，无持久终端/PTY、无统一子进程服务 | 部分 | P2 |
+| 15 | MCP | `mcp/*` | stdio / streamable-http 客户端、动态 `mcp__*` 工具、三个资源工具、重连与 `tools/list_changed` | 部分 | P2 |
+| 16 | LSP | `lsp/*` | `core/lsp` 单工具四操作；stdio provider 由 `user/lsp.json` 配置，懒启动、文档同步、空闲回收 | 部分 | P2 |
+| 17 | Shell / 终端 | `shell/*`、`terminal/*`、`subprocess` | 一次性 / 持久 `bash`、PTY 终端六件套、侧栏 xterm + WebSocket、用户接管、`user_terminal_*`；目标环境仅 Linux，Windows `pwsh` 不做；第一版不做跨重启恢复 | 对齐 | — |
 | 18 | SSH / 远程执行 | `ssh/*` | 无 | 缺失 | P2 |
 | 19 | 附件 / 多模态 | `attachment/*` | 有文件引用与 IM 媒体出站；无持久图片附件进模型 | 雏形 | P1 |
 | 20 | 凭据 | `credentials/*` | provider key 明文 JSON、Lark OAuth token store | 部分 | P1 |
 | 21 | 模型接入 | `llm/*` | 3 个 provider 适配器、流式、reasoning effort、token meter | 部分 | P1 |
 | 22 | 连接器 | `connector/*` | Lark proxy + Feishu/Yunhu/QQ channel | 部分 | P2 |
 | 23 | UI / Host / API | `host/*`、`api/*`、`client/*` | Web + Electron、`POST /api/call` | 部分 | P2 |
-| 24 | SDK / ACP | `sdk/*`、`acp/*` | 无对外进程协议 | 缺失 | P2 |
+| 24 | SDK / ACP | `sdk/*`、`acp/*` | ACP 入站适配器可用；无对外 SDK | 部分 | P2 |
 | 25 | 浏览器 / 桌面操作 | `browser-use`、`computer-use` | Playwright `browser_*` 七工具；无桌面操作 | 部分 | P2 |
-| 26 | 产物 / 文档 | `deliverables/*`、`document/*` | 右栏预览、Lark 文档代理；无 `present`、无工作区变更记录、无 Office 渲染 | 雏形 | P2 |
+| 26 | 产物 / 文档 | `deliverables/*`、`document/*` | `present` 交付、右栏预览、Lark 文档代理；无工作区变更记录、无 Office 渲染 | 部分 | P2 |
 | 27 | 遥测 / 反馈 / 账号 | `telemetry`、`feedback`、`account` | 无 | 缺失 | 不做 |
 | 28 | 预设 / 角色 | `preset/*` | 只有 activity/autonomy/activity 三轴，无声明式 preset 与 revision | 雏形 | P2 |
-| 29 | 验证 / 治理 | 88 个 `verify-*`、Agent Notes | `node --test` 370 项、`scan.js` 12 条架构规则、distributed-dev 规范 | 部分 | P1 |
+| 29 | 验证 / 治理 | 88 个 `verify-*`、Agent Notes | `node --test` 478 项、`scan.js` 12 条架构规则、distributed-dev 规范 | 部分 | P1 |
 
 ### 1.2 已对齐的部分（不必再补）
 
@@ -67,14 +67,12 @@ DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一�
 | 能力 | DSH 的位置 | 缺了会怎样 |
 |---|---|---|
 | 插件加载与组合 | `packages/boot/plugin-manager`、`plugin-loader`、`bundle/*` | 所有扩展（MCP、LSP、schedule、connector）都只能写进 core，无法安装/卸载/替换 |
-| MCP | `packages/mcp/*` | 接不进现成的 MCP 工具生态 |
-| LSP | `packages/lsp/*` | 代码导航只能靠 grep/read，没有定义、引用、hover |
 | 循环守卫 | `packages/guard/*` | 模型重复同一调用时无人提醒；工具超时靠各工具自己实现 |
-| SDK / ACP | `packages/sdk/*`、`packages/acp/*` | 外部程序无法驱动本 harness，也不能作为别的 harness 的子代理 |
+| 对外 SDK | `packages/sdk/*` | 外部程序不能以 SDK 方式驱动本 harness；ACP 入站已完成 |
 | 桌面操作 | `packages/computer-use` | 不能操作本机桌面、窗口和原生应用 |
 | 凭据库 | `packages/credentials/*` | 密钥只能明文躺在 `user/*.json`，没有按名引用、轮换、OS 权限 |
 | 遥测 / 账号 | `packages/telemetry`、`account` | 没有产品分析、没有 DeepSeek 账号授权 |
-| SSH / 持久终端 | `packages/ssh/*`、`terminal/*` | 所有命令都是一次性、单机 |
+| SSH / 远程执行 | `packages/ssh/*` | 只能操作本机，不能远程执行 |
 
 ### 2.2 有基础但语义不足
 
@@ -84,18 +82,20 @@ DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一�
 | 定时任务 | `schedules` 表 + `ScheduleService`：七种 timing、单 timer、到点投递、latest occurrence 合并、三种 target | RRULE 是受控子集；无 UI 自动化页；Host 停机不投递；非 exactly-once；共用 `data/store.db` 的多个 Host 没有租约 |
 | 会话 | 25 表、fork、压缩、轨迹 | 缺自动标题、全文检索/导出、跨会话快照、投影缓存、会话级 telemetry；`sessions.name` 是手填 |
 | 技能 | 文件系统 provider、rank 合并 | 缺分层 scope、上游技能下载 provider、技能目录的会话级裁剪 |
-| 子代理 | spawn/fork/消息/打断 | 缺 `wait_agent`；只有 in-process 后端，缺 codex/claude-code/acp 等 out-of-process 后端与冷恢复 |
+| 子代理 | spawn/fork/消息/打断/`wait_agent` | 只有 in-process 后端，缺 codex/claude-code/acp 等 out-of-process 后端与冷恢复 |
 | 附件 | 文件引用、Lark 媒体 | 没有“把图片存下来、下一轮再送给模型”的持久附件模型 |
 | 模型接入 | 3 个 provider、流式、effort | 没有模型目录、路由选择、按请求覆盖、缓存计量等 DSH llm 组的能力 |
 | 存储 | pgmicro 单实现 | 没有 jsonl/sqlite 可替换实现，也没有迁移链 |
-| 产物 | 右栏预览 | 没有 `present` 工具、没有每轮工作区变更记录（diff/行数） |
+| 产物 | `present` 交付、右栏预览 | 没有每轮工作区变更记录（diff/行数） |
 | 文档 | Lark 文档代理 | 没有本地 Office 渲染/转换（LibreOffice kit） |
+| MCP 进阶 | 工具调用、资源读取、重连 | 没有 `resources/subscribe`、prompt 模板、sampling / elicitation / roots、tasks extension |
 
 ### 2.3 明确不做
 
 - **进程级沙箱**：DSH 用 `read-only / workspace-write / danger-full-access` 三档约束子进程；本项目 roadmap 已明确不做。现状是 `bash` 直接继承用户权限，靠 fs 策略与工具权限兜。若未来开放远程执行，再重新评估。
 - **多用户账号体系**：本项目是个人单用户；`account`、`identity`、多租户隔离不追。
 - **Cordis 全量组合机制**：55 组 406 包的 profile/bundle/patch 体系不适合这个规模；只借“清单 + 生命周期 + 可替换”三点，不引入三层 YAML。
+- **Windows PowerShell（`pwsh` / 持久 `pwsh`）**：目标环境只有 Linux，不做 Windows 方言、ConPTY 和对应工具；`bash` / PTY 终端是唯一 shell 面。
 
 ## 3 后续计划
 
@@ -122,18 +122,18 @@ DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一�
 
 4. **会话标题 + 检索**：`titleFromPrompt` 兜底 + 首轮后异步小模型标题（失败保留兜底）；`session.search` 全文检索与导出。
 5. **Guard**：重复工具调用提醒 + 统一工具超时策略；两个都可独立包，不碰主循环。
-6. **MCP 客户端**：一个 `mcp` 工具族（list/call/read resource），配置驱动；接上后 LSP、GitHub 等可以暂缓。
+6. **MCP 进阶能力**：`resources/subscribe`、prompt 模板、sampling / elicitation / roots、tasks extension；客户端、动态工具和资源读取已完成。
 7. **附件**：图片落盘 + 消息引用 + 下一轮回送；先只做图片，不做任意文件。
 8. **凭据**：`user/credentials.json` 改成「名字 → 值」引用，provider/channel 配置只写名字；启动时解析，权限 0600。
-9. **子代理 `wait_agent` 与 out-of-process 后端**：先补 wait，后端二期。
+9. **子代理 out-of-process 后端**：`wait_agent` 已完成；codex/claude-code/acp 后端与冷恢复二期。
 
 ### P2：场景扩展
 
 10. **定时任务（已完成核心）**：`schedules` + `ScheduleService` + 四个工具；剩余 UI 自动化页、完整 RFC 5545、跨 Host 单投递租约。细节见 `docs/runtime/schedule.md`。
-11. LSP（stdio 语言服务器 + 定义/引用/hover 三工具）。
-12. 持久终端 / SSH（先做 `terminal` 的 PTY 会话，再做 SSH）。
-13. `present` + 工作区变更记录（每轮 diff/行数，右栏产物面板已有基础）。
-14. ACP / SDK（若要把本 harness 接进编辑器或其他 harness）。
+11. LSP（已完成：stdio 语言服务器 + 单工具四操作；首版只接受 UTF-16 位置编码）。
+12. SSH / 远程执行；本地持久终端与 PTY 六件套已完成。
+13. 工作区变更记录（每轮 diff/行数，右栏产物面板已有基础）；`present` 已完成。
+14. 对外 SDK（ACP 入站已完成；若要接出到其他 harness，再评估 SDK）。
 15. 浏览器/桌面操作（浏览器已完成核心；桌面操作按需，优先级最低）。
 
 ### 建议的下一批提交

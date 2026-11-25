@@ -1,0 +1,18 @@
+{
+  "name": "read_image",
+  "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. The original bytes are stored as a durable read-only attachment; files larger than 8MB are rejected instead of being downscaled.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "file_path": {
+        "type": "string",
+        "description": "Path to the image file, resolved by the filesystem backend."
+      }
+    },
+    "required": ["file_path"]
+  },
+  "mode": "read",
+  "group": "fs",
+  "entry": "run.js",
+  "defaultVisible": true
+}

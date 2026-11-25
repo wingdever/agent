@@ -46,6 +46,7 @@ async function main() {
   await connection.closed;
   try { await core.schedule?.dispose?.(); } catch (_) {}
   try { await core.jobs?.disposeAll?.(); } catch (_) {}
+  try { await core.lsp?.disposeAll?.(); } catch (_) {}
   try { await core.store?.close?.(); } catch (err) {
     process.stderr.write("[acp] store close failed: " + (err.message || String(err)) + "\n");
   }

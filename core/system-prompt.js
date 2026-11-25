@@ -7,6 +7,7 @@
 
 import _mod0 from "./skills/index.js";
 const { isSkillName } = _mod0;
+import { renderToolSdk } from "./../lib/tool-sdk/index.js";
 
 // Skill catalog message (dsh's session skill-catalog). The block is rendered by
 // assembleSystemPrompt as a user-role message appended right after the system
@@ -68,6 +69,13 @@ const SECTION_ORDERS = {
   DEPLOYMENT_PERSONA: 0,
   LANGUAGE_POLICY: 500,
   TOOL_GUIDANCE: 1000,
+  TOOL_PTY: 1700,
+  TOOL_PTY_PANEL: 1710,
+  TOOL_LSP: 2200,
+  // PTC replaces per-tool guidance with one executor entry plus a generated
+  // SDK declaration. Order follows DSH's 800 / 5000 allocation.
+  PTC_ONLY: 800,
+  TOOLS_SDK: 5000,
   // MCP server-owned text: the resource-server list and per-server instructions.
   // Content comes from outside, so it sits after our own guidance and before the
   // runtime context.
@@ -181,7 +189,7 @@ function buildRuntimeContext({ cwd, model, now = new Date() } = {}) {
 // string contributed by its registry.json. `skills` (optional) is the list of
 // skill summaries (from the registry) to render as the session skill-catalog
 // user message; `catalogDescriptionMaxLength` bounds each description.
-function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength, mcpResourceServers = [], mcpInstructions = [] } = {}) {
+function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], executorMode = "native", sdkTools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength, mcpResourceServers = [], mcpInstructions = [] } = {}) {
   const prompt = new SystemPrompt();
   prompt.variable("cwd", cwd || process.cwd());
   prompt.variable("model", model || "unknown");
@@ -194,6 +202,23 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
     text: ENGLISH_ONLY_INSTRUCTION,
   });
 
+  if (executorMode === "ptc") {
+    prompt.section({
+      name: "tools:ptc-only",
+      order: prompt.getSectionOrder("PTC_ONLY"),
+      text: "`run_code` is the only tool you can call directly — a tool call naming any other tool fails. " +
+        "Reach every tool the SDK declares below from inside the program.",
+    });
+    const sdk = renderToolSdk(sdkTools);
+    if (sdk) {
+      prompt.section({
+        name: "tools:sdk",
+        order: prompt.getSectionOrder("TOOLS_SDK"),
+        interpolate: false,
+        text: sdk,
+      });
+    }
+  } else {
   // DSH allocates a fixed order per tool instead of alphabetical position.
   // Keeping the same order preserves the prompt's reading order for the model.
   const toolOrders = {
@@ -211,9 +236,12 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
     job_output: 1610,
     job_list: 1620,
     job_kill: 1630,
+    pty: prompt.getSectionOrder("TOOL_PTY"),
+    "pty-panel": prompt.getSectionOrder("TOOL_PTY_PANEL"),
     web_search: 2000,
     web_fetch: 2100,
-    browser: 2200,
+    lsp: prompt.getSectionOrder("TOOL_LSP"),
+    browser: 2210,
     goal: 2400,
   };
   const guidance = tools
@@ -236,6 +264,7 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
         : prompt.getSectionOrder("TOOL_GUIDANCE") + 100 + group.index,
       text: group.tools[0].prompt.replace(/\{\{tools\}\}/g, names),
     });
+  }
   }
 
   // Server names are the model's argument to the resource tools, so the list is

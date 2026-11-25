@@ -75,12 +75,12 @@
 
   // 按 registry 的 group 字段分组（能力分组，与读写特性 mode 无关）。
   // 分组顺序按 GROUP_ORDER，未列出的组排在后面；组内按工具名排序。
-  var GROUP_ORDER = ["fs", "shell", "web", "browser", "job", "agent", "team", "schedule", "goal", "interaction", "channel", "skill", "mcp", "utility"];
+  var GROUP_ORDER = ["fs", "shell", "terminal", "code", "web", "browser", "job", "agent", "team", "schedule", "goal", "interaction", "deliverable", "channel", "skill", "mcp", "utility"];
   // 组名一律一个词，直接作为标题显示，不做「X / Y」这类复合名。
   var GROUP_LABEL = {
-    fs: "文件", shell: "命令", web: "网络", browser: "浏览器", job: "任务",
+    fs: "文件", shell: "命令", terminal: "终端", code: "代码", web: "网络", browser: "浏览器", job: "任务",
     agent: "Agent", team: "团队", schedule: "定时", goal: "目标",
-    interaction: "交互", channel: "渠道", skill: "技能", mcp: "MCP", utility: "通用",
+    interaction: "交互", deliverable: "交付", channel: "渠道", skill: "技能", mcp: "MCP", utility: "通用",
   };
   function groupLabel(key) { return GROUP_LABEL[key] || key; }
   function groupTools(items) {

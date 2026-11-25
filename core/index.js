@@ -13,6 +13,8 @@ import { AgentRuntime } from "./agent.js";
 import { SubagentRuntime } from "./subagent-runtime.js";
 import { createWorkflowService } from "./workflow/index.js";
 import { JobService } from "./jobs/index.js";
+import { TerminalService } from "./../lib/terminals/index.js";
+import { LspService } from "./lsp/index.js";
 import { TeamService } from "./team/index.js";
 import { ScheduleService } from "./schedule/index.js";
 import { A2AService } from "./a2a/index.js";
@@ -58,6 +60,19 @@ async function createCore(overrides = {}) {
     if (!mcp.tools.has(name)) mcp.tools.set(name, tool);
   }
   const tools = new ToolService(mcp.tools);
+  // The user terminal tools are a projection of the side panel. When the
+  // panel cannot be mounted (IPC transport) or is explicitly disabled, remove
+  // them from the default model-visible set; their shared prompt section then
+  // disappears with them.
+  const terminalPanelEnabled = overrides.terminalPanel !== false
+    && process.env.AGENT_TERMINAL_PANEL !== "0"
+    && (process.env.AGENT_TRANSPORT || "http") !== "ipc";
+  if (!terminalPanelEnabled) {
+    for (const name of ["user_terminal_list", "user_terminal_read"]) {
+      const tool = tools.get(name);
+      if (tool) tool.defaultVisible = false;
+    }
+  }
   const goals = createGoalService(store);
   const interactions = new InteractionService({ store });
   const model = new ModelService({ config });
@@ -85,6 +100,9 @@ async function createCore(overrides = {}) {
     subagents: null,
     workflow: null,
     jobs: null,
+    terminals: null,
+    terminalPanelEnabled,
+    lsp: null,
     team: null,
     schedule: null,
     a2a: null,
@@ -116,6 +134,14 @@ async function createCore(overrides = {}) {
   });
   core.agent.setJobs(core.jobs);
   await core.jobs.init();
+  // Persistent shell sessions are per agent session, not per turn. The service
+  // owns process lifetime and idle reaping; tools only see it through exec.
+  core.terminals = new TerminalService();
+  core.agent.setTerminals(core.terminals);
+  // LSP servers are heavyweight, workspace-indexed child processes. The service
+  // reads user/lsp.json at construction and starts a server only on first query.
+  core.lsp = new LspService({ logger: console });
+  core.agent.setLsp(core.lsp);
   // Workflow runs read limits from user/settings.json's `workflow` block lazily,
   // so a settings edit applies to the next run without a restart.
   core.workflow = createWorkflowService({ config, getSubagents: () => core.subagents });
@@ -124,7 +150,7 @@ async function createCore(overrides = {}) {
   core.browser = new BrowserService({ logger: console });
   // Flows are user-edited graphs run by the local backend; they never touch an
   // Agent instance (docs/flow/flow.md).
-  core.flow = createFlowService({ store, model, config, tools, runTool, capabilities, browser: core.browser });
+  core.flow = createFlowService({ store, model, config, tools, runTool, capabilities, browser: core.browser, lsp: core.lsp });
   interactions.setRegistry(agent.registry);
   core.rpc = createRpc(core);
   // Scheduled tasks are Host-level timers, not Jobs: they persist a rule and

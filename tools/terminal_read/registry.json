@@ -1,0 +1,29 @@
+{
+  "name": "terminal_read",
+  "description": "Read a bounded page of retained output from a persistent terminal without sending input.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "description": "Terminal session id."
+      },
+      "offset": {
+        "type": "number",
+        "description": "Newest-relative line offset (default 0)."
+      },
+      "count": {
+        "type": "number",
+        "description": "Requested line count (default 500; backend caps apply)."
+      }
+    },
+    "required": ["sessionId"]
+  },
+  "mode": "read",
+  "group": "terminal",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "timeoutMs": 120000,
+  "prompt": "Use a terminal session only when work needs persistent terminal state or interactive stdin; prefer shell/read/write/edit for bounded one-shot operations. Track every terminal session id and close sessions that no longer matter. An inferred_idle or timeout result does not prove the foreground command exited.",
+  "promptSection": "pty"
+}

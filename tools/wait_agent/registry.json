@@ -1,0 +1,22 @@
+{
+  "name": "wait_agent",
+  "description": "Wait for input at your next step, including agent messages, completion notifications, and user steering. Returns immediately if new input is pending. `timedOut: false` means new input is pending. Pending input is delivered to the model after code execution finishes.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 10000,
+        "maximum": 3600000,
+        "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
+      }
+    }
+  },
+  "mode": "both",
+  "group": "agent",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "concurrencySafe": true,
+  "result": "text",
+  "prompt": "Use wait_agent when this agent has nothing useful to do until another agent sends a message or this agent's inbox receives next-step input. It returns immediately if input is already pending; otherwise it blocks until timeout_ms expires. Do not use it as a polling loop or when the next step has work already available."
+}

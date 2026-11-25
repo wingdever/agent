@@ -1,0 +1,15 @@
+{
+  "name": "user_terminal_list",
+  "description": "List the terminals the user controls in the side panel beside this conversation, including terminals the user took over from you: id, title, start directory, and whether a command is running (yes | no | unknown). Runs nothing. You cannot type into these terminals; open your own with terminal_open.",
+  "parameters": {
+    "type": "object",
+    "properties": {}
+  },
+  "mode": "read",
+  "group": "terminal",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "timeoutMs": 120000,
+  "prompt": "Terminals you open with terminal_open appear in the user's side panel. The user can watch them and type into them; once the user types into one, you can only read it, and terminal_close then only removes it from your terminal list while its shell and processes keep running for the user. Use visible terminals for long-running processes the user should see, such as dev servers and watchers; keep using bash for short commands whose output you need now. Commands in these terminals run in the session sandbox and cannot request more access; when one is denied permission, run it with bash instead. Never type passwords or one-time codes; ask the user to enter them in the terminal.",
+  "promptSection": "pty-panel"
+}

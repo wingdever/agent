@@ -4,7 +4,7 @@
 import { TurnError } from "./../../../turn-error.js";
 
 export default async function run(input, ctx) {
-  const { services, session } = ctx;
+  const { agent, services, session } = ctx;
   const response = ctx.step.response;
   const persist = session.persist;
 
@@ -26,6 +26,13 @@ export default async function run(input, ctx) {
       catch (e) { ctx.emit({ type: "error", error: "turn.update failed: " + (e.message || e) }); }
     }
     return { output: response, done: true };
+  }
+
+  // A message may arrive while the model is producing a final answer. Do not
+  // strand it in nextStep: give the agent one more step to see it before the
+  // turn closes. The next pre-step claims the queue exactly once.
+  if (!response.tool_calls && agent && typeof agent.peekNextStep === "function" && agent.peekNextStep().length > 0) {
+    return { output: response, next: "pre-step" };
   }
 
   if (!response.tool_calls) {

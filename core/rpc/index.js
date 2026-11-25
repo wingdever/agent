@@ -7,6 +7,7 @@ import defineStorageCommands from "./handlers/storage.js";
 import defineCatalogCommands from "./handlers/catalog.js";
 import defineInteractionCommands from "./handlers/interactions.js";
 import defineFlowCommands from "./handlers/flow.js";
+import defineTerminalCommands from "./handlers/terminal.js";
 
 function createRpc(core) {
   const rpc = new RpcRegistry(core);
@@ -16,6 +17,7 @@ function createRpc(core) {
   defineCatalogCommands(rpc);
   defineInteractionCommands(rpc);
   defineFlowCommands(rpc);
+  defineTerminalCommands(rpc);
   return rpc;
 }
 

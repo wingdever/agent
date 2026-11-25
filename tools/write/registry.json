@@ -19,5 +19,5 @@
   "group": "fs",
   "entry": "run.js",
   "defaultVisible": true,
-  "prompt": "Read an existing file before overwriting it with write (the default fs-observation-policy requires it) and prefer edit for targeted changes."
+  "prompt": "Read an existing file before overwriting it with write (the default fs-observation-policy requires it) and prefer edit for targeted changes. Use apply_patch when one change spans several files or separated regions."
 }

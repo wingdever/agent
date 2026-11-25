@@ -15,11 +15,11 @@ import _mod0 from "./../skills/index.js";
 const { isModelInvocable } = _mod0;
 import { readPermissions, permissionFor } from "./../permissions.js";
 import _mod1 from "./../fs-policy.js";
-const { readFsPolicy, resolveFsPermission } = _mod1;
+const { readFsPolicy, resolveFsPermissionForPaths, fsPathsForTool } = _mod1;
 import { resolveConfig as resolveTranslateConfig, shouldTranslateUser, shouldTranslateAssistant, translateText } from "./../translation.js";
 import compaction from "./../compaction.js";
 import { validateToolArgs, runTool } from "./../tools/executor.js";
-import { errorResult } from "./../../lib/tool-result/index.js";
+import { errorResult, modelContent } from "./../../lib/tool-result/index.js";
 import { reset as resetTodos } from "./../../lib/todo-state/index.js";
 import planMode from "./../plan-mode.js";
 import { RequestSpec, StepState } from "./../memory/index.js";
@@ -452,7 +452,7 @@ async function runLoop(core, ctx, agentArg) {
           isError: result.isError === true,
           meta: result.meta,
         });
-        request.messages.push({ role: "tool", tool_call_id: callId, content: result.text });
+        request.messages.push({ role: "tool", tool_call_id: callId, content: modelContent(result) });
         if (persist && stepState.callIds[i] != null) {
           try {
             await store.run("call.update", {
@@ -483,8 +483,14 @@ async function runLoop(core, ctx, agentArg) {
       // tools (write/edit) are additionally narrowed/widened by path rules in
       // user/fs-policy.json (deny wins, then first match, else tool-level).
       let permission = permissionFor(request.permissions, name);
-      if (name === "write" || name === "edit") {
-        permission = resolveFsPermission(request.permissions, request.fsPolicy, name, args && args.file_path, cwd);
+      if (tool && tool.group === "fs" && tool.mode === "write") {
+        permission = resolveFsPermissionForPaths(
+          request.permissions,
+          request.fsPolicy,
+          name,
+          fsPathsForTool(name, args),
+          cwd,
+        );
       }
       let decision;
       if (permission === "ask") {
@@ -516,6 +522,8 @@ async function runLoop(core, ctx, agentArg) {
         store: core.store,
         capabilities: core.capabilities,
         jobs: core.jobs,
+        terminals: core.terminals,
+        lsp: core.lsp,
         team: core.team,
         schedule: core.schedule,
         a2a: core.a2a,

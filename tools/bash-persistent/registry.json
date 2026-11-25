@@ -1,0 +1,21 @@
+{
+  "name": "bash",
+  "description": "Run commands in a persistent bash shell. State, including the current directory and exported environment variables, persists across calls for this agent.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "The bash command to run. Relative path is preferred in the command."
+      }
+    },
+    "required": ["command"]
+  },
+  "mode": "write",
+  "group": "shell",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "timeoutMs": 120000,
+  "provider": "persistent",
+  "priority": 20
+}

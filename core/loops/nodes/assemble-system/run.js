@@ -23,6 +23,8 @@ export default async function run(input, ctx) {
       identity: typeof settings.identity === "string" ? settings.identity : DEFAULT_IDENTITY,
       persona: typeof settings.persona === "string" ? settings.persona : "",
       tools: request.selected,
+      executorMode: ctx.executorMode,
+      sdkTools: request.sdkTools || [],
       cwd: ctx.cwd,
       model: request.model,
       skills,

@@ -21,6 +21,7 @@
     "cytoscape-dagre": "^3.0.0",
     "electron": "44.9.3",
     "es-module-lexer": "^3.0.5",
+    "node-gyp": "^13.1.0",
     "zod": "4.6.7"
   },
   "dependencies": {
@@ -29,10 +30,18 @@
     "@larksuiteoapi/node-sdk": "^1.76.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@vscode/ripgrep": "^1.18.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^6.0.0",
     "ipaddr.js": "^2.5.0",
+    "node-pty": "^1.1.0",
     "pg-micro": "^0.0.5",
     "playwright-core": "1.65.1",
     "turndown": "^7.2.4",
-    "unbash": "^6.0.3"
+    "unbash": "^6.0.3",
+    "vscode-jsonrpc": "10.0.1",
+    "vscode-languageserver-protocol": "^3.18.6",
+    "ws": "^8.23.0"
   }
 }

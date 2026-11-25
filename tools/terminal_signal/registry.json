@@ -1,0 +1,26 @@
+{
+  "name": "terminal_signal",
+  "description": "Send an allowed signal to the current foreground process group of a persistent terminal.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "description": "Terminal session id."
+      },
+      "signal": {
+        "type": "string",
+        "description": "Signal to deliver. Shell-targeted SIGKILL is rejected; use terminal_close.",
+        "enum": ["SIGINT", "SIGTERM", "SIGKILL", "SIGTSTP", "SIGHUP"]
+      }
+    },
+    "required": ["sessionId", "signal"]
+  },
+  "mode": "write",
+  "group": "terminal",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "timeoutMs": 120000,
+  "prompt": "Use a terminal session only when work needs persistent terminal state or interactive stdin; prefer shell/read/write/edit for bounded one-shot operations. Track every terminal session id and close sessions that no longer matter. An inferred_idle or timeout result does not prove the foreground command exited.",
+  "promptSection": "pty"
+}

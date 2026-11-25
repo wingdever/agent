@@ -1,0 +1,29 @@
+{
+  "name": "terminal_open",
+  "description": "Create a persistent, owner-isolated terminal session from a registered backend type. Use this for shell or REPL state that must survive across tool calls.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Registered terminal backend type, usually \"shell\"."
+      },
+      "name": {
+        "type": "string",
+        "description": "Optional owner-local display name such as \"main\" or \"gdb\"."
+      },
+      "cwd": {
+        "type": "string",
+        "description": "Initial working directory, relative to the Session current directory when not absolute."
+      }
+    },
+    "required": ["type"]
+  },
+  "mode": "write",
+  "group": "terminal",
+  "entry": "run.js",
+  "defaultVisible": true,
+  "timeoutMs": 120000,
+  "prompt": "Use a terminal session only when work needs persistent terminal state or interactive stdin; prefer shell/read/write/edit for bounded one-shot operations. Track every terminal session id and close sessions that no longer matter. An inferred_idle or timeout result does not prove the foreground command exited.",
+  "promptSection": "pty"
+}

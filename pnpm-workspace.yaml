@@ -1,2 +1,5 @@
 packages:
   - "ui/electron"
+allowBuilds:
+  protobufjs: true
+  node-pty: true
