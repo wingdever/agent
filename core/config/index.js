@@ -21,6 +21,7 @@ const PROVIDERS_FILE = path.join(USER_DIR, "providers.json");
 const PERMISSIONS_FILE = path.join(USER_DIR, "permissions.json");
 const BASH_POLICY_FILE = path.join(USER_DIR, "bash-policy.json");
 const FS_POLICY_FILE = path.join(USER_DIR, "fs-policy.json");
+const GOAL_FILE = path.join(USER_DIR, "goal.json");
 
 function readJSON(file, fallback) {
   try {
@@ -244,6 +245,23 @@ function writeFsPolicyRaw(data) {
   return writePermissionFile(FS_POLICY_FILE, data);
 }
 
+// ---- goal (docs/agents/goal.md §8) ----
+// user/goal.json: { "defaultMaxGoalRounds": 256 }. Only the goal module's own
+// deployment values live here; tool prompt variables belong to toolpacks.json.
+const DEFAULT_MAX_GOAL_ROUNDS = 256;
+
+function readGoalRaw() {
+  const data = readJSON(GOAL_FILE, {});
+  return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+}
+
+function readGoalConfig() {
+  const raw = readGoalRaw();
+  const maxRounds = raw.defaultMaxGoalRounds;
+  const defaultMaxGoalRounds = Number.isSafeInteger(maxRounds) && maxRounds > 0 ? maxRounds : DEFAULT_MAX_GOAL_ROUNDS;
+  return { defaultMaxGoalRounds };
+}
+
 const __exports = {
   USER_DIR,
   SETTINGS_FILE,
@@ -253,6 +271,7 @@ const __exports = {
   PERMISSIONS_FILE,
   BASH_POLICY_FILE,
   FS_POLICY_FILE,
+  GOAL_FILE,
   readJSON,
   writeJSON,
   readSettings,
@@ -279,6 +298,8 @@ const __exports = {
   writeBashPolicyRaw,
   readFsPolicyRaw,
   writeFsPolicyRaw,
+  readGoalRaw,
+  readGoalConfig,
 };
 export { USER_DIR, SETTINGS_FILE, MCP_FILE, LSP_FILE, PROVIDERS_FILE, PERMISSIONS_FILE, BASH_POLICY_FILE, FS_POLICY_FILE, readJSON, writeJSON, readSettings, writeSettings, readMcp, writeMcp, readLsp, writeLsp, readProviders, writeProviders, findProvider, enabledModels, resolveProvider, resolveTarget, resolveDefaultFromProviders, resolveContextWindow, reasoningParamFor, readPermissionFile, writePermissionFile, permissionsSnapshot, readPermissionsRaw, writePermissionsRaw, readBashPolicyRaw, writeBashPolicyRaw, readFsPolicyRaw, writeFsPolicyRaw };
 export default __exports;

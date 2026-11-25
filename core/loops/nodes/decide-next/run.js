@@ -39,6 +39,12 @@ export default async function run(input, ctx) {
     if (!String(response.content || "").trim()) {
       throw new TurnError("empty-response", "model returned no content and no tool calls");
     }
+    // A terminal goal update in a goal round defers one closing instruction:
+    // give the model the step to write its closing message before the turn
+    // ends (DSH renderWrapupContext). It rides the request only.
+    if (agent.turn && Array.isArray(agent.turn.deferred) && agent.turn.deferred.length) {
+      return { output: response, next: "pre-step" };
+    }
     ctx.emit({ type: "done", message: response });
     if (persist) {
       try { await services.store.run("step.update", { id: ctx.step.row.id, status: "succeeded" }); }

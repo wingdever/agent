@@ -1,9 +1,13 @@
 "use strict";
 
+// get_goal: read the current session goal plus the process-local activation.
+// Authority, result shape and the shared implementation live in
+// tools/goal/shared.js (docs/agents/goal.md §3-§4).
+
+import { getGoal } from "../goal/shared.js";
+
 export default {
   async run(args = {}, exec = {}) {
-    if (!exec.goals) throw new Error("get_goal is not available in this context");
-    const value = await exec.goals.get(exec.sessionId);
-    return { text: JSON.stringify(value), meta: value };
+    return getGoal(args, exec);
   },
 };

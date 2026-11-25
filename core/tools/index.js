@@ -5,6 +5,31 @@
 class ToolService {
   constructor(tools) {
     this.tools = tools instanceof Map ? tools : new Map();
+    // Toolpack index (docs/tools/toolpack.md): the packages are synthesized by
+    // the registry and attached to each tool; this is the lookup surface.
+    this.packages = new Map();
+    for (const tool of this.tools.values()) {
+      if (tool.package && !this.packages.has(tool.package.name)) this.packages.set(tool.package.name, tool.package);
+    }
+  }
+
+  // ---- toolpacks ----
+
+  package(name) {
+    return this.packages.get(name) || null;
+  }
+
+  // The package a tool belongs to, or null for a tool without one.
+  packageOf(toolName) {
+    const tool = this.tools.get(toolName);
+    return tool && tool.package ? tool.package : null;
+  }
+
+  // Values a package declares for its prompt sections, merged with the user's
+  // toolpacks.json entry at load time.
+  packageVars(name) {
+    const pack = this.package(name);
+    return pack ? pack.promptVars : {};
   }
 
   get(name) {

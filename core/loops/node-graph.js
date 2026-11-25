@@ -120,6 +120,7 @@ class NodeGraphEngine {
       effort: ctx.effort,
       activity: ctx.activity,
       interactions: core.interactions,
+      claim: ctx.claim || null,
     });
     const nctx = {
       core,
@@ -167,6 +168,10 @@ class NodeGraphEngine {
       turn: { row: null, startedAt, stepSeq: 0, steps: 0, toolsUsed: 0 },
       step: null,
       pendingStepMessages: [],
+      // The turn-start input the runtime claimed from the inbox (a goal round):
+      // model-call persists its round row, pre-step lets the driver know when a
+      // competing input appears while the round runs.
+
       translatedUser: null,
       translateCfg: null,
     };
@@ -178,8 +183,15 @@ class NodeGraphEngine {
       const result = await this._dispatch(ENTRY_NODE, nctx, nctx);
       return result.output;
     } catch (err) {
-      status = "failed";
-      reason = err instanceof TurnError ? err.reason : "unexpected-exception";
+      // A cancelled turn ended because someone stopped it, not because it
+      // failed: report the loop's "interrupted" reason, not a provider error.
+      if (agent.phase && agent.phase.cancelReason) {
+        status = "succeeded";
+        reason = agent.phase.cancelReason;
+      } else {
+        status = "failed";
+        reason = err instanceof TurnError ? err.reason : "unexpected-exception";
+      }
       errorText = String((err && err.message) || err);
       if (persist && nctx.turn.row) {
         try {
@@ -193,7 +205,13 @@ class NodeGraphEngine {
     } finally {
       // The turn ends exactly once, here: phase back to idle, delivery state
       // dropped, idle waiters released.
-      turnHandle.finish();
+      turnHandle.finish({
+        status,
+        reason,
+        steps: nctx.turn.steps,
+        tools: nctx.turn.toolsUsed,
+        durationMs: Date.now() - startedAt,
+      });
       const durationMs = Date.now() - startedAt;
       console.log(
         "[turn] session=" + (agent.sessionId || "none") +

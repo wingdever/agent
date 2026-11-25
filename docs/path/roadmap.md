@@ -153,7 +153,24 @@ flowchart LR
 
 #### goal-auto-continue
 
-goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连续失败自动暂停防死循环，参照 Cline mistake limits / Goose Ralph Loop 完成判据）。goal CRUD 已就绪，缺驱动侧。进阶形态 = ToT / LATS 完整形态：在单路径续轮之上做树搜索 / 多分支展开 + 评估 + 回溯 + LATS 反思闭环。
+goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连续失败自动暂停防死循环，参照 Cline mistake limits / Goose Ralph Loop 完成判据）。goal CRUD 已就绪，缺驱动侧。
+
+按 DSH 语义实现单会话的持久目标与自动续轮：状态与回放、goal 三件套工具及执行时权限、人类控制面、续轮驱动器，以及它们依赖的轮次生命周期接口（`docs/agents/lifecycle.md`）。goal 只解决「一个目标在多个轮次里持续推进」，不为其它任务形态做预留。设计见 `docs/agents/goal.md`。
+
+进阶形态 = ToT / LATS 完整形态：在单路径续轮之上做树搜索 / 多分支展开 + 评估 + 回溯 + LATS 反思闭环。
+
+#### unattended-cycle
+
+无人值守任务周期：一个目标在人类整段时间不干预的前提下被持续推进，直到完成、截止或人类中止；人类不在场是默认状态，介入是例外。周期要回答七件事（开轮者、目标与完成、计划、自愈、截止、介入与回顾、上下文与成本），方案按判据准入；设计见 `docs/agents/unattended.md`。
+
+##### pusher-worker
+
+候选方案之一：规划方派块、执行方逐块执行、规划方验收。开轮驱动、目标表示、计划载体、执行者都在实现前重新调查与选型，只列候选与判据；设计见 `docs/agents/pusher-worker.md`。
+
+#### lifecycle-interface
+
+轮次生命周期接口：实例的事件（`session:start` / `turn:start` / `turn:end` / `turn:cancelled` / `inbox:*`）与运行时的轮次来源登记（按优先级询问、人类优先、失败不静默）。这是让功能不再往 `chat()`、loop 节点和工具执行器里接线的底座，设计见 `docs/agents/lifecycle.md`。
+
 
 ### M2 standard-capability (可用标准)
 

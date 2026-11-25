@@ -32,6 +32,12 @@ export default async function run(input, ctx) {
     }
   }
 
+  // The turn's claim gets a look at each step boundary: a source whose round
+  // was overtaken by a competing input can invalidate its reservation here (the
+  // run finishes, but no further round follows until the session is idle).
+  const claim = agent.turn && agent.turn.claim;
+  if (claim && typeof claim.onStep === "function") claim.onStep();
+
   // Step boundary: claim all nextStep inputs (agent messages and steering),
   // append them as user turns for this request, and let model-call persist them
   // with the new step id. wait_agent only marked them reported; this is the

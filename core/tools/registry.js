@@ -16,6 +16,9 @@ const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
 
 
 const TOOLS_DIR = path.join(__dirname, "..", "..", "tools");
+// Per-package configuration written by the user (toolpack.md §2). Read at load
+// time; changing it takes effect on the next start.
+const TOOLPACKS_FILE = path.join(__dirname, "..", "..", "user", "toolpacks.json");
 const EMPTY_SCHEMA = { type: "object", properties: {}, required: [] };
 
 // mode 描述写特性（权限判定用），group 描述能力分组（UI 分类用），两者互不依赖。
@@ -27,6 +30,81 @@ const GROUPS = new Set([
 
 function positiveNumber(value) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+// Read user/toolpacks.json. Shape: { "<package>": { "promptVars": { … } } }.
+// A missing or malformed file is not fatal: every package then runs on its
+// registry defaults.
+function readToolpacks() {
+  try {
+    const data = JSON.parse(fs.readFileSync(TOOLPACKS_FILE, "utf8"));
+    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function positiveInteger(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function normalizePromptVars(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") out[key] = value;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+// Synthesize the package objects from the selected tools plus the user's
+// toolpacks.json (toolpack.md §1-§3):
+//   - a tool's package is its declared `package`, else its `group`;
+//   - the package leader is its alphabetically first member, the same rule the
+//     shared prompt section uses for its text;
+//   - package fields (promptSection, promptVarDefaults) come from the leader;
+//   - promptVars = leader defaults overridden by the user's entry.
+function buildToolpacks(tools, userPacks) {
+  const groups = new Map();
+  for (const tool of tools) {
+    const name = tool.packageName;
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(tool);
+  }
+  const packs = new Map();
+  const warnings = [];
+  for (const [name, members] of groups) {
+    members.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const leader = members[0];
+    for (const member of members.slice(1)) {
+      if (member.promptVarDefaults) {
+        warnings.push("[tools] " + member.name + ": promptVarDefaults is declared on package leader \"" +
+          leader.name + "\" only; ignored");
+      }
+    }
+    const defaults = leader.promptVarDefaults || {};
+    const userEntry = userPacks[name] && typeof userPacks[name] === "object" ? userPacks[name] : null;
+    const userVars = userEntry ? normalizePromptVars(userEntry.promptVars) : undefined;
+    packs.set(name, {
+      name,
+      leader: leader.name,
+      members: members.map((member) => member.name),
+      promptSection: leader.promptSection || name,
+      defaultVisible: members.every((member) => member.defaultVisible !== false),
+      promptVars: { ...defaults, ...(userVars || {}) },
+    });
+  }
+  // Unknown package names in the user file are configuration mistakes worth a
+  // warning, but they must not stop the tool table from loading.
+  for (const name of Object.keys(userPacks)) {
+    if (!packs.has(name)) warnings.push("[tools] toolpacks.json names unknown package \"" + name + "\"; ignored");
+  }
+  for (const warning of warnings) console.warn(warning);
+  for (const tool of tools) {
+    const pack = packs.get(tool.packageName);
+    tool.package = pack || null;
+  }
+  return packs;
 }
 
 function providerEnvKey(name) {
@@ -128,6 +206,13 @@ async function loadTools(options = {}) {
       promptSection: typeof reg.promptSection === "string" && reg.promptSection.trim()
         ? reg.promptSection.trim()
         : "",
+      // Package identity: explicit `package`, else the UI group. The package
+      // object is attached after provider selection (buildToolpacks).
+      packageName: typeof reg.package === "string" && reg.package.trim()
+        ? reg.package.trim()
+        : (GROUPS.has(reg.group) ? reg.group : "utility"),
+      // Package-level fields, valid only on the package leader.
+      promptVarDefaults: normalizePromptVars(reg.promptVarDefaults),
       timeoutMs: positiveNumber(reg.timeoutMs),
       concurrencySafe: reg.concurrencySafe === true,
       defaultVisible: reg.defaultVisible !== false,
@@ -147,9 +232,10 @@ async function loadTools(options = {}) {
     const { reg, dirName, priority, ...tool } = selected;
     map.set(name, tool);
   }
+  buildToolpacks([...map.values()], options.toolpacks || readToolpacks());
   return map;
 }
 
-const __exports = { TOOLS_DIR, loadTools };
-export { TOOLS_DIR, loadTools };
+const __exports = { TOOLS_DIR, TOOLPACKS_FILE, loadTools, readToolpacks, buildToolpacks };
+export { TOOLS_DIR, TOOLPACKS_FILE, loadTools, readToolpacks, buildToolpacks };
 export default __exports;

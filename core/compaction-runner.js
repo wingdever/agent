@@ -19,12 +19,26 @@ async function surfaceNodes(deps, sessionId) {
     id: node.kind === "checkpoint" ? node.seq : node.id,
     originSessionId: node.originSessionId,
     turnSeq: node.turnSeq == null ? null : Number(node.turnSeq),
+    // Replay metadata for authority checks (which input produced this node);
+    // never sent to the provider.
+    source: node.source == null ? null : node.source,
     checkpoint: node.kind === "checkpoint",
     role: node.message.role,
     tool_calls: node.message.tool_calls,
     tokens: compaction.estimateMessageTokens(node.message),
     message: node.message,
   }));
+}
+
+// User inputs that entered one turn (this session's own, surface order) with
+// their host-attributed sources: the same surface the model saw. Feature modules
+// use it to prove which inputs a running turn actually contains.
+async function turnInputs(deps, sessionId, turnSeq) {
+  const nodes = await surfaceNodes(deps, sessionId);
+  return nodes
+    .filter((node) => node.role === "user" && node.originSessionId === sessionId)
+    .filter((node) => turnSeq == null || Number(node.turnSeq) === turnSeq)
+    .map((node) => ({ source: node.source, content: node.message ? node.message.content : undefined }));
 }
 
 // Boundary selection only looks at this session's own nodes: an inherited
@@ -282,6 +296,7 @@ async function maybeCompactStep(deps, { sessionId, conv, system, toolDefs, model
 
 const __exports = {
   surfaceNodes,
+  turnInputs,
   requestMessages,
   summarizeMessages,
   pruneToolResults,
@@ -289,5 +304,5 @@ const __exports = {
   compactSession,
   maybeCompactStep,
 };
-export { surfaceNodes, requestMessages, summarizeMessages, pruneToolResults, runCompaction, compactSession, maybeCompactStep };
+export { surfaceNodes, turnInputs, requestMessages, summarizeMessages, pruneToolResults, runCompaction, compactSession, maybeCompactStep };
 export default __exports;

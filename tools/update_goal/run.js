@@ -1,9 +1,13 @@
 "use strict";
 
+// update_goal: CAS edit / pause / resume / complete / blocked, with the DSH
+// authority split and blocked threshold. Shared implementation lives in
+// tools/goal/shared.js (docs/agents/goal.md §3-§4).
+
+import { updateGoal } from "../goal/shared.js";
+
 export default {
   async run(args = {}, exec = {}) {
-    if (!exec.goals) throw new Error("update_goal is not available in this context");
-    const value = await exec.goals.update(exec.sessionId, args);
-    return { text: JSON.stringify(value), meta: value };
+    return updateGoal(args, exec);
   },
 };

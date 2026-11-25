@@ -7,6 +7,12 @@ import planMode from "./../../../plan-mode.js";
 import { TurnError } from "./../../../turn-error.js";
 import { StepState } from "./../../../memory/index.js";
 
+// Every input must carry its producer; an unlabeled input is the human's, and
+// nothing else may borrow that grant (docs/agents/goal.md §4).
+function resolveInputSource(ctx) {
+  return ctx.input && ctx.input.source != null ? ctx.input.source : "user";
+}
+
 export default async function run(input, ctx) {
   const { agent, services, session, request } = ctx;
   const persist = session.persist;
@@ -61,12 +67,26 @@ export default async function run(input, ctx) {
         seq: nextSeq(),
         role: "user",
         content: userContent,
-        source: ctx.input.source,
+        source: resolveInputSource(ctx),
       });
+
     } catch (e) {
       ctx.emit({ type: "error", error: "persist step-0 messages failed: " + (e.message || e) });
     }
     ctx.step.userPersisted = true;
+  }
+
+  // The turn's claim (set by the turn source that opened it) becomes durable
+  // right after the opening input, before the model request: a source's round
+  // is counted once, and a failure ends the turn instead of being swallowed
+  // (docs/agents/lifecycle.md §2.5).
+  const claim = agent.turn && agent.turn.claim;
+  if (claim && typeof claim.accept === "function") {
+    try {
+      await claim.accept();
+    } catch (e) {
+      throw new TurnError("claim-failed", "the turn source's claim could not be persisted: " + (e.message || e));
+    }
   }
 
   // Deferred plan-mode switch notices are appended to the live conv and
@@ -80,6 +100,13 @@ export default async function run(input, ctx) {
         ctx.emit({ type: "error", error: "persist plan-mode notice failed: " + (e.message || e) });
       }
     }
+  }
+
+  // Instructions deferred by tools in the previous step (the goal tools' closing
+  // wrap-up). They ride in the live request only; they are not persisted.
+  const deferred = agent.turn && Array.isArray(agent.turn.deferred) ? agent.turn.deferred : null;
+  if (deferred && deferred.length) {
+    request.messages.push(...deferred.splice(0));
   }
 
   let header = request.header || ctx.system;

@@ -189,6 +189,22 @@ function buildRuntimeContext({ cwd, model, now = new Date() } = {}) {
 // string contributed by its registry.json. `skills` (optional) is the list of
 // skill summaries (from the registry) to render as the session skill-catalog
 // user message; `catalogDescriptionMaxLength` bounds each description.
+// Values a prompt section's tools declare for their placeholders. A section is
+// owned by one toolpack; if its tools span several packages (a misconfiguration)
+// the alphabetically first tool's package wins and a warning is logged.
+function sectionPromptVars(sectionName, tools) {
+  const packs = [];
+  for (const tool of tools) {
+    if (tool.package && !packs.includes(tool.package)) packs.push(tool.package);
+  }
+  if (!packs.length) return null;
+  if (packs.length > 1) {
+    console.warn("[prompt] section \"" + sectionName + "\" spans packages " +
+      packs.map((pack) => pack.name).join(", ") + "; using \"" + packs[0].name + "\"");
+  }
+  return packs[0].promptVars || null;
+}
+
 function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], executorMode = "native", sdkTools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength, mcpResourceServers = [], mcpInstructions = [] } = {}) {
   const prompt = new SystemPrompt();
   prompt.variable("cwd", cwd || process.cwd());
@@ -257,12 +273,21 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
   });
   for (const [sectionName, group] of guidanceSections) {
     const names = group.tools.map((tool) => "`" + tool.name + "`").join(" or ");
+    const sectionVars = sectionPromptVars(sectionName, group.tools);
     prompt.section({
       name: "tool:" + sectionName,
       order: toolOrders[sectionName] !== undefined
         ? toolOrders[sectionName]
         : prompt.getSectionOrder("TOOL_GUIDANCE") + 100 + group.index,
-      text: group.tools[0].prompt.replace(/\{\{tools\}\}/g, names),
+      // {{tools}} is always bound; {{name}} variables come from the toolpack
+      // that owns this section (docs/tools/toolpack.md). A variable without a
+      // value keeps its placeholder so the gap stays visible.
+      text: String(group.tools[0].prompt || "")
+        .replace(/\{\{tools\}\}/g, names)
+        .replace(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g, (match, key) => {
+          if (!sectionVars || sectionVars[key] === undefined || sectionVars[key] === null) return match;
+          return String(sectionVars[key]);
+        }),
     });
   }
   }

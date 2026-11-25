@@ -543,7 +543,7 @@
       "name": "Goal auto-continue turns",
       "description": "Planned: goals automatically drive the agent loop to continue working, rather than being passive records.",
       "status": "pending",
-      "evidence": "docs/tool.md 'P2 已实现 ... goal 自动续轮待做'; core/goals.js currently only provides CRUD service.",
+      "evidence": "docs/tool.md 'P2 已实现 ... goal 自动续轮待做'; core/goals.js currently only provides CRUD service. Design: docs/agents/goal.md (goal service, tools, /goal command, round driver) over the generic turn lifecycle interface in docs/agents/lifecycle.md. Unattended task cycles are a separate category (docs/agents/unattended.md); pusher-worker is one candidate plan (docs/agents/pusher-worker.md) and does not redefine goal.",
       "testedAt": null
     },
     {

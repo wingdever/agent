@@ -47,6 +47,21 @@ class Store {
     return run;
   }
 
+  // ---- observations ----
+  // Lightweight listeners for facts another service projects (the goal driver
+  // hears about newly persisted inputs and their sources). Listeners never
+  // affect the write path.
+  onMessageAdded(fn) {
+    this._messageAddedListeners = this._messageAddedListeners || [];
+    this._messageAddedListeners.push(fn);
+  }
+
+  _notifyMessageAdded(row) {
+    for (const fn of this._messageAddedListeners || []) {
+      try { fn(row); } catch (_) { /* observers never break a write */ }
+    }
+  }
+
   // ---- schema ----
   async _execSchema() {
     for (const sql of SCHEMA_STATEMENTS) await this.db.exec(sql);
@@ -291,7 +306,7 @@ class Store {
   // pruned 替换体，assistant 的 tool_calls 从 calls 表还原并按步配对 call_id。
   async _projectMessages({ session_id }) {
     const rows = await this.db.prepare(
-      'SELECT t.id AS turn_id, t.seq AS turn_seq, s.id AS step_id, s.seq AS step_seq, m.id AS message_id, m.seq AS msg_seq, m.surface_seq, m.role, c.content AS content, p.content AS pruned FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id LEFT JOIN contents c ON c.id=m.content_id LEFT JOIN tool_result_prunes p ON p.message_id=m.id WHERE t.session_id=$1 ORDER BY t.seq, s.seq, m.seq'
+      'SELECT t.id AS turn_id, t.seq AS turn_seq, s.id AS step_id, s.seq AS step_seq, m.id AS message_id, m.seq AS msg_seq, m.surface_seq, m.role, m.source AS msg_source, c.content AS content, p.content AS pruned FROM turns t JOIN steps s ON s.turn_id=t.id JOIN messages m ON m.step_id=s.id LEFT JOIN contents c ON c.id=m.content_id LEFT JOIN tool_result_prunes p ON p.message_id=m.id WHERE t.session_id=$1 ORDER BY t.seq, s.seq, m.seq'
     ).all(session_id);
     const callRows = await this.db.prepare(
       'SELECT c.id, c.reply_id, c.seq, c.call_id, c.name, c."arguments" FROM calls c JOIN messages m ON m.id=c.reply_id JOIN steps s ON s.id=m.step_id JOIN turns t ON t.id=s.turn_id WHERE t.session_id=$1 ORDER BY c.reply_id, c.seq'
@@ -307,13 +322,13 @@ class Store {
     for (const r of rows) {
       if (r.step_id !== stepId) { stepId = r.step_id; pendingCallIds = []; }
       if (r.role === "system") {
-        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "system", content: r.content == null ? "" : r.content });
+        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "system", source: r.msg_source || null, content: r.content == null ? "" : r.content });
         continue;
       }
       if (r.role === "user") {
-        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "user", content: r.content == null ? "" : r.content });
+        messages.push({ id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "user", source: r.msg_source || null, content: r.content == null ? "" : r.content });
       } else if (r.role === "assistant") {
-        const msg = { id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "assistant", content: r.content == null ? "" : r.content };
+        const msg = { id: r.message_id, surfaceSeq: Number(r.surface_seq), turnSeq: r.turn_seq, role: "assistant", source: r.msg_source || null, content: r.content == null ? "" : r.content };
         const calls = callsByReply.get(r.message_id) || [];
         if (calls.length) {
           pendingCallIds = calls.map((c) => String(c.call_id != null ? c.call_id : c.id));
@@ -331,6 +346,7 @@ class Store {
           surfaceSeq: Number(r.surface_seq),
           turnSeq: r.turn_seq,
           role: "tool",
+          source: r.msg_source || null,
           tool_call_id: toolCallId,
           content: r.pruned != null ? r.pruned : (r.content == null ? "" : r.content),
         });
@@ -352,6 +368,9 @@ class Store {
         id: m.id,
         turnSeq: m.turnSeq == null ? null : Number(m.turnSeq),
         originSessionId: session_id,
+        // `source` is replay metadata (who produced the input), not a provider
+        // field: compaction/token pricing read only role/content/calls.
+        source: m.source || null,
         message: Object.assign(
           { role: m.role, content: m.content },
           m.tool_calls ? { tool_calls: m.tool_calls } : {},
@@ -470,37 +489,6 @@ class Store {
       "INSERT INTO token_anchors (session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total) VALUES ($1,$2,$3,$4,$5,$6)"
     ).run(session_id, header_key, header_tokens, input_tokens, assistant_tokens, usage_total);
     return this.getTokenAnchor({ session_id });
-  }
-
-  // ---- goals（每个 session 一个当前 goal，revision 做 CAS）----
-  _mapGoal(row) {
-    if (!row) return null;
-    return {
-      id: row.goal_id,
-      revision: Number(row.revision),
-      objective: row.objective,
-      phase: row.phase,
-      roundsStarted: Number(row.rounds_started),
-      maxGoalRounds: Number(row.max_goal_rounds),
-      ...(row.blocked_code ? { blockedReason: { code: row.blocked_code, message: row.blocked_message || "" } } : {}),
-      activation: row.activation,
-    };
-  }
-  async getGoal({ session_id }) {
-    const row = await this.db.prepare("SELECT * FROM goals WHERE session_id=$1").get(session_id);
-    return this._mapGoal(row);
-  }
-  async saveGoal({ session_id, goal }) {
-    await this.db.prepare("DELETE FROM goals WHERE session_id=$1").run(session_id);
-    await this._insertRow("goals", [
-      "session_id", "goal_id", "revision", "objective", "phase",
-      "rounds_started", "max_goal_rounds", "blocked_code", "blocked_message", "activation",
-    ], [
-      session_id, goal.id, goal.revision, goal.objective, goal.phase,
-      goal.roundsStarted || 0, goal.maxGoalRounds, goal.blockedReason ? goal.blockedReason.code : null,
-      goal.blockedReason ? goal.blockedReason.message : null, goal.activation || "armed",
-    ]);
-    return this.getGoal({ session_id });
   }
 
   // ---- user jobs（模型派给真人用户的任务；status: pending|completed|killed）----
@@ -975,7 +963,9 @@ class Store {
       const vals = [id, step_id, seq, surfaceSeq, role, content_id, thought_id];
       if (source != null) { cols.push("source"); vals.push(source); }
       await this._insertRow("messages", cols, vals);
-      return this.getMessage({ id });
+      const row = await this.getMessage({ id });
+      this._notifyMessageAdded(row);
+      return row;
     });
   }
   async getMessage({ id }) {
@@ -1305,8 +1295,6 @@ const OPS = {
   "tokenAnchor.get": (s, p) => s.getTokenAnchor(p),
   "tokenAnchor.save": (s, p) => s.saveTokenAnchor(p),
 
-  "goal.get": (s, p) => s.getGoal(p),
-  "goal.save": (s, p) => s.saveGoal(p),
 
   "userJob.create": (s, p) => s.createUserJob(p),
   "userJob.get": (s, p) => s.getUserJob(p),

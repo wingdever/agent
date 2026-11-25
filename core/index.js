@@ -25,7 +25,7 @@ import { createCapabilities } from "./capabilities.js";
 import { createRpc } from "./rpc/index.js";
 import { loadTools } from "./tools/registry.js";
 import { loadMcpTools } from "./mcp/index.js";
-import { createGoalService } from "./goals.js";
+import { mountGoal } from "./goal/index.js";
 import _mod0 from "./skills/index.js";
 const { SkillRegistry,
   FileSystemSkillProvider,
@@ -73,13 +73,12 @@ async function createCore(overrides = {}) {
       if (tool) tool.defaultVisible = false;
     }
   }
-  const goals = createGoalService(store);
   const interactions = new InteractionService({ store });
   const model = new ModelService({ config });
   const skills = createSkillsRegistry();
 
   const context = new ContextService({ config, model, tools, skills, store });
-  const agent = new AgentRuntime({ config, model, context, tools, skills, interactions, store, goals });
+  const agent = new AgentRuntime({ config, model, context, tools, skills, interactions, store });
 
   // Slots are composed by the entry layer and handed in: core never imports
   // proxies/ or channels/. Tools reach them only through these handles.
@@ -110,10 +109,15 @@ async function createCore(overrides = {}) {
     flow: null,
     store,
     mcp,
-    goals,
+    // Mounted goal module (docs/agents/goal.md); it plugs in through the turn
+    // lifecycle interfaces and nothing else references it.
+    goals: null,
     rpc: null,
   };
   agent.setCore(core);
+  // The goal module mounts itself over the generic turn lifecycle interfaces
+  // (docs/agents/lifecycle.md); the composition only hands it the services.
+  core.goals = mountGoal(core, { defaultMaxGoalRounds: config.readGoalConfig().defaultMaxGoalRounds });
   agent.setSubagents(() => core.subagents);
   context.setRuntime(agent);
   core.subagents = new SubagentRuntime(core);

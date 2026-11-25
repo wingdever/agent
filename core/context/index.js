@@ -55,6 +55,13 @@ class ContextService {
     return compactionRunner.surfaceNodes(this.deps(), sessionId);
   }
 
+  // User inputs of one turn (surface order) with their sources: a feature that
+  // needs to prove which inputs a running turn contains reads this (the surface
+  // the model saw).
+  turnInputs(sessionId, turnSeq) {
+    return compactionRunner.turnInputs(this.deps(), sessionId, turnSeq);
+  }
+
   requestMessages(sessionId, system, pending) {
     return compactionRunner.requestMessages(this.deps(), sessionId, system, pending);
   }

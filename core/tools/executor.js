@@ -28,6 +28,15 @@ function validateToolArgs(tool, args) {
   return validateSchema(tool.parameters, args);
 }
 
+// Context deferred by a tool during this call (e.g. the goal tools' closing
+// instruction after a terminal goal update). Appended to the turn's request as
+// one more user instruction before the next step, never persisted.
+function createDeferContext(sink) {
+  return (text) => {
+    if (typeof text === "string" && text.trim() && Array.isArray(sink)) sink.push({ role: "user", content: text });
+  };
+}
+
 async function runTool(tool, args, exec) {
   const options = exec || {};
   if (cancelled(options.signal)) return abortedResult(true);
@@ -47,6 +56,6 @@ async function runTool(tool, args, exec) {
   return normalizeResult(result);
 }
 
-const __exports = { validateToolArgs, runTool, ABORTED_TEXT, ABORTED_BEFORE_DISPATCH_TEXT };
-export { validateToolArgs, runTool, ABORTED_TEXT, ABORTED_BEFORE_DISPATCH_TEXT };
+const __exports = { validateToolArgs, runTool, createDeferContext, ABORTED_TEXT, ABORTED_BEFORE_DISPATCH_TEXT };
+export { validateToolArgs, runTool, createDeferContext, ABORTED_TEXT, ABORTED_BEFORE_DISPATCH_TEXT };
 export default __exports;

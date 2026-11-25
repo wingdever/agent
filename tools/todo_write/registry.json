@@ -18,17 +18,27 @@
             "status": {
               "type": "string",
               "description": "pending (not started) | in_progress (now) | completed (done).",
-              "enum": ["pending", "in_progress", "completed"]
+              "enum": [
+                "pending",
+                "in_progress",
+                "completed"
+              ]
             }
           },
-          "required": ["content", "status"]
+          "required": [
+            "content",
+            "status"
+          ]
         }
       }
     },
-    "required": ["todos"]
+    "required": [
+      "todos"
+    ]
   },
   "mode": "write",
   "group": "goal",
+  "package": "todo",
   "entry": "run.js",
   "defaultVisible": true
 }

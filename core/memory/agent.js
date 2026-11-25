@@ -64,6 +64,53 @@ class Agent {
     // step boundary clears the set when it claims nextStep.
     this.nextStepReported = new Set();
     this._stepWaiters = [];
+
+    // Turn lifecycle events (docs/agents/lifecycle.md §1). Listeners are
+    // synchronous and their return values are ignored: a feature that needs
+    // asynchronous work runs its own queue. `started` remembers whether the
+    // one-time session:start edge has been delivered.
+    this._listeners = new Map();
+    this._sessionStarted = !(this.persist === true && this.sessionId != null);
+  }
+
+  // ---- events ----
+
+  // Subscribe to one lifecycle event. Returns the unsubscribe function.
+  //   session:start  { agent }
+  //   turn:start     { agent, turn }
+  //   turn:end       { agent, status, reason, steps, tools, durationMs, claim }
+  //   turn:cancelled { agent, cause }
+  //   inbox:queued | inbox:claimed | inbox:removed  { agent, queue, item }
+  on(event, fn) {
+    if (typeof fn !== "function" || typeof event !== "string") return () => {};
+    const set = this._listeners.get(event) || new Set();
+    set.add(fn);
+    this._listeners.set(event, set);
+    return () => {
+      const current = this._listeners.get(event);
+      if (!current) return;
+      current.delete(fn);
+      if (!current.size) this._listeners.delete(event);
+    };
+  }
+
+  // The session-start edge: an overridable hook that dispatches session:start.
+  _onSessionStart(turn) {
+    this._emit("session:start", { turn });
+  }
+
+  // Deliver one event synchronously. A listener that throws never breaks the
+  // turn: the failure is logged and the remaining listeners still run.
+  _emit(event, payload) {
+    const set = this._listeners.get(event);
+    if (!set || !set.size) return;
+    for (const fn of [...set]) {
+      try {
+        fn({ agent: this, ...payload });
+      } catch (error) {
+        console.warn("[agent] " + event + " listener failed for session " + this.key + ": " + ((error && error.message) || error));
+      }
+    }
   }
 
   // ---- identity ----
@@ -79,8 +126,11 @@ class Agent {
 
   // Open one turn. The caller owns the body; this only flips phase, installs
   // the delivery state and guarantees the turn ends exactly once.
-  // Returns { turn, abort, finish(payload) } and runs `body(turn)` if given.
-  beginTurn({ emit = () => {}, autonomy = "supervised", effort = null, activity = "bare-chat", interactions = null } = {}) {
+  // Returns { turn, abort, finish(outcome) }.
+  // `claim` is opaque to the instance: the turn source that opened this turn
+  // puts it there and the loop persists it at the turn's first step (the
+  // lifecycle contract, docs/agents/lifecycle.md §1.3).
+  beginTurn({ emit = () => {}, autonomy = "supervised", effort = null, activity = "bare-chat", interactions = null, claim = null, firstTurn = false } = {}) {
     if (this.running()) throw new Error("session " + this.key + " is already running a turn");
     const abort = new AbortController();
     const turn = createTurnState({
@@ -90,21 +140,45 @@ class Agent {
       activity: activity === "plan-mode" ? "plan-mode" : (activity || "bare-chat"),
       interactions,
     });
+    turn.claim = claim != null ? claim : null;
+    turn.deferred = [];
+    // The session-start edge fires once, before the first turn that starts a
+    // session, and never for a turn a turn source opens (a source only
+    // continues a live session). The event is shaped through `_onSessionStart`
+    // so a composite can wrap it.
+    if (!this._sessionStarted && claim == null) {
+      this._sessionStarted = true;
+      this._onSessionStart(turn);
+    }
     this.turn = turn;
     this.phase = { kind: "running", abort };
+    this._emit("turn:start", { turn });
     return {
       turn,
       abort,
       signal: abort.signal,
-      finish: () => this._finishTurn(),
+      finish: (outcome) => this.finishTurn(outcome),
     };
   }
 
-  _finishTurn() {
+  // Close the turn. `outcome` carries the loop's terminal facts; it is merged
+  // into the turn:end payload (docs/agents/lifecycle.md §1.2).
+  finishTurn(outcome = {}) {
+    const turn = this.turn;
     this.turn = null;
     this.phase = { kind: "idle" };
     const waiters = this._idleWaiters.splice(0);
     for (const resolve of waiters) resolve();
+    // Listeners run before the turn's caller resumes, so a source that
+    // schedules the next turn sees every turn end exactly once.
+    this._emit("turn:end", {
+      status: outcome.status || "succeeded",
+      reason: outcome.reason || "no-tool-calls",
+      steps: outcome.steps || 0,
+      tools: outcome.tools || 0,
+      durationMs: outcome.durationMs || 0,
+      claim: turn ? turn.claim : null,
+    });
   }
 
   // ---- inbox ----
@@ -124,19 +198,49 @@ class Agent {
     if (wantStep && this.running()) {
       this.inbox.nextStep.push(item);
       this._notifyStepWaiters();
+      this._emit("inbox:queued", { queue: "next-step", item });
       return "next-step";
     }
     this.inbox.nextTurn.push(item);
+    this._emit("inbox:queued", { queue: "next-turn", item });
     return "next-turn";
   }
 
   claimNextTurn() {
-    return this.inbox.nextTurn.shift() || null;
+    const item = this.inbox.nextTurn.shift() || null;
+    if (item) this._emit("inbox:claimed", { queue: "next-turn", item });
+    return item;
+  }
+
+  peekNextTurn() {
+    return this.inbox.nextTurn.slice();
+  }
+
+  // Remove one queued input by id (any queue). Returns the removed item, or
+  // null when it was not queued.
+  removeFromInbox(id) {
+    for (const [name, queue] of [["next-turn", this.inbox.nextTurn], ["next-step", this.inbox.nextStep]]) {
+      const index = queue.findIndex((item) => item.id === id);
+      if (index < 0) continue;
+      const [item] = queue.splice(index, 1);
+      this._emit("inbox:removed", { queue: name, item });
+      return item;
+    }
+    return null;
+  }
+
+  // Put an item back at the tail of the next-turn queue (a reservation that
+  // must yield to an input which arrived first).
+  requeueNextTurn(item) {
+    this.inbox.nextTurn.push(item);
+    this._emit("inbox:queued", { queue: "next-turn", item });
+    return "next-turn";
   }
 
   claimNextStep() {
     const items = this.inbox.nextStep.splice(0);
     this.nextStepReported.clear();
+    for (const item of items) this._emit("inbox:claimed", { queue: "next-step", item });
     return items;
   }
 
@@ -207,9 +311,14 @@ class Agent {
   // ---- control ----
 
   // Abort the current turn, keep the inbox and anything already delivered.
-  interrupt() {
+  // `reason` is the turn-end reason this cancellation produces (an aborted
+  // model request, or the loop's own "interrupted" at a step boundary). It is
+  // kept beside the controller so the loop can report it in [turn]/turn-end.
+  interrupt(reason = "model-request-error", cause = null) {
     if (!this.running()) return false;
+    this.phase.cancelReason = reason;
     this.phase.abort.abort();
+    this._emit("turn:cancelled", { reason, cause });
     return true;
   }
 

@@ -3,6 +3,7 @@
 import { RpcRegistry } from "./registry.js";
 import defineChatCommands from "./handlers/chat.js";
 import defineConfigCommands from "./handlers/config.js";
+import defineGoalCommands from "./handlers/goal.js";
 import defineStorageCommands from "./handlers/storage.js";
 import defineCatalogCommands from "./handlers/catalog.js";
 import defineInteractionCommands from "./handlers/interactions.js";
@@ -13,6 +14,7 @@ function createRpc(core) {
   const rpc = new RpcRegistry(core);
   defineChatCommands(rpc);
   defineConfigCommands(rpc);
+  defineGoalCommands(rpc);
   defineStorageCommands(rpc);
   defineCatalogCommands(rpc);
   defineInteractionCommands(rpc);

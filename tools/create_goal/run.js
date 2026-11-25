@@ -1,12 +1,13 @@
 "use strict";
 
-// create_goal: persist the session's current goal. The round driver is not
-// implemented yet; the goal value is still durable and revision-checked.
+// create_goal: create (and arm) the session goal from a direct human turn.
+// Authority, result shape and the shared implementation live in
+// tools/goal/shared.js (docs/agents/goal.md §3-§4).
+
+import { createGoal } from "../goal/shared.js";
 
 export default {
   async run(args = {}, exec = {}) {
-    if (!exec.goals) throw new Error("create_goal is not available in this context");
-    const value = await exec.goals.create(exec.sessionId, args);
-    return { text: JSON.stringify(value), meta: value };
+    return createGoal(args, exec);
   },
 };

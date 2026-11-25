@@ -20,7 +20,9 @@ registry.json 字段：
 - `mode`：读写特性，`read`（只读）/ `write`（可写）/ `both`（视情况可写）；权限预设按它判定
 - `group`：能力分组，`fs` / `shell` / `terminal` / `code` / `web` / `browser` / `job` / `agent` / `team` / `schedule` / `goal` / `interaction` / `deliverable` / `channel` / `skill` / `mcp` / `utility`；工具页按它分类。只有 `mcp__<server>__<tool>` 形式的工具归入 MCP 子标签并按服务器名分组，`skill` 与共享注册的 MCP 资源工具（`group: mcp`）留在内置工具里
 - `prompt`（可选）：该工具贡献到 system prompt 的指引段落；order 由工具名查固定表
-- `promptSection`（可选）：多个工具共享同一段指引时使用（goal 三件套用 `goal`）
+- `promptSection`（可选）：多个工具共享同一段指引时使用（goal 三件套用 `goal`）；缺省取所属工具包名
+- `package`（可选）：所属工具包；缺省取 `group`。工具包聚合一个能力的多个工具，承载该能力提示段里用到的变量（变量规则见 `docs/tools/toolpack.md`）
+- `promptVarDefaults`（可选）：工具包提示变量的默认值，只允许写在包组长（包内按名称排序的第一个工具）上
 - `timeoutMs`（可选）：执行器预算；`concurrencySafe`（可选）：并发标记（与 `mode` 无关，是调度层的并行开关）
 - `defaultVisible`（可选，默认 true）：false 时默认不下发给模型（如 `calculator`）
 - `provider`（可选）：同名槽位的 provider 标识，缺省取目录名；`priority`（可选）：没有显式选择时按它选最高者；`defaultProvider`（可选）：显式标记默认 provider

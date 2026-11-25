@@ -22,6 +22,7 @@ export default async function run(input, ctx) {
   }
   resetTodos(agent);
 
+
   const settings = services.config.readSettings();
   ctx.translateCfg = services.context.resolveTranslateConfig(settings);
 

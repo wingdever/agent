@@ -6,7 +6,7 @@
 import { permissionFor } from "./../../../permissions.js";
 import _mod0 from "./../../../fs-policy.js";
 const { resolveFsPermissionForPaths, fsPathsForTool } = _mod0;
-import { validateToolArgs, runTool } from "./../../../tools/executor.js";
+import { validateToolArgs, runTool, createDeferContext } from "./../../../tools/executor.js";
 import { errorResult, modelContent } from "./../../../../lib/tool-result/index.js";
 import { runProgram } from "./../../../../lib/code-runner/index.js";
 
@@ -53,7 +53,7 @@ export default async function run(input, ctx) {
 
   // Every tool execution gets the same capability bag. The callId and signal
   // differ so approvals, delegation and cancellation stay attributed correctly.
-  const makeExec = ({ callId, name, signal, allowRunCode = false, nestedCall }) => {
+  const makeExec = ({ callId, name, signal, tool = null, allowRunCode = false, nestedCall }) => {
     const delegation = services.subagents ? {
       subagentSpawn: (a) => services.subagents.spawn({
         ...a,
@@ -103,8 +103,14 @@ export default async function run(input, ctx) {
       sessionId: session.id,
       callId,
       toolName: name,
+      // The tool object itself: tools read their own toolpack configuration
+      // from here (docs/tools/toolpack.md), so they never reach into core.
+      tool: tool || null,
       agent,
       goals: services.goals,
+      context: services.context,
+      registry: ctx.runtime && ctx.runtime.registry ? ctx.runtime.registry : null,
+      deferContext: createDeferContext(agent.turn ? agent.turn.deferred : null),
       isPlanMode: () => agent.planPolicyActive(),
       reviewPlan: (plan) => services.interactions.requestPlanReview({ agent, callId, plan, sessionId: session.id }),
       askUserQuestion: (questions) => services.interactions.requestUserQuestion({ agent, callId, questions }),
@@ -192,6 +198,7 @@ export default async function run(input, ctx) {
       callId,
       name,
       signal,
+      tool,
       nestedCall: true,
     }));
     ctx.emit({
@@ -268,6 +275,7 @@ export default async function run(input, ctx) {
       callId,
       name,
       signal: ctx.signal,
+      tool,
       allowRunCode: name === "run_code",
     }));
     await finish(result, result.isError === true ? "failed" : "succeeded");

@@ -43,7 +43,7 @@ async function runLoop(core, ctx, agentArg) {
   // 两个会话并发时互不覆盖。
   const agent = agentArg || core.agent.current();
   if (!agent) throw new Error("linear: no agent instance for this turn");
-  const handle = agent.beginTurn({ emit: onEvent, autonomy, effort, activity, interactions: core.interactions });
+  const handle = agent.beginTurn({ emit: onEvent, autonomy, effort, activity, interactions: core.interactions, claim: ctx.claim || null });
   // activity=plan-mode 驱动 per-session plan-mode：选 plan-mode 即进入计划态（POLICY 生效），
   // 切到其他 activity 即退出。exit_plan_mode 批准后由 UI 切到 build-code。
   if (sessionId) agent.setPlanMode(agent.turn.activity === "plan-mode");
@@ -552,8 +552,13 @@ async function runLoop(core, ctx, agentArg) {
   } catch (err) {
     // 预期内的终止（请求失败/截断/空回复）与真正的未知异常在这里汇合，
     // 都由 reason 区分；异常终止不再发 done，避免把失败伪装成正常回答。
-    status = "failed";
-    reason = err instanceof TurnError ? err.reason : "unexpected-exception";
+    if (agent.phase && agent.phase.cancelReason) {
+      status = "succeeded";
+      reason = agent.phase.cancelReason;
+    } else {
+      status = "failed";
+      reason = err instanceof TurnError ? err.reason : "unexpected-exception";
+    }
     errorText = String((err && err.message) || err);
     if (persist && turn) {
       try { if (currentStep && currentStep.row) await store.run("step.update", { id: currentStep.row.id, status: "failed" }); } catch (_) {}
@@ -561,7 +566,7 @@ async function runLoop(core, ctx, agentArg) {
     }
     return { role: "assistant", content: "", error: errorText, stopReason: reason };
   } finally {
-    handle.finish();
+    handle.finish({ status, reason, steps, tools: toolsUsed, durationMs: Date.now() - startedAt });
     if (persist) agent.gates.activeSessions.delete(String(sessionId));
     const durationMs = Date.now() - startedAt;
     // 每个 turn 结束都留一行原因：正常收尾也打，才能分清"答完了"和"被掐断"。
