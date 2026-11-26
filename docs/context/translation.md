@@ -1,6 +1,6 @@
 # auto-translate（中英自动翻译）
 
-让模型始终只看到英文，同时让用户用中文输入和阅读。模型侧历史只存英文；中文只用于显示。system prompt 固定包含 `Always answer in English.`；旧 session 不做兼容，直接删除即可。
+让模型始终只看到英文，同时让用户用中文输入和阅读。模型侧历史只存英文；中文只用于显示。翻译开启时，翻译模块向 system prompt 注入 `translation:language` 段（`core/translation.js` 的 `LANGUAGE_POLICY`）；关闭时不注入，模型可用用户语言回答。旧 session 不做兼容，直接删除即可。
 
 ## 行为
 
@@ -84,7 +84,7 @@
 
 ## 已知边界
 
-- 旧会话不兼容：旧 session 的 system prompt 已冻结，不会自动补 `Always answer in English.`；直接删除旧 session 即可（本项目历史数据不重要）。
+- 旧会话不兼容：旧 session 的 system prompt 已冻结，不会自动补 `translation:language`；直接删除旧 session 即可（本项目历史数据不重要）。
 - 不翻译 `reasoning_content`，不翻译工具卡。
 - 切换会话后当前翻译消失（不落库、不缓存）。
 - 纯英文输入不会调用翻译服务；模型回答有英文散文时调用一次，纯中文/纯代码跳过。

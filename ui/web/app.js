@@ -38,6 +38,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.registerView("trajectory", { title: "轨迹", sessionHeader: true });
   App.registerView("terminal", { title: "终端" });
   App.registerView("channels", { title: "通道" });
+  App.registerView("agents", { title: "智能" });
   App.registerView("flow", { title: "流程" });
   App.registerView("models", { title: "模型" });
   App.registerView("tools", { title: "工具" });
@@ -54,6 +55,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.initSidebar();        // sidebar.js：工作区/会话树/回收站/搜索 绑定
   App.initTerminalPanel();  // terminal-panel.js：终端主视图页
   App.initChannelsUI();     // channel-ui.js：通道主视图页
+  App.initAgentsUI();       // agent-ui.js：智能配置档页
   App.initTrajectory();     // trajectory.js：轨迹面板 DOM 缓存
   App.initGraph();          // graph-ui.js：本体模态框入口（meta-btn）与代码图页
   App.initPresence();       // context-panel.js：presence/autonomy/activity 绑定

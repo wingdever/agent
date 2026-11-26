@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { assembleSystemPrompt } from "../../../core/system-prompt.js";
 
 function assemble(extra = {}) {
-  return assembleSystemPrompt({ tools: [], cwd: "/tmp", model: "test-model", ...extra }).system;
+  return assembleSystemPrompt({ identity: "test identity", tools: [], cwd: "/tmp", model: "test-model", ...extra }).system;
 }
 
 test("no resource server means no MCP section at all", () => {
@@ -69,4 +69,25 @@ test("instructions appear even without resource capability", () => {
   const system = assemble({ mcpInstructions: [{ server: "toolsonly", text: "Prefer the ping tool." }] });
   assert.match(system, /Prefer the ping tool\./);
   assert.doesNotMatch(system, /MCP resource servers/);
+});
+
+test("identity must come from configuration, not a code constant", () => {
+  assert.throws(
+    () => assembleSystemPrompt({ tools: [], cwd: "/tmp", model: "test-model" }),
+    /requires a non-empty identity from agent\/config\.json/
+  );
+});
+
+test("language policy is contributed only when translation supplies one", () => {
+  assert.doesNotMatch(assemble(), /Always answer in English/);
+  const withPolicy = assemble({ languagePolicy: "Always answer in English." });
+  assert.match(withPolicy, /Always answer in English\./);
+  const sections = assembleSystemPrompt({
+    identity: "test identity",
+    languagePolicy: "Always answer in English.",
+    tools: [],
+    cwd: "/tmp",
+    model: "test-model",
+  }).sections;
+  assert.ok(sections.some((section) => section.name === "translation:language"));
 });

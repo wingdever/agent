@@ -8,6 +8,7 @@
 import fs from "fs";
 import path from "path";
 import compaction from "./../compaction.js";
+import { effectiveSettings } from "./../../lib/agent-profile/index.js";
 import { fileURLToPath as __fileURLToPath } from "node:url";
 import { dirname as __pathDirname } from "node:path";
 const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
@@ -38,11 +39,13 @@ function writeJSON(file, data) {
 }
 
 function readSettings() {
-  return readJSON(SETTINGS_FILE, {});
+  return effectiveSettings({ settingsFile: SETTINGS_FILE });
 }
 
+// writeSettings owns only the feature settings; agent fields live in the main
+// profile and are never written back into settings.json.
 function writeSettings(patch) {
-  const next = Object.assign({}, readSettings(), patch || {});
+  const next = Object.assign({}, readJSON(SETTINGS_FILE, {}), patch || {});
   return writeJSON(SETTINGS_FILE, next);
 }
 

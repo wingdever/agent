@@ -49,6 +49,8 @@ Thumbs.db
 
 # ===== 智能代理 =====
 .codebuddy
+/agent/
+/agents/
 
 # ===== 用户信息 =====
 /user/

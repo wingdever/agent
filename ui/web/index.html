@@ -42,6 +42,7 @@
         <button class="models-btn" id="modelsBtn" data-view="models" data-name="models-btn">🧩 模型</button>
         <button class="tools-btn" id="toolsBtn" data-view="tools" data-name="tools-btn">🛠 工具</button>
         <button class="skills-btn" id="skillsBtn" data-view="skills" data-name="skills-btn">📖 技能</button>
+        <button class="view-btn agents-btn" id="agentsBtn" data-view="agents" data-name="agents-btn">🧠 智能</button>
         <button class="flow-btn-sidebar" id="flowBtn" data-view="flow" data-name="flow-btn">🔀 流程</button>
         <button class="loops-btn" id="loopsBtn" data-view="loops" data-name="loops-btn">🔁 循环</button>
         <button class="meta-btn" id="metaBtn" data-view="meta" data-name="meta-btn">🧬 本体</button>
@@ -163,6 +164,14 @@
           <div class="channels-detail" id="channelsDetail" data-name="channels-detail"></div>
         </div>
       </div>
+
+      <!-- agents-page: 智能配置档页。左列表选配置档，右编辑 persona / 模型 / 推理 / 工具白名单。 -->
+      <div class="agents-page" id="agentsPage" data-view="agents" data-name="agents-page" hidden>
+        <div class="agents-body" data-name="agents-body">
+          <div class="agents-list" id="agentsList" data-name="agents-list"></div>
+          <div class="agents-editor" id="agentsEditor" data-name="agents-editor"></div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -205,6 +214,7 @@
 <script src="composer.js"></script>
 <script src="terminal-panel.js"></script>
 <script src="channel-ui.js"></script>
+<script src="agent-ui.js"></script>
 <script src="app.js"></script>
 <script src="shortcuts.js"></script>
 <script src="models.js"></script>

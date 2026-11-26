@@ -28,6 +28,7 @@
       subscribed: false,
       subscription: null,
       agent: null,
+      agents: [],
       agentLoaded: false,
     };
 
@@ -80,10 +81,12 @@
         window.AgentClient.call("config.get", {}).catch(function () { return {}; }),
         window.AgentClient.call("config.permissions.get", {}).catch(function () { return {}; }),
         window.AgentClient.call("workspace.list", {}).catch(function () { return []; }),
+        window.AgentClient.call("agent.list", {}).catch(function () { return { agents: [] }; }),
       ]).then(function (results) {
         var settings = results[0] || {};
         var permissions = results[1] || {};
         var workspaces = results[2] || [];
+        state.agents = (results[3] && results[3].agents) || [];
         var tools = permissions.tools || {};
         var askCount = 0;
         Object.keys(tools).forEach(function (name) { if (tools[name] === "ask") askCount += 1; });
@@ -179,6 +182,31 @@
         line.appendChild(el("span", "channels-field-value", pair[1], "channels-field-value"));
         info.appendChild(line);
       });
+      var bindRow = el("div", "channels-field", null, "channels-agent-field");
+      bindRow.appendChild(el("span", "channels-field-label", "agent 配置档", "channels-field-label"));
+      var select = el("select", "channels-agent-select", null, "channels-agent-select");
+      var globalOption = el("option", null, "主智能（默认）", null);
+      globalOption.value = "";
+      if (!row.agent) globalOption.selected = true;
+      select.appendChild(globalOption);
+      state.agents.forEach(function (profile) {
+        var option = el("option", null, profile.name + " (" + profile.id + ")", null);
+        option.value = profile.id;
+        if (row.agent === profile.id) option.selected = true;
+        select.appendChild(option);
+      });
+      select.addEventListener("change", function () {
+        window.AgentClient.call("channel.setAgent", { id: row.instanceId, agent: select.value || null }).then(function (updated) {
+          if (updated) upsert(updated);
+          else render();
+          if (App.toast) App.toast("已更新 agent 绑定");
+        }).catch(function (err) {
+          if (App.reportError) App.reportError("更新 agent 绑定失败", err);
+          render();
+        });
+      });
+      bindRow.appendChild(select);
+      info.appendChild(bindRow);
       detailEl.appendChild(info);
 
       var actions = el("div", "channels-actions", null, "channels-actions");

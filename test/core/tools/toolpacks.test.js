@@ -109,7 +109,7 @@ test("a prompt section interpolates the variables of its own package", () => {
     tool("get_goal", { group: "goal", section: "goal" }),
   ];
   buildToolpacks(tools, {});
-  const out = assembleSystemPrompt({ tools, cwd: process.cwd(), model: "stub" });
+  const out = assembleSystemPrompt({ identity: "test identity", tools, cwd: process.cwd(), model: "stub" });
   assert.ok(out.system.includes("at least 5 rounds"), out.system);
   assert.ok(!out.system.includes("{{blockedAfterConsecutiveRounds}}"));
 });
@@ -117,7 +117,7 @@ test("a prompt section interpolates the variables of its own package", () => {
 test("a placeholder without a value keeps its braces", () => {
   const tools = [tool("solo", { group: "utility", prompt: "value {{missingVar}} stays" })];
   buildToolpacks(tools, {});
-  const out = assembleSystemPrompt({ tools, cwd: process.cwd(), model: "stub" });
+  const out = assembleSystemPrompt({ identity: "test identity", tools, cwd: process.cwd(), model: "stub" });
   assert.ok(out.system.includes("value {{missingVar}} stays"));
 });
 

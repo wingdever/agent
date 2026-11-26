@@ -26,6 +26,7 @@ import { createSdkConnect } from "./channels/feishu/sdk-connect.js";
 import { createSessionBinder } from "./channels/inbound/sessions.js";
 import { createCore } from "./core/index.js";
 import { PROJECT_ROOT } from "./lib/paths/index.js";
+import { profileFor, chatOptions } from "./lib/agent-profile/index.js";
 import { createDirectFetch } from "./lib/net/direct-fetch.js";
 
 function parseArgs(argv) {
@@ -173,14 +174,14 @@ async function main() {
       runTurn: async (message, emit) => {
         turns++;
         const sessionId = await sessions.resolve(message);
-        return core.agent.chat({
+        return core.agent.chat(Object.assign({
           sessionId,
           messages: message.messages,
           onEvent: emit,
           inputSource: `channel:${message.type}:${message.instanceId}`,
           // No channel-side approver exists: `ask` would leave the turn hanging.
           autonomy: "autonomous",
-        });
+        }, chatOptions(profileFor(message.instanceId))));
       },
     });
   }

@@ -10,13 +10,13 @@
 // 不补 subagent 或后续新功能。
 
 import path from "path";
-import { DEFAULT_IDENTITY, assembleSystemPrompt } from "./../system-prompt.js";
+import { assembleSystemPrompt } from "./../system-prompt.js";
 import _mod0 from "./../skills/index.js";
 const { isModelInvocable } = _mod0;
 import { readPermissions, permissionFor } from "./../permissions.js";
 import _mod1 from "./../fs-policy.js";
 const { readFsPolicy, resolveFsPermissionForPaths, fsPathsForTool } = _mod1;
-import { resolveConfig as resolveTranslateConfig, shouldTranslateUser, shouldTranslateAssistant, translateText } from "./../translation.js";
+import { LANGUAGE_POLICY, resolveConfig as resolveTranslateConfig, shouldTranslateUser, shouldTranslateAssistant, translateText } from "./../translation.js";
 import compaction from "./../compaction.js";
 import { validateToolArgs, runTool } from "./../tools/executor.js";
 import { errorResult, modelContent } from "./../../lib/tool-result/index.js";
@@ -30,6 +30,7 @@ async function runLoop(core, ctx, agentArg) {
     messages,
     toolNames,
     model,
+    persona,
     onEvent = () => {},
     sessionId,
     stream,
@@ -128,8 +129,9 @@ async function runLoop(core, ctx, agentArg) {
       ? (await core.skills.list({ cwd })).filter((s) => isModelInvocable(s))
       : [];
     const assembled = assembleSystemPrompt({
-      identity: typeof st.identity === "string" ? st.identity : DEFAULT_IDENTITY,
-      persona: typeof st.persona === "string" ? st.persona : "",
+      identity: st.identity,
+      persona: typeof persona === "string" ? persona : (typeof st.persona === "string" ? st.persona : ""),
+      languagePolicy: translateCfg.enabled ? LANGUAGE_POLICY : "",
       tools,
       cwd,
       model: request.model,

@@ -216,6 +216,7 @@ test("the PTC executor contributes run_code policy and an SDK section", () => {
   assert.match(sdk, /read\(args: \{/);
   assert.match(sdk, /file_path: string;/);
   const prompt = assembleSystemPrompt({
+    identity: "test identity",
     tools: [{ name: "run_code", prompt: "" }],
     executorMode: "ptc",
     sdkTools: [

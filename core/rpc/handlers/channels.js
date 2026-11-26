@@ -1,14 +1,27 @@
 "use strict";
 
-// UI-facing channel lifecycle commands. The manager owns all state; these
-// handlers only project its roster and forward explicit start/stop requests.
-// Configuration stays in user/channels.json -- this surface never writes it.
+// UI-facing channel lifecycle commands. The manager owns all runtime state;
+// these handlers project its roster, forward start/stop, and edit only the
+// agent binding in user/channels.json.
+
+import fs from "fs";
+import path from "path";
+import { PROJECT_ROOT } from "./../../../lib/paths/index.js";
 
 const anyId = { oneOf: [{ type: "string" }, { type: "number" }] };
 const noParams = { type: "object", properties: {}, additionalProperties: false };
 const byId = {
   type: "object",
   properties: { id: anyId },
+  required: ["id"],
+  additionalProperties: false,
+};
+const setAgentParams = {
+  type: "object",
+  properties: {
+    id: anyId,
+    agent: { oneOf: [{ type: "string" }, { type: "null" }] },
+  },
   required: ["id"],
   additionalProperties: false,
 };
@@ -21,11 +34,34 @@ function service(core) {
   return channels;
 }
 
-export default function defineChannelCommands(rpc) {
+export default function defineChannelCommands(
+  rpc,
+  {
+    channelsFile = path.join(PROJECT_ROOT, "user", "channels.json"),
+    agentsDir = path.join(PROJECT_ROOT, "agents"),
+  } = {}
+) {
+  function readJson(file, fallback) {
+    try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return fallback; }
+  }
+
+  // The runtime snapshot has no profile field; the binding is a config fact,
+  // so it is attached here for both list responses and pushed snapshots.
+  function withBindings(rows) {
+    const config = readJson(channelsFile, { channels: [] });
+    const bindings = new Map();
+    (config.channels || []).forEach((row) => {
+      if (row && row.id != null) bindings.set(String(row.id), row.agent || null);
+    });
+    return rows.map((row) => Object.assign({}, row, {
+      agent: bindings.get(String(row.instanceId)) || null,
+    }));
+  }
+
   rpc.define({
     name: "channel.list",
     params: noParams,
-    handler: (core) => service(core).list(),
+    handler: (core) => withBindings(service(core).list()),
   });
 
   rpc.define({
@@ -38,6 +74,30 @@ export default function defineChannelCommands(rpc) {
     name: "channel.stop",
     params: byId,
     handler: (core, value) => service(core).stop(String(value.id)),
+  });
+
+  rpc.define({
+    name: "channel.setAgent",
+    params: setAgentParams,
+    handler: (core, value) => {
+      const id = String(value.id);
+      const agent = value.agent == null || value.agent === "" ? null : String(value.agent);
+      if (agent && !/^[a-z][a-z0-9-]*$/.test(agent)) {
+        throw new Error(`invalid agent id "${agent}"`);
+      }
+      if (agent && !fs.existsSync(path.join(agentsDir, agent, "config.json"))) {
+        throw new Error(`unknown agent "${agent}"`);
+      }
+      const config = readJson(channelsFile, { channels: [] });
+      const row = (config.channels || []).find((entry) => entry && String(entry.id) === id);
+      if (!row) throw new Error(`unknown channel "${id}"`);
+      row.agent = agent;
+      fs.mkdirSync(path.dirname(channelsFile), { recursive: true });
+      fs.writeFileSync(channelsFile, JSON.stringify(config, null, 2));
+      const channels = service(core);
+      if (typeof channels.emit === "function") channels.emit();
+      return withBindings(channels.list()).find((entry) => String(entry.instanceId) === id) || null;
+    },
   });
 
   // The stream stays open until the transport cancels it. The manager sends a
@@ -60,7 +120,7 @@ export default function defineChannelCommands(rpc) {
       onCancel(finish);
       off = channels.subscribe((roster) => {
         if (done) return;
-        onEvent({ type: "snapshot", channels: roster });
+        onEvent({ type: "snapshot", channels: withBindings(roster) });
       });
       if (done) off();
     }),

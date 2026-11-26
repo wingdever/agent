@@ -91,3 +91,13 @@ Agent {
 - `AgentRegistry` 构造 `({ shared, gates })`；`get(sessionId)`；`getOrCreate(sessionId)`；`has(sessionId)`；`list()`；`current()`；`setCurrent(agentOrSessionId)`；`touch(sessionId)`；`openBare()`；`dispose(sessionId)`；`createTransient(sessionId?)`。
 - `Agent`：`beginTurn({ emit, autonomy, effort, activity, interactions })` 返回 `{ turn, abort, signal, finish }`；`enqueue(message, target)`；`claimNextTurn()`；`claimNextStep()`；`hasPending()`；`interrupt()`；`whenIdle()`；`running()`；plan 态与 todo 的读写方法。
 - 进程容器：`chat(ctx)` 按 sessionId 或光标取实例后起一轮；`get(sessionId)` / `getOrCreate(sessionId)` / `list()` 转发注册表；`compactSession(opts)` 同经实例。
+
+## 9 配置档（智能）
+
+配置档是持久化的**配置**，不是运行时实例。主档放在 `agent/config.json`，没有 id，UI 里标「主智能（默认）」；其它代理各占一个 `agents/<id>/config.json`，目录名即 id（小写字母、数字、短横线）。每个 `config.json` 的字段为 `name`、`persona`、`model`、`effort` 与 `tools` 白名单。两个目录都被 `.gitignore` 忽略。左栏编排组的「🧠 智能」入口提供列表与编辑，读写走 `agent.list/get/upsert/delete`：`agent.list` 返回 `{ main, agents }`，省略 `id` 的 `get/upsert` 指主档，带 `id` 的指其它代理；主档不可删除，其它档删除时移除 `config.json` 并清理空目录，不支持改名（删了重建）。
+
+channel 实例在 `user/channels.json` 里用 `agent` 字段绑定一个代理，绑定在通道页选择；字段为空表示使用主档。运行时仍由 binder 把平台会话键映射到普通会话，sink 从配置档取 `persona/model/effort/toolNames` 传给 `chat(ctx)`；工具白名单按配置档裁剪请求工具清单（前缀缓存随之失效，这是明确的取舍）。主档 `config.json` 缺失时视为空覆盖，行为与全局设置一致。
+
+主档也是全局默认：`identity/persona/provider/model/effort` 已从 `user/settings.json` 一次性搬入 `agent/config.json` 并从 settings 中删除，`config.readSettings()` 把主档字段合并进设置视图，所有读取点无需改动。`settings.json` 只保留 `stream/reasoningControl/translate/web/autoCompact`。主档文件不存在或为空对象时，首次读取从 `assets/agent/config.json` 物化一次（默认 `identity/persona/effort=high/tools=[]`，不含机器相关的 provider/model），之后不再覆盖。composer 底栏的 model/effort 选择器也改为读主档并写回主档。
+
+配置只在新的平台会话生效：系统提示在会话首轮装配后写入 `session.prompt` 并复用，已有会话不会因绑定变化而改人格。需要迁移时由人手动处理会话映射。被通道绑定的代理拒绝删除，删除前必须先改绑定。

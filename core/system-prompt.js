@@ -67,7 +67,7 @@ function renderSkillCatalog(skills, { catalogDescriptionMaxLength = 500 } = {}) 
 const SECTION_ORDERS = {
   HARNESS_IDENTITY: -1000,
   DEPLOYMENT_PERSONA: 0,
-  LANGUAGE_POLICY: 500,
+  TRANSLATION_LANGUAGE: 500,
   TOOL_GUIDANCE: 1000,
   TOOL_PTY: 1700,
   TOOL_PTY_PANEL: 1710,
@@ -82,9 +82,6 @@ const SECTION_ORDERS = {
   MCP_SERVERS: 3100,
   RUNTIME_CONTEXT: 10000,
 };
-
-const DEFAULT_IDENTITY = "You are an AI agent.";
-const ENGLISH_ONLY_INSTRUCTION = "Always answer in English.";
 
 // Variables are referenced from section text as {{name}}. Unknown references
 // throw: a malformed prompt is worse than a loud failure.
@@ -205,18 +202,27 @@ function sectionPromptVars(sectionName, tools) {
   return packs[0].promptVars || null;
 }
 
-function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools = [], executorMode = "native", sdkTools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength, mcpResourceServers = [], mcpInstructions = [] } = {}) {
+function assembleSystemPrompt({ identity, persona = "", languagePolicy = "", tools = [], executorMode = "native", sdkTools = [], cwd, model, now = new Date(), skills, catalogDescriptionMaxLength, mcpResourceServers = [], mcpInstructions = [] } = {}) {
+  // Identity is deployment configuration (agent/config.json), never a constant
+  // in code. Fail loudly when the configuration chain cannot supply one.
+  if (typeof identity !== "string" || !identity.trim()) {
+    throw new Error("assembleSystemPrompt requires a non-empty identity from agent/config.json");
+  }
   const prompt = new SystemPrompt();
   prompt.variable("cwd", cwd || process.cwd());
   prompt.variable("model", model || "unknown");
 
   prompt.section({ name: "harness:identity", order: prompt.getSectionOrder("HARNESS_IDENTITY"), text: identity });
   prompt.section({ name: "deployment:persona", order: prompt.getSectionOrder("DEPLOYMENT_PERSONA"), text: persona });
-  prompt.section({
-    name: "harness:language",
-    order: prompt.getSectionOrder("LANGUAGE_POLICY"),
-    text: ENGLISH_ONLY_INSTRUCTION,
-  });
+  // The English-immersion instruction is contributed only while translation
+  // is enabled; the text comes from the translation feature, not from here.
+  if (languagePolicy) {
+    prompt.section({
+      name: "translation:language",
+      order: prompt.getSectionOrder("TRANSLATION_LANGUAGE"),
+      text: languagePolicy,
+    });
+  }
 
   if (executorMode === "ptc") {
     prompt.section({
@@ -335,8 +341,6 @@ function assembleSystemPrompt({ identity = DEFAULT_IDENTITY, persona = "", tools
 }
 
 const __exports = {
-  DEFAULT_IDENTITY,
-  ENGLISH_ONLY_INSTRUCTION,
   SECTION_ORDERS,
   SystemPrompt,
   assembleSystemPrompt,
@@ -344,5 +348,5 @@ const __exports = {
   buildRuntimeContext,
   localIso,
 };
-export { DEFAULT_IDENTITY, ENGLISH_ONLY_INSTRUCTION, SECTION_ORDERS, SystemPrompt, assembleSystemPrompt, renderSkillCatalog, buildRuntimeContext, localIso };
+export { SECTION_ORDERS, SystemPrompt, assembleSystemPrompt, renderSkillCatalog, buildRuntimeContext, localIso };
 export default __exports;

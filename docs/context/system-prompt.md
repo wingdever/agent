@@ -20,15 +20,15 @@ section 按 `order` 升序拼接，同 order 按 name 排序；空文本段落�
 
 | section | order | 来源 |
 |---|---|---|
-| `harness:identity` | -1000 | `user/settings.json` 的 `identity`，缺省 `You are an AI agent.` |
-| `deployment:persona` | 0 | `user/settings.json` 的 `persona`，缺省空（不渲染） |
-| `harness:language` | 500 | 固定 `Always answer in English.` |
+| `harness:identity` | -1000 | 主档 `agent/config.json` 的 `identity`，缺省 `You are an AI agent powered by DeepSeek Harness.` |
+| `deployment:persona` | 0 | 主档 `agent/config.json` 的 `persona`，缺省空（不渲染） |
+| `translation:language` | 500 | 仅 `translate.enabled` 时由翻译模块注入 `core/translation.js` 的 `LANGUAGE_POLICY`；关闭时不渲染 |
 | `tool:<name>` | 1000+ | 工具 `registry.json` 的 `prompt` 字段；顺序用 DSH 固定表（bash 1000、read 1100、write 1200、edit 1300、glob 1400、grep 1500、goal 2400…）。`promptSection` 可让多个工具共享一段（goal 三件套） |
 | `runtime:context` | 10000 | 自动生成，固定在末尾 |
 
-只有本轮可见的工具（`toolNames`）才贡献 `tool:*` 段落；bare 分支强制 `tools:[]`（`core/bare-chat.js` 硬约束，不再依赖 UI 传参），因此只有身份、persona、语言策略和运行时上下文。
+只有本轮可见的工具（`toolNames`）才贡献 `tool:*` 段落；bare 分支强制 `tools:[]`（`core/bare-chat.js` 硬约束，不再依赖 UI 传参），因此只有身份、persona、翻译开启时的语言约束和运行时上下文。
 
-新 session 在装配时写入 `harness:language`。本项目不做旧会话兼容：旧 session 的 system prompt 不再补这条规则，直接删除旧 session 即可（历史数据不重要）。
+新 session 在装配时，若翻译开启则写入 `translation:language`。本项目不做旧会话兼容：旧 session 的 system prompt 不再补这条规则，直接删除旧 session 即可（历史数据不重要）。
 
 ### 变量
 section 文本里的 `{{name}}` 在渲染时替换；未知变量直接抛错，不静默保留。当前提供：
@@ -47,13 +47,13 @@ Platform: linux (x64).
 ```
 
 ### 配置
-`user/settings.json` 可写 `identity` / `persona`，例如：
+主档 `agent/config.json` 可写 `identity` / `persona`，例如：
 
 ```json
 { "identity": "You are a coding agent.", "persona": "You are powered by the {{model}} model." }
 ```
 
-设置写入走 `settings` 的 `writeSettings` 合并，不会清掉其他字段。
+主档写入走 `agent.upsert`（省略 id），保留其余字段；主档缺失时从 `assets/agent/config.json` 物化一次。
 
 ### UI 展示
 - 布局树：`step* → agent-request? → (system-prompt? + user-input)`。

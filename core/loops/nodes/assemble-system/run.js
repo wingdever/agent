@@ -2,9 +2,9 @@
 
 // Node assemble-system: build the session system prompt + skill catalog on the
 // first turn and reuse the stored prompt afterwards.
-import { DEFAULT_IDENTITY } from "./../../../system-prompt.js";
 import _mod0 from "./../../../skills/index.js";
 const { isModelInvocable } = _mod0;
+import { LANGUAGE_POLICY } from "./../../../translation.js";
 
 export default async function run(input, ctx) {
   const { services, session, request } = ctx;
@@ -20,8 +20,11 @@ export default async function run(input, ctx) {
       ? (await services.skills.list({ cwd: ctx.cwd })).filter((s) => isModelInvocable(s))
       : [];
     const assembled = services.context.assembleSystem({
-      identity: typeof settings.identity === "string" ? settings.identity : DEFAULT_IDENTITY,
-      persona: typeof settings.persona === "string" ? settings.persona : "",
+      identity: settings.identity,
+      persona: typeof ctx.persona === "string"
+        ? ctx.persona
+        : (typeof settings.persona === "string" ? settings.persona : ""),
+      languagePolicy: ctx.translateCfg && ctx.translateCfg.enabled ? LANGUAGE_POLICY : "",
       tools: request.selected,
       executorMode: ctx.executorMode,
       sdkTools: request.sdkTools || [],

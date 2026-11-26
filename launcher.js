@@ -11,6 +11,7 @@ import { createChannels } from "./channels/registry.js";
 import { createChannelManager } from "./channels/manager.js";
 import { createSessionBinder } from "./channels/inbound/sessions.js";
 import { PROJECT_ROOT } from "./lib/paths/index.js";
+import { profileFor, chatOptions } from "./lib/agent-profile/index.js";
 import { startTransport } from "./core/transport.js";
 
 const AGENT_UI = process.env.AGENT_UI || "electron";
@@ -64,7 +65,7 @@ app.whenReady()
     channels.setSink({
       runTurn: async (message, emit) => {
         const sessionId = await sessions.resolve(message);
-        return core.agent.chat({
+        return core.agent.chat(Object.assign({
           sessionId,
           messages: message.messages,
           onEvent: emit,
@@ -72,7 +73,7 @@ app.whenReady()
           // Nobody can answer an approval prompt from a chat platform, so an
           // `ask` tool would hang the turn forever. Autonomous denies it.
           autonomy: "autonomous",
-        });
+        }, chatOptions(profileFor(message.instanceId))));
       },
     });
     // A paused turn only survives a restart through its snapshot

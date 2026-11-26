@@ -15,9 +15,9 @@
 
 | 段落 | order | 来源 |
 |---|---|---|
-| `harness:identity` | -1000 | `user/settings.json` 的 `identity`，缺省 `You are an AI agent.` |
-| `deployment:persona` | 0 | `user/settings.json` 的 `persona`，缺省为空 |
-| `harness:language` | 500 | 固定 `Always answer in English.` |
+| `harness:identity` | -1000 | 主档 `agent/config.json` 的 `identity`，缺省 `You are an AI agent powered by DeepSeek Harness.` |
+| `deployment:persona` | 0 | 主档 `agent/config.json` 的 `persona`，缺省为空 |
+| `translation:language` | 500 | 仅 `translate.enabled` 时由翻译模块注入 `LANGUAGE_POLICY`；关闭时不渲染 |
 | `tool:<name>` | 1000+ | 工具 `registry.json` 的 `prompt` 字段 |
 | `runtime:context` | 10000 | 自动生成的四行运行时上下文 |
 
@@ -62,7 +62,7 @@ Platform: <platform> (<arch>).
 
 - **系统提示词在数据库里只存一份**，之后所有轮次复用。原型每个候选 step 都重新组装，并按 `systemPromptUpdate` 模式决定追加还是原地替换；我们选择了"会话首轮冻结"。
 - **运行时上下文是系统提示词的一段**（order 10000），原型是独立的 user 角色快照。我们的 cwd/时间/模型/平台在会话内冻结，原型每次准入前刷新。
-- **`harness:language` 是固定英文策略**（`Always answer in English.`），原型没有这个段落，语言策略由 persona 与翻译功能承担。
+- **`translation:language` 是翻译模块按需注入的段落**（`Always answer in English.`），原型没有这个段落，语言策略由 persona 与翻译功能承担；它不再属于提示词核心的通用配置。
 - **`deployment:persona` 不是可遮蔽的槽位**：我们是单段拼接，原型用 `deployment:persona-prefix` / `deployment:persona-suffix` 两个命名槽位配合作用域遮蔽。
 - **没有 `complete` 与 `suppressRuntimeContext` 机制**。
 

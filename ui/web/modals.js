@@ -163,6 +163,7 @@
     App.syncViewVisibility();
     if (App.terminalPanel && App.terminalPanel.onViewChange) App.terminalPanel.onViewChange(name);
     if (App.channelsUI && App.channelsUI.onViewChange) App.channelsUI.onViewChange(name);
+    if (App.agentsUI && App.agentsUI.onViewChange) App.agentsUI.onViewChange(name);
     App.scheduleHeaderEval(); // 表头内容随视图变化，重新评估紧凑态
     if (name === "trajectory" && App.loadTrajectory) App.loadTrajectory(App.currentSessionId);
     if (App.refreshViewLayout) App.refreshViewLayout(name);

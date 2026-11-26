@@ -2,6 +2,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { RpcRegistry } from "../../../core/rpc/registry.js";
 import defineChannelCommands from "../../../core/rpc/handlers/channels.js";
 import { createChannelManager } from "../../../channels/manager.js";
@@ -59,4 +62,34 @@ test("channel.subscribe pushes an initial roster and releases on cancel", async 
   await pending;
   await manager.start("bot");
   assert.equal(events.length, before);
+});
+
+test("channel.list exposes the agent binding and setAgent writes it back", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "channel-binding-"));
+  const channelsFile = path.join(dir, "channels.json");
+  const agentsDir = path.join(dir, "agents");
+  fs.writeFileSync(channelsFile, JSON.stringify({ channels: [{ id: "bot", enabled: true }] }));
+  fs.mkdirSync(path.join(agentsDir, "helper"), { recursive: true });
+  fs.writeFileSync(path.join(agentsDir, "helper", "config.json"), JSON.stringify({ name: "助手" }));
+  const { core } = makeCore();
+  const rpc = new RpcRegistry(core);
+  defineChannelCommands(rpc, { channelsFile, agentsDir });
+  try {
+    assert.equal((await rpc.handle("channel.list", {}))[0].agent, null);
+
+    await assert.rejects(
+      rpc.handle("channel.setAgent", { id: "bot", agent: "missing" }),
+      /unknown agent/
+    );
+
+    const bound = await rpc.handle("channel.setAgent", { id: "bot", agent: "helper" });
+    assert.equal(bound.agent, "helper");
+    assert.equal(JSON.parse(fs.readFileSync(channelsFile, "utf8")).channels[0].agent, "helper");
+
+    const unbound = await rpc.handle("channel.setAgent", { id: "bot", agent: null });
+    assert.equal(unbound.agent, null);
+    assert.equal((await rpc.handle("channel.list", {}))[0].agent, null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

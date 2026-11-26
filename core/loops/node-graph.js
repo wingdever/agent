@@ -131,6 +131,7 @@ class NodeGraphEngine {
         contextMessages: inputCtx.contextMessages,
       },
       toolNames: inputCtx.toolNames,
+      persona: inputCtx.persona,
       autonomy: inputCtx.autonomy,
       activity: inputCtx.activity,
       request: new RequestSpec({

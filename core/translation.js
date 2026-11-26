@@ -19,6 +19,10 @@
 //     "timeoutMs": 30000
 //   }
 
+// The prompt instruction belongs to this feature, not to the prompt core: the
+// English-immersion contract only applies while auto-translation is enabled.
+export const LANGUAGE_POLICY = "Always answer in English.";
+
 import { postChatCompletions, trackCapture } from "./network/http/client.js";
 
 const DEFAULT_CONFIG = {
@@ -202,6 +206,7 @@ const __exports = {
   cleanTranslation,
   hasHan,
   hasProse,
+  LANGUAGE_POLICY,
   resolveConfig,
   shouldTranslateAssistant,
   shouldTranslateUser,

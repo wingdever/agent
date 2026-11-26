@@ -31,8 +31,9 @@
     return e;
   }
 
-  var overlay = null, streamSwitchEl = null, translateSwitchEl = null, autoCompactSwitchEl = null, providerSelEl = null, modelSelEl = null, reasoningControlSel = null;
-  var state = { stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch", autoCompact: true };
+  var overlay = null, streamSwitchEl = null, translateSwitchEl = null, autoCompactSwitchEl = null, reasoningControlSel = null;
+  var state = { stream: false, translate: { enabled: true }, reasoningControl: "think-switch", autoCompact: true };
+  var AGENT_FIELDS = ["identity", "persona", "provider", "model", "effort"];
   var providers = [];
 
   function getSettings() { return state; }
@@ -46,8 +47,9 @@
   async function loadSettings() {
     try {
       var st = await window.AgentClient.call("config.get", {});
-      state = Object.assign({ stream: false, provider: "", model: "", translate: { enabled: true }, reasoningControl: "think-switch", autoCompact: true }, st || {});
+      state = Object.assign({ stream: false, translate: { enabled: true }, reasoningControl: "think-switch", autoCompact: true }, st || {});
     } catch (e) { /* 后端未就绪时用默认 */ }
+    AGENT_FIELDS.forEach(function (key) { delete state[key]; });
     normalizeTranslate();
   }
 
@@ -58,7 +60,9 @@
   }
 
   function save() {
-    window.AgentClient.call("config.set", { payload: state }).catch(function () {});
+    var payload = Object.assign({}, state);
+    AGENT_FIELDS.forEach(function (key) { delete payload[key]; });
+    window.AgentClient.call("config.set", { payload: payload }).catch(function () {});
   }
 
   function renderStreamSwitch() {
@@ -81,6 +85,7 @@
   }
 
   function populateProviders() {
+    if (!providerSelEl) return;
     providerSelEl.innerHTML = "";
     providers.forEach(function (p) {
       providerSelEl.appendChild(el("option", { value: p.name }, p.name));
@@ -163,30 +168,6 @@
     });
     renderAutoCompactSwitch();
 
-    providerSelEl = el("select", { className: "settings-provider-select", dataset: { name: "provider-selector" } });
-    providerSelEl.addEventListener("change", function () {
-      state.provider = providerSelEl.value;
-      // 跟随 provider 切换到该 provider 的首个模型
-      var g = allModelsGrouped().filter(function (x) { return x.provider === state.provider; })[0];
-      state.model = g && g.models.length ? g.models[0] : "";
-      populateModels();
-      if (state.model) modelSelEl.value = state.model;
-      save();
-    });
-
-    modelSelEl = el("select", { className: "settings-model-select", dataset: { name: "model-selector" } });
-    modelSelEl.addEventListener("change", function () {
-      state.model = modelSelEl.value;
-      // 选取不同 provider 下的模型后，同步切换 provider（凭据由 provider 决定）
-      var opt = modelSelEl.querySelector('option[value="' + (state.model || "").replace(/"/g, '\\"') + '"]');
-      var prov = opt ? opt.getAttribute("data-provider") : null;
-      if (prov && prov !== state.provider) {
-        state.provider = prov;
-        if (providerSelEl) providerSelEl.value = prov;
-      }
-      save();
-    });
-
     // 推理参数控件：决定 composer 中渲染 think-switch 还是 effort-selector（二者语义冲突，只能二选一）。
     reasoningControlSel = el("select", {
       className: "settings-reasoning-control-select", dataset: { name: "reasoning-control-selector" },
@@ -212,8 +193,8 @@
       el("div", { className: "settings-note" },
         "开启后：每次模型请求前按上下文窗口（80%）检查压力，先裁剪超长工具结果，仍超限则把较老历史压成一份 checkpoint；" +
         "原始消息保留在存储里，聊天区仍展示全部历史。关闭后只剩手动 /compact。"),
-      el("div", { className: "settings-row" }, [el("span", null, "Provider"), providerSelEl]),
-      el("div", { className: "settings-row" }, [el("span", null, "模型"), modelSelEl]),
+      el("div", { className: "settings-note" },
+        "Provider、模型、身份与人格在「🧠 智能」页的主智能中配置。"),
       el("div", { className: "settings-row" }, [el("span", null, "推理参数控件"), reasoningControlSel]),
       el("div", { className: "settings-note" },
         "思考开关与推理等级都向模型注入推理参数，二者冲突，只能显示一个。" +
@@ -229,7 +210,7 @@
     // 模型配置（增删 provider / model）变更后，重新同步下拉列表
     window.addEventListener("providers-changed", function () {
       if (overlay && !overlay.hidden) {
-        loadProviders().then(function () { populateProviders(); populateModels(); });
+        loadProviders();
       }
     });
   }
@@ -239,8 +220,6 @@
     overlay.hidden = false;
     await loadSettings();
     await loadProviders();
-    populateProviders();
-    populateModels();
     renderStreamSwitch();
     renderTranslateSwitch();
     renderAutoCompactSwitch();

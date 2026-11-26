@@ -244,5 +244,5 @@ export function createChannelManager({
     }
   }
 
-  return { list, status, has, start, stop, stopAll, setSink, subscribe, STATUS };
+  return { list, status, has, start, stop, stopAll, setSink, subscribe, emit, STATUS };
 }

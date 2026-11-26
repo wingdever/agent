@@ -29,6 +29,7 @@
   - [3.7 快捷键](#37-快捷键)
   - [3.8 terminal-page（运行期交互）](#38-terminal-page运行期交互)
   - [3.9 channels-page（运行期交互）](#39-channels-page运行期交互)
+  - [3.10 agents-page（运行期交互）](#310-agents-page运行期交互)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
 - [6. 前端文件构成与调用关系（M0 拆分）](#6-前端文件构成与调用关系m0-拆分)
@@ -122,8 +123,8 @@
 | **search-switch** | 联网搜索开关 |
 | **permission-selector** | 权限预设选择器（composer-footer）：`read-only`(只读工具 allow，其余 deny) / `workspace-write`(只读+工作区写 allow，其余 deny) / `full-access`(全 allow) / `fine-grained`(沿用 user/* 配置，点击打开权限 modal) |
 | **model-effort-selector** | 模型+推理等级组合选择器，含两个子选择器 `model-selector` 与 `effort-selector`；`effort-selector` 的可见性由 `reasoningControl` 设置控制 |
-| **model-selector** | 模型选择器（composer-footer，按 provider 标题用 `<optgroup>` 分组；选中持久化到 settings.model；同时 settings-page 内仍有独立入口）（选中跨 provider 的模型应同步切换 settings.provider 以对齐凭据；模型配置变更后应重新同步下拉列表） |
-| **effort-selector** | 推理等级选择器（仅当 `reasoningControl==="effort-selector"` 时显示）；选项由 `modelCapabilities` RPC 获取——优先读 `user/providers.json` 缓存的 `effort.supported_levels`，缺失时回退网络（`effort.supported_levels` / `model_spec.capabilities.reasoningEffortOptions`），再兜底 `low/medium/high`；列表首位固定为 `off`（关闭推理）。选中持久化到 settings.effort 并透传 core：`off`→`{"thinking":{"type":"disabled"}}`，其余→`{"reasoning_effort":"<level>"}` |
+| **model-selector** | 模型选择器（composer-footer，按 provider 标题用 `<optgroup>` 分组；选中与主档 provider 一起写回 agent/config.json，不再写 settings.json；选中跨 provider 的模型时同步切换主档 provider） |
+| **effort-selector** | 推理等级选择器（仅当 `reasoningControl==="effort-selector"` 时显示）；选项由 `modelCapabilities` RPC 获取——优先读 `user/providers.json` 缓存的 `effort.supported_levels`，缺失时回退网络（`effort.supported_levels` / `model_spec.capabilities.reasoningEffortOptions`），再兜底 `low/medium/high`；列表首位固定为 `off`（关闭推理）。选中写回主档 agent/config.json 并透传 core：`off`→`{"thinking":{"type":"disabled"}}`，其余→`{"reasoning_effort":"<level>"}` |
 | **reasoningControl 设置** | settings-page 中的「推理参数控件」下拉：`effort-selector` / `think-switch` 二值，持久化到 `settings.reasoningControl`（默认 `think-switch`）。决定 composer 渲染哪个推理控件——二者语义冲突（都向模型注入推理参数），只能显示一个 |
 | **ref-btn** | `@` 引用按钮：打开引用菜单（历史会话 / 本地文件），选中的引用以 chip 展示于 `ref-chips` |
 | **ref-chips** | 引用 chip 容器（hidden 默认，有引用时显示），每个 chip 可单独移除 |
@@ -164,6 +165,15 @@
 | **channels-agent-title** | 背后 agent 信息区标题 |
 | **channels-error** | 启停失败错误条，保留后端原文（字段名与环境变量名） |
 | **channels-action-btn** | 启停按钮，只在详情区；按状态切换启动/停止，操作前二次确认 |
+| **channels-agent-select** | 通道详情里的 agent 下拉：主智能（默认）或 agents/ 里的某个代理 |
+| **agents-view-btn** | 编排组的智能入口（🧠 智能）：打开 agents-page |
+| **agents-page** | 智能配置档页：左列表 + 右编辑表单，读写走 agent.* RPC |
+| **agents-list** | 左侧配置档列表（agents-list-item*）与新建按钮 |
+| **agents-list-item** | 一个配置档：显示名 + id；点击选中 |
+| **agents-new-btn** | 新建配置档，清空右侧表单并把 id 置为可编辑 |
+| **agents-editor** | 右侧编辑表单：id / 名称 / persona / 模型 / 推理等级 / 工具白名单 |
+| **agents-save-btn** | 保存配置档（agent.upsert） |
+| **agents-delete-btn** | 删除配置档（agent.delete）；被通道绑定时被后端拒绝 |
 | **compaction-card** | 聊天区 checkpoint 卡：按最新 `compaction/summary` 事件的 `boundaryMessageId` 插在**边界消息之后**（切点可能落在 turn 内部；找不到消息时退回 `boundaryTurnSeq` 的 turn 末尾）；标题显示压缩 turn 数 / `~tokensBefore → ~tokensAfter` / 边界 message / 模型 / 时间，正文为模型写的 8 段 summary（默认展开；preamble 与 `<compacted-summary>` 标签只给模型看，卡片不显示）。原始 turns/steps 仍然全部展示（DSH transcript 语义），卡片只标出模型视角被替换的位置 |
 | **compaction-notice** | 压缩状态提示行（`compaction` 事件驱动）：start / prune / overflow / done / failed 的短文案，压缩完成后由重建的会话视图与 checkpoint 卡取代 |
 | **/compact 斜杠命令** | composer 输入以 `/` 开头时在发送前拦截：`/compact`（无参数）触发手动压缩；bare-chat 提示不可用；未知命令提示可用命令。不进入对话历史 |
@@ -363,7 +373,7 @@
 | **skill-search-input** | 技能引用选择器的搜索框 |
 | **skill-list** | 技能引用选择器的结果列表 |
 | **skill-element*** | 技能列表中的单行 |
-| **provider-selector** | 设置页供应者选择器 |
+| **agent-provider-input** | 智能页主档的 provider 下拉：自动选择或 providers.json 中的某个 provider |
 | **stream-switch** | 设置页流式输出开关 |
 | **translate-switch** | 设置页自动翻译开关 |
 | **auto-compact-switch** | 设置页自动压缩开关 |
@@ -409,6 +419,7 @@ shell
 │     │  ├─ models-btn
 │     │  ├─ tools-btn
 │     │  ├─ skills-btn
+│     │  ├─ agents-btn
 │     │  ├─ flow-btn-sidebar
 │     │  ├─ loops-btn
 │     │  └─ meta-btn
@@ -517,6 +528,16 @@ shell
 │     │        │  └─ channels-agent-field*
 │     │        └─ channels-actions
 │     │           └─ channels-action-btn
+│     ├─ agents-page                          （agents）
+│     │  └─ agents-body
+│     │     ├─ agents-list
+│     │     │  ├─ agents-list-item*
+│     │     │  └─ agents-new-btn
+│     │     └─ agents-editor
+│     │        ├─ agents-field*
+│     │        └─ agents-actions
+│     │           ├─ agents-save-btn
+│     │           └─ agents-delete-btn?
 │     ├─ flow-page                            （flow）
 │     │  ├─ flow-body
 │     │  │  ├─ flow-list
@@ -755,8 +776,6 @@ shell
 │           ├─ stream-switch
 │           ├─ translate-switch
 │           ├─ auto-compact-switch
-│           ├─ provider-selector
-│           ├─ model-selector
 │           └─ reasoningControl-selector
 └─ context-panel                             （仅 chat / trajectory 显示）
    ├─ context-default?
@@ -794,6 +813,7 @@ loops-btn -> loops-page
 meta-btn -> meta-page
 settings-btn -> settings-page
 channels-view-btn -> channels-page
+agents-btn -> agents-page
 选择会话 / 新建会话 -> 自动切回 chat-view
 
 ### 3.2 models-page
@@ -867,12 +887,23 @@ agent 新建终端 -> toast 提示，不自动切页
 
 channels-view-btn -> channels-page（配置组入口，普通主视图页）
 首次进入 -> channel.subscribe（streaming）：订阅建立即推全量实例快照，此后每次状态变化推全量快照
-首次进入 -> config.get / config.permissions.get / workspace.list -> 详情区背后 agent 信息模型/provider/工作区/权限默认/ask 工具数；活动固定 chat；会话映射见 data/channels/sessions.json
+首次进入 -> config.get / config.permissions.get / workspace.list / agent.list -> 详情区背后 agent 信息模型/provider/工作区/权限默认/ask 工具数与配置档列表；活动固定 chat；会话映射见 data/channels/sessions.json
 channels-list-item(click) -> 选中实例；默认选第一个，切页后保留选中
+channels-agent-select(change) -> channel.setAgent({id, agent}) -> 写回 channels.json agent 字段并推送新快照；绑定只影响新平台会话
 channels-action-btn(click) -> uiConfirm -> channel.start / channel.stop({id}) -> 用返回快照更新详情；失败时详情顶部错误条 + toast
 推送断开/失败 -> channels-banner 常驻提示 + channels-refresh -> channel.list 刷新快照；不自动重连、不轮询
 离开页面 -> 订阅不取消；页面卸载时客户端取消订阅
 无实例 -> channels-empty 提示配置 user/channels.json 与模板路径 channels/channels.example.json
+
+### 3.10 agents-page（运行期交互）
+
+agents-btn -> agents-page（编排组入口，普通主视图页）
+首次进入 -> agent.list -> { main, agents }：左列表置顶「主智能（默认）」，下面列 agents/<id>；默认选主档
+agents-save-btn(click) -> agent.upsert({payload})：主档不传 id 写 agent/config.json，其它档带 id 写 agents/<id>/config.json
+主档字段含 identity/persona/provider/model/effort/tools；provider 下拉来自 providers.json，留空表示自动选择
+composer 的 model-selector / effort-selector 变更 -> agent.get({}) + agent.upsert 写回主档（不写 settings.json）
+agents-delete-btn(click) -> uiConfirm -> agent.delete({id}) -> 只针对其它档；被通道绑定时后端拒绝
+配置档只在新的平台会话生效；已有会话继续使用 session.prompt 中已存的 system prompt
 
 ## 4. 布局关系
 
@@ -883,7 +914,7 @@ shell
 thread-sidebar
    children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, sidebar-nav
    arrange: vertical
-   nav-groups: 会话（chat-view-btn / trajectory-view-btn / terminal-view-btn）| 编排（sidebar-nav-title + models / tools / skills / flow / loops / meta）| 配置（sidebar-nav-title + channels / permissions / settings，贴底）
+   nav-groups: 会话（chat-view-btn / trajectory-view-btn / terminal-view-btn）| 编排（sidebar-nav-title + models / tools / skills / agents / flow / loops / meta）| 配置（sidebar-nav-title + channels / permissions / settings，贴底）
    row-actions: 工作区头部常显「+ 会话」，会话行常显名称；重命名 / 删除收进行内「⋯」菜单（点击「⋯」不触发选中会话，点菜单外关闭）
    note: 导航按钮组在会话树之下，settings-btn 以 margin-top:auto 固定在最底部；当前页按钮带 active 高亮
 
@@ -900,7 +931,7 @@ chat-viewport
    arrange: vertical
 
 main-view
-   children: chat-view, terminal-page, channels-page, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
+   children: chat-view, terminal-page, channels-page, agents-page, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
    arrange: 单页显示（同一时刻只显示 data-view 与当前视图名相同的一页；各页首次进入时懒建）
    note: chat-view 承载 chat / trajectory 两个视图（内容由 tab-body 内的 data-view 切换）
 
@@ -912,7 +943,12 @@ terminal-page
 channels-page
    children: channels-banner, channels-body
    arrange: vertical（body 横向：channels-list 固定 240px + channels-detail 自适应）
-   note: 只展示 manager.list() 快照，不读写 user/channels.json；enabled:false 实例不出现。订阅全量快照驱动状态，断连后不重连、不轮询，靠 channels-refresh 手动刷新。启停只在详情区、需二次确认且不受权限预设约束。背后 agent 用全局模型/人格/工作区/权限，channel turn 在入口层强制 autonomous（ask 自动 deny），trust 未接线
+   note: 只展示 manager.list() 快照（附 channels.json 的 agent 绑定字段），enabled:false 实例不出现。订阅全量快照驱动状态，断连后不重连、不轮询，靠 channels-refresh 手动刷新。启停只在详情区、需二次确认且不受权限预设约束；agent 下拉写回 channels.json，绑定只影响新平台会话。channel turn 在入口层强制 autonomous（ask 自动 deny），trust 未接线
+
+agents-page
+   children: agents-body
+   arrange: body 横向（agents-list 固定 240px + agents-editor 自适应）
+   note: 主档存 agent/config.json（无 id），其它代理存 agents/<id>/config.json（目录名即 id）；字段为 name/identity/persona/provider/model/effort/tools。主档为空时从 assets/agent/config.json 物化一次；identity/persona/provider/model/effort 已全局提取进主档，settings.json 只留 stream/reasoningControl/translate/web/autoCompact。工具白名单按配置档裁剪请求工具清单（前缀缓存随之失效）。未绑定实例用主档；绑定只影响新会话，被绑定的档拒绝删除
 
 chat-header
    contains: left-collapse-button, session-name? / view-title?, header-controls-group
@@ -1046,7 +1082,7 @@ graph LR
     APP --> MD2["models/settings/permissions/loops/skills/tools/graph/flow/channels (各主视图页)"]
 ```
 
-通道页的后端契约由 `channels/manager.js` 的全量快照订阅与 `core/rpc/handlers/channels.js` 的 `channel.list/start/stop/subscribe` 提供。
+通道页的后端契约由 `channels/manager.js` 的全量快照订阅与 `core/rpc/handlers/channels.js` 的 `channel.list/start/stop/setAgent/subscribe` 提供。智能页的契约由 `core/rpc/handlers/agents.js` 的 `agent.list/get/upsert/delete` 提供；配置档经 `lib/agent-profile/index.js` 在 channel sink 中生效。
 
 各域文件职责与相互调用（`App.*`）：
 
@@ -1064,7 +1100,8 @@ graph TD
     CU["compaction-ui.js<br/>handleCompactionEvent / runCompact / renderCompactionCard"]
     CO["composer.js<br/>onSend / runBareChat / 模型·推理选择器 / @引用 / initHeaderCompact"]
     TP["terminal-panel.js<br/>终端页：xterm / WebSocket / 会话绑定 / onViewChange"]
-    CH["channel-ui.js<br/>通道页：订阅快照 / 启停确认 / 手动刷新"]
+    CH["channel-ui.js<br/>通道页：订阅快照 / 启停确认 / 手动刷新 / agent 绑定"]
+    AU["agent-ui.js<br/>智能页：配置档列表 / 编辑 / 保存删除"]
 
     APP -->|调 init*| M
     APP -->|调 init*| SB
@@ -1076,6 +1113,7 @@ graph TD
     APP -->|调 init*| CO
     APP -->|调 init*| TP
     APP -->|调 init*| CH
+    APP -->|调 init*| AU
     APP -.填 DOM 根.-> ST
 
     SB -->|selectSession 渲染消息| CT

@@ -7,8 +7,8 @@
 // the UI's flat renderer (onChatEventFlat / handleTranslationFlat) behaves the
 // same as a persisted turn.
 
-import { resolveConfig as resolveTranslateConfig, shouldTranslateUser, shouldTranslateAssistant, translateText } from "./translation.js";
-import { assembleSystemPrompt, DEFAULT_IDENTITY } from "./system-prompt.js";
+import { LANGUAGE_POLICY, resolveConfig as resolveTranslateConfig, shouldTranslateUser, shouldTranslateAssistant, translateText } from "./translation.js";
+import { assembleSystemPrompt } from "./system-prompt.js";
 import { TurnError } from "./turn-error.js";
 import { RequestSpec } from "./memory/index.js";
 
@@ -72,8 +72,9 @@ async function runBareChat(core, ctx, agent) {
     // DB read, and no system-prompt event (the flat renderer ignores it).
     const target = core.config.resolveTarget({ provider: st.provider, model });
     const system = assembleSystemPrompt({
-      identity: typeof st.identity === "string" ? st.identity : DEFAULT_IDENTITY,
+      identity: st.identity,
       persona: typeof st.persona === "string" ? st.persona : "",
+      languagePolicy: translateCfg.enabled ? LANGUAGE_POLICY : "",
       tools: [],
       cwd: process.cwd(),
       model: target.model,

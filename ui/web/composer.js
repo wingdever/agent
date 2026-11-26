@@ -13,6 +13,15 @@
   function saveSettings(patch) {
     try { return window.AgentClient.call("config.set", { payload: patch }); } catch (e) { return Promise.resolve({}); }
   }
+  // Model/effort live in the main agent profile; read-modify-write so the
+  // other profile fields survive a change from the footer selectors.
+  function saveMain(patch) {
+    return window.AgentClient.call("agent.get", {}).then(function (current) {
+      var next = Object.assign({}, current || {}, patch);
+      delete next.id;
+      return window.AgentClient.call("agent.upsert", { payload: next });
+    });
+  }
   App.getSettings = getSettings;
   App.saveSettings = saveSettings;
 
@@ -103,7 +112,7 @@
             initial = levels[0];
           }
           App.effortSelector.value = initial;
-          saveSettings({ effort: App.effortSelector.value });
+          saveMain({ effort: App.effortSelector.value });
         });
       }).catch(function () {});
     }
@@ -115,7 +124,7 @@
         var provider = opt ? opt.getAttribute("data-provider") : null;
         var patch = { model: App.modelSelector.value };
         if (provider) patch.provider = provider;
-        saveSettings(patch);
+        saveMain(patch);
         refreshEffortLevels(App.modelSelector.value);
         if (App.refreshContextWindow) App.refreshContextWindow();
       });
@@ -129,7 +138,7 @@
   App.initEffortSelector = function initEffortSelector() {
     App.effortSelector = document.getElementById("effortSelector");
     if (App.effortSelector) {
-      App.effortSelector.addEventListener("change", function () { saveSettings({ effort: App.effortSelector.value }); });
+      App.effortSelector.addEventListener("change", function () { saveMain({ effort: App.effortSelector.value }); });
     }
   };
 
