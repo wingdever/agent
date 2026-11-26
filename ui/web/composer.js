@@ -425,10 +425,13 @@
   };
 
   App.initComposer = function initComposer() {
-    if (App.sendBtn) App.sendBtn.addEventListener("click", App.onSend);
+    // pause-ui.js owns the button (send / pause / resume); App.onSend is the
+    // send-only path it falls back to.
+    if (App.sendBtn && App.onSendOrPause) App.sendBtn.addEventListener("click", App.onSendOrPause);
+    else if (App.sendBtn) App.sendBtn.addEventListener("click", App.onSend);
     if (App.input) App.input.addEventListener("keydown", function (e) {
       App.markUserActivity();
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); App.onSend(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (App.onSendOrPause) App.onSendOrPause(); else App.onSend(); }
     });
   };
 

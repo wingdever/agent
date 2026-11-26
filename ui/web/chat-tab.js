@@ -771,6 +771,9 @@
 
   App.onChatEvent = function onChatEvent(evt) {
     if (!evt || !evt.type) return;
+    if (evt.type === "turn-start" || evt.type === "turn-end") {
+      if (App.onTurnLifecycle) App.onTurnLifecycle(evt);
+    }
     if (evt.type === "model-http-status") { App.setModelHttpStatus(evt.state, evt.status); return; }
     if (evt.type === "compaction") { App.handleCompactionEvent(evt); return; }
     if (evt.type === "usage") {

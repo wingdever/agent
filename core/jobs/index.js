@@ -282,7 +282,7 @@ class JobService {
     const started = Date.now();
     while (true) {
       const agent = this.getAgent(sessionId);
-      if (!agent || !agent.running()) return true;
+      if (!agent || !agent.inTurn()) return true;
       if (Date.now() - started > maxMs) return false;
       await new Promise((resolve) => {
         setTimeout(resolve, 20);

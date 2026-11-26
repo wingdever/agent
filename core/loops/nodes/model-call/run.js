@@ -23,6 +23,9 @@ export default async function run(input, ctx) {
     ? await services.store.run("step.create", { turn_id: ctx.turn.row.id, seq: ctx.turn.stepSeq++, status: "running" })
     : null;
   ctx.step = new StepState({ row: step });
+  // The instance keeps the step a pause is pinned to; a later continue reopens
+  // exactly this row (docs/runtime/turn-pause.md §4.5).
+  if (agent.pause) agent._pauseStep = step ? { id: step.id, seq: step.seq } : null;
   const nextSeq = () => ctx.step.nextSeq();
   ctx.nextSeq = nextSeq;
   if (r > 0) ctx.emit({ type: "step-start", seq: r });
@@ -211,6 +214,14 @@ export default async function run(input, ctx) {
     } catch (e) {
       ctx.emit({ type: "error", error: "persist assistant failed: " + (e.message || e) });
     }
+  }
+
+  // A pause request that arrived while the request was in flight is honoured
+  // now, before any tool runs (docs/runtime/turn-pause.md §1.1). A response
+  // without tool calls ends the turn anyway, so the request is simply cleared.
+  if (agent.pause.requested) {
+    if (message.tool_calls && message.tool_calls.length > 0) return { output: message, next: "turn-pause" };
+    agent.pause.requested = false;
   }
 
   return { output: message, next: "tool-execute" };

@@ -55,5 +55,8 @@ export default async function run(input, ctx) {
     return { output: response, done: true };
   }
 
+  // Tool results are in, and the next model request is what advances the turn.
+  // A pause request met here lands between pre-step and the model call
+  // (docs/runtime/turn-pause.md §1.1), which is one node later.
   return { output: response, next: "pre-step" };
 };

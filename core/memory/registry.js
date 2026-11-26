@@ -97,7 +97,7 @@ class AgentRegistry {
 
   _discardBare() {
     if (!this._bare) return;
-    if (this._bare.running()) this._bare.interrupt();
+    if (this._bare.inTurn()) this._bare.interrupt();
     if (this._selected === this._bare) this._selected = null;
     this._bare = null;
   }
@@ -167,7 +167,7 @@ class AgentRegistry {
   setCurrent(agentOrSessionId) {
     if (agentOrSessionId == null) {
       this._selected = null;
-      if (this._bare && !this._bare.running()) this._discardBare();
+      if (this._bare && !this._bare.inTurn()) this._discardBare();
       return this.current();
     }
     if (agentOrSessionId instanceof Agent) {
@@ -187,7 +187,7 @@ class AgentRegistry {
     const key = this.keyFor(sessionId);
     const agent = this.instances.get(key);
     if (!agent) return false;
-    if (agent.running()) agent.interrupt();
+    if (agent.inTurn()) agent.interrupt();
     this.shared.terminals?.close(sessionId);
     this.instances.delete(key);
     this._activity.delete(key);

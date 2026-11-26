@@ -125,7 +125,7 @@ class SubagentRuntime {
   async _waitParentIdle(sessionId, maxMs = 30000) {
     const key = String(sessionId);
     const start = this._deps.now().getTime();
-    while (this.core.agent.get(sessionId) && this.core.agent.get(sessionId).running()) {
+    while (this.core.agent.get(sessionId) && this.core.agent.get(sessionId).inTurn()) {
       if (this._deps.now().getTime() - start > maxMs) return false;
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -200,7 +200,7 @@ class SubagentRuntime {
       if (this.tasks.has(key)) return; // another run of this child started
       const agent = this.core.agent.get(childId);
       if (!agent) return;
-      if (agent.running() || agent.hasPending()) return;
+      if (agent.inTurn() || agent.hasPending()) return;
       this.core.agent.agents().dispose(childId);
     });
   }
@@ -469,7 +469,7 @@ class SubagentRuntime {
   async waitAgent({ callerSessionId, timeoutMs = 30000, signal } = {}) {
     const agent = callerSessionId != null ? this.core.agent.get(Number(callerSessionId)) : null;
     if (!agent) throw new Error("wait_agent requires a live caller agent");
-    if (!agent.running()) throw new Error("wait_agent can only run inside an active turn");
+    if (!agent.inTurn()) throw new Error("wait_agent can only run inside an active turn");
     const timeout = Number.isInteger(timeoutMs) ? timeoutMs : 30000;
     if (timeout < 10000 || timeout > 3600000) {
       throw new Error("timeout_ms must be an integer between 10000 and 3600000");
@@ -650,7 +650,7 @@ class SubagentRuntime {
     const liveParent = this.core.agent && this.core.agent.get
       ? this.core.agent.get(parentSessionId)
       : null;
-    if (liveParent && liveParent.running()) {
+    if (liveParent && liveParent.inTurn()) {
       const inboxId = crypto.randomUUID();
       if (outputId != null) this.settleLinks.set(inboxId, outputId);
       liveParent.enqueue({ id: inboxId, content: settleText, source: "subagent-settle" }, "next-step");

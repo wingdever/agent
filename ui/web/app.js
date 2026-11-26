@@ -61,6 +61,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.initReasoningControl();
   App.initSwitches();
   App.initComposer();       // composer.js：发送按钮 / 输入框
+  App.initPauseUi();        // pause-ui.js：暂停 / 继续
 
   // ---------- 3) 跨域胶水：选择会话 ----------
   // 原闭包内 selectSession（行 2145）：切换 currentSessionId/currentActivity，

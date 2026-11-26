@@ -199,7 +199,21 @@ class AgentRuntime {
       agent = (await this._pickAgent(ctx)) || this.registry.createTransient();
     }
     const input = this._callerInput(ctx);
-    if (agent.running()) {
+    if (agent.phase.kind === "paused" && agent.pause.active && agent.pause.continueAt) {
+      // A restored paused turn can still be continued: the explicit gesture is
+      // this call. Input, when given, joins the queue the resumed step reaches.
+      if (input) agent.enqueue({ content: input.content, source: input.source }, "next-step");
+      return this.resumeTurn(agent);
+    }
+    if (agent.phase.kind === "paused" && agent.pause.active) {
+      // A paused turn is alive: new input steers it rather than opening a turn
+      // (docs/runtime/turn-pause.md §1.3, §5). Continuing is the explicit
+      // gesture; a message only joins the queue.
+      if (input) agent.enqueue({ content: input.content, source: input.source }, "next-step");
+      this.registry.setCurrent(agent);
+      return { queued: true, paused: true, sessionId: agent.sessionId };
+    }
+    if (agent.inTurn()) {
       // Busy only changes where the input lands; it is never an error.
       if (input) agent.enqueue({ content: input.content, source: input.source }, ctx.target === "next-step" ? "next-step" : "next-turn");
       return { queued: true, sessionId: agent.sessionId };
@@ -253,11 +267,11 @@ class AgentRuntime {
   // session, otherwise the oldest queued input, otherwise the cursor/bare.
   async _pickAgent(ctx) {
     const cursor = this.current();
-    if (cursor && !cursor.running()) return cursor;
+    if (cursor && !cursor.inTurn()) return cursor;
     for (const candidate of this.registry.list()) {
       if (candidate.sessionId == null) continue;
       if (candidate.kind !== "normal") continue;
-      if (candidate.running() || !candidate.hasPending()) continue;
+      if (candidate.inTurn() || !candidate.hasPending()) continue;
       return this.getOrCreate(candidate.sessionId);
     }
     return cursor || null;
@@ -267,6 +281,20 @@ class AgentRuntime {
     const engineName = process.env.AGENT_LOOP_ENGINE;
     const loop = await getLoop(engineName);
     return loop.runLoop(this.core, ctx, agent);
+  }
+
+  // Continue a restored paused turn (docs/runtime/turn-pause.md §4.5): the
+  // stored turn and step are adopted, the model request that produced the
+  // paused batch is not repeated, and the turn ends normally afterwards.
+  async resumeTurn(agent) {
+    const engineName = process.env.AGENT_LOOP_ENGINE;
+    const loop = await getLoop(engineName);
+    if (typeof loop.resumeLoop !== "function") {
+      throw new Error("loop engine '" + engineName + "' cannot continue a paused turn");
+    }
+    this.registry.setCurrent(agent);
+    this.registry.touch(agent.sessionId);
+    return loop.resumeLoop(this.core, agent);
   }
 
   // Manual compaction is a session operation: it targets the named session or

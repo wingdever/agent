@@ -46,6 +46,12 @@ export default async function run(input, ctx) {
       status: "running",
     });
     turn.stepSeq = 0;
+    // The instance carries the same row: a pause records the turn it belongs
+    // to on the instance (docs/runtime/turn-pause.md §4.5).
+    if (agent.turn) {
+      agent.turn.row = turn.row;
+      agent.turn.stepSeq = turn.stepSeq;
+    }
   }
 
   return { output: ctx, next: "resolve-target" };

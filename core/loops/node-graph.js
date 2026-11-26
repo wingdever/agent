@@ -92,37 +92,12 @@ class NodeGraphEngine {
     return result;
   }
 
-  async _dispatch(nodeId, input, ctx) {
-    let currentNodeId = nodeId;
-    let currentInput = input;
-    for (;;) {
-      const result = await this._runNode(currentNodeId, currentInput, ctx);
-      if (result.done) return result;
-      const node = this.nodes.get(currentNodeId);
-      const nextId = result.next || (node ? node.next : null);
-      if (!nextId) return { output: result.output, done: true };
-      currentNodeId = nextId;
-      currentInput = result.output;
-    }
-  }
-
-  async runLoop(core, ctx, agentArg) {
-    const agent = agentArg || core.agent.current();
-    if (!agent) throw new Error("node-graph: no agent instance for this turn");
+  // The turn context both entry points share: services, signal, request and
+  // the turn-level counters. `runLoop` starts from turn-start; `resumeLoop`
+  // adopts a stored turn and starts at the paused step.
+  _context(core, agent, turnHandle, inputCtx, onEvent) {
     const persist = !!(agent.sessionId && core.store);
-    const onEvent = ctx.onEvent || (() => {});
-    // The instance owns the turn: phase, delivery state and abort all live
-    // there, so two sessions running at once never share a field.
-    const startedAt = Date.now();
-    const turnHandle = agent.beginTurn({
-      emit: onEvent,
-      autonomy: ctx.autonomy,
-      effort: ctx.effort,
-      activity: ctx.activity,
-      interactions: core.interactions,
-      claim: ctx.claim || null,
-    });
-    const nctx = {
+    return {
       core,
       runtime: core.agent,
       agent,
@@ -149,32 +124,115 @@ class NodeGraphEngine {
       signal: turnHandle.signal,
       session: { id: agent.sessionId, persist },
       input: {
-        messages: ctx.messages,
-        references: ctx.references,
-        cwd: ctx.cwd,
-        source: ctx.inputSource,
-        contextMessages: ctx.contextMessages,
+        messages: inputCtx.messages,
+        references: inputCtx.references,
+        cwd: inputCtx.cwd,
+        source: inputCtx.inputSource,
+        contextMessages: inputCtx.contextMessages,
       },
-      toolNames: ctx.toolNames,
-      autonomy: ctx.autonomy,
-      activity: ctx.activity,
+      toolNames: inputCtx.toolNames,
+      autonomy: inputCtx.autonomy,
+      activity: inputCtx.activity,
       request: new RequestSpec({
-        model: ctx.model,
-        effort: ctx.effort,
-        stream: ctx.stream,
+        model: inputCtx.model,
+        effort: inputCtx.effort,
+        stream: inputCtx.stream,
         sessionId: agent.sessionId,
         onEvent,
       }),
-      turn: { row: null, startedAt, stepSeq: 0, steps: 0, toolsUsed: 0 },
+      turn: { row: turnHandle.turn.row || null, startedAt: Date.now(), stepSeq: turnHandle.turn.stepSeq || 0, steps: 0, toolsUsed: 0 },
       step: null,
       pendingStepMessages: [],
-      // The turn-start input the runtime claimed from the inbox (a goal round):
-      // model-call persists its round row, pre-step lets the driver know when a
-      // competing input appears while the round runs.
-
+      pendingTurnMessages: () => [],
+      resume: null,
       translatedUser: null,
       translateCfg: null,
     };
+  }
+
+  async _dispatch(nodeId, input, ctx) {
+    let currentNodeId = nodeId;
+    let currentInput = input;
+    for (;;) {
+      const result = await this._runNode(currentNodeId, currentInput, ctx);
+      if (result.done) return result;
+      const node = this.nodes.get(currentNodeId);
+      const nextId = result.next || (node ? node.next : null);
+      if (!nextId) return { output: result.output, done: true };
+      currentNodeId = nextId;
+      currentInput = result.output;
+    }
+  }
+
+  // Continue a turn that was paused: the stored turn and step are adopted, the
+  // step's assistant/call rows are reloaded, and execution goes straight to the
+  // pause point's next node. turn-start and model-call never run on this path
+  // (docs/runtime/turn-pause.md §4.5).
+  async resumeLoop(core, agent) {
+    const pause = agent.pause.continueAt;
+    // Adopted once, here: from now on the turn is a live one.
+    agent.pause.continueAt = null;
+    const turnRow = pause && pause.step ? pause.step.turnRow : null;
+    const stepInfo = pause && pause.step ? pause.step.step : null;
+    if (!turnRow || !stepInfo) throw new TurnError("resume-failed", "no stored turn to continue");
+    const onEvent = (event) => { if (agent.turn && agent.turn.emit) agent.turn.emit(event); };
+    const startedAt = Date.now();
+    const turnHandle = agent.beginTurn({
+      emit: onEvent,
+      autonomy: "supervised",
+      activity: agent.turn ? agent.turn.activity : "agent",
+      interactions: core.interactions,
+      continuing: { row: turnRow, stepSeq: stepInfo ? stepInfo.seq : 0 },
+    });
+    const nctx = this._context(core, agent, turnHandle, { messages: [] }, onEvent);
+    nctx.resume = { step: stepInfo, pausedAt: pause.pausedAt };
+    nctx.turn.row = turnRow;
+    nctx.turn.stepSeq = stepInfo ? stepInfo.seq : 0;
+    let status = "succeeded";
+    let reason = "resumed";
+    let errorText = null;
+    try {
+      const result = await this._dispatch("resume-step", nctx, nctx);
+      return result.output;
+    } catch (err) {
+      if (agent.phase && agent.phase.cancelReason) {
+        reason = agent.phase.cancelReason;
+      } else {
+        status = "failed";
+        reason = err instanceof TurnError ? err.reason : "unexpected-exception";
+      }
+      errorText = String((err && err.message) || err);
+      return { role: "assistant", content: "", error: errorText, stopReason: reason };
+    } finally {
+      turnHandle.finish({
+        status,
+        reason,
+        steps: nctx.turn.steps,
+        tools: nctx.turn.toolsUsed,
+        durationMs: Date.now() - startedAt,
+      });
+      console.log("[turn] session=" + (agent.sessionId || "none") + " turn=" + turnRow.id +
+        " status=" + status + " reason=" + reason + " (continued)");
+    }
+  }
+
+  async runLoop(core, ctx, agentArg) {
+    const agent = agentArg || core.agent.current();
+    if (!agent) throw new Error("node-graph: no agent instance for this turn");
+    const persist = !!(agent.sessionId && core.store);
+    const onEvent = ctx.onEvent || (() => {});
+    // The instance owns the turn: phase, delivery state and abort all live
+    // there, so two sessions running at once never share a field.
+    const startedAt = Date.now();
+    const turnHandle = agent.beginTurn({
+      emit: onEvent,
+      autonomy: ctx.autonomy,
+      effort: ctx.effort,
+      activity: ctx.activity,
+      interactions: core.interactions,
+      claim: ctx.claim || null,
+    });
+    const nctx = this._context(core, agent, turnHandle, ctx, onEvent);
 
     let status = "succeeded";
     let reason = "no-tool-calls";
@@ -227,4 +285,4 @@ class NodeGraphEngine {
   }
 }
 
-export default { runLoop: (core, ctx, agent) => new NodeGraphEngine().runLoop(core, ctx, agent), NodeGraphEngine };
+export default { runLoop: (core, ctx, agent) => new NodeGraphEngine().runLoop(core, ctx, agent), resumeLoop: (core, agent) => new NodeGraphEngine().resumeLoop(core, agent), NodeGraphEngine };

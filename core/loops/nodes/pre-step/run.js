@@ -49,5 +49,11 @@ export default async function run(input, ctx) {
     ctx.emit({ type: "inbox", queue: "next-step", source: item.source, messageId: item.id });
   }
 
-  return { output: request.header, next: "model-call" };
+  return { output: request.header, next: pauseGate(agent) ? "turn-pause" : "model-call" };
+}
+
+// A pause request takes effect here, between pre-step and the model call
+// (docs/runtime/turn-pause.md §1.1). A paused turn stays until continued.
+function pauseGate(agent) {
+  return !!agent && (agent.pause.requested || agent.pause.active);
 };

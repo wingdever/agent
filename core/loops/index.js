@@ -69,7 +69,11 @@ async function loadEngine(name) {
   if (typeof mod.runLoop !== "function") {
     throw new Error("loop engine '" + name + "' must export async runLoop(core, ctx)");
   }
-  return { name, runLoop: mod.runLoop };
+  // `resumeLoop` is optional: an engine that cannot continue a paused turn
+  // simply does not export it, and the runtime reports that.
+  const engine = { name, runLoop: mod.runLoop };
+  if (typeof mod.resumeLoop === "function") engine.resumeLoop = mod.resumeLoop;
+  return engine;
 }
 
 // 返回指定名称的引擎；缺省/未知回落到 default（保证向后兼容，不会因配置错误而整体失败）。

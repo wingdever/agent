@@ -113,7 +113,7 @@ class GoalRoundDriver {
       if (state.attempt) {
         state.attempt.stale = true;
         state.attempt = null;
-        if (state.agent.running()) {
+        if (state.agent.inTurn()) {
           this._cancel(state, "driven");
           waits.push(state.agent.whenIdle());
         }
@@ -197,7 +197,7 @@ class GoalRoundDriver {
     return {
       reservation: state.attempt ? state.attempt.phase : null,
       round: state.attempt ? state.attempt.round : null,
-      running: agent.running(),
+      running: agent.inTurn(),
       driving: !!state.run,
       competingInput: state.competingQueued,
     };
@@ -254,7 +254,7 @@ class GoalRoundDriver {
     const state = this._stateFor(agent);
     if (event.type === "change") {
       state.needsCheckpoint = true;
-      if (event.operation === "pause" && agent.running() && !this._cancelCause.has(agent.key)) {
+      if (event.operation === "pause" && agent.inTurn() && !this._cancelCause.has(agent.key)) {
         this._cancel(state, "human");
         return;
       }
@@ -428,11 +428,11 @@ class GoalRoundDriver {
           // end, which asks for the next pass.
           const attempt = state.attempt;
           if (attempt && (attempt.phase === "cancelled" || attempt.phase === "stale")) state.attempt = null;
-          if (state.attempt && state.attempt.phase === "admitted" && !state.agent.running()) {
+          if (state.attempt && state.attempt.phase === "admitted" && !state.agent.inTurn()) {
             state.attempt = null;
             state.requested = true;
           }
-          if (!state.agent.running() && !state.agent.hasPending()) state.competingQueued = false;
+          if (!state.agent.inTurn() && !state.agent.hasPending()) state.competingQueued = false;
         } catch (error) {
           this.logger.warn("[goal-driver] drive failed for session " + state.agent.key + ": " + renderThrown(error));
           this._disarm(state);
@@ -457,7 +457,7 @@ class GoalRoundDriver {
     const { agent } = state;
     if (this.unloading || state.stopping) return false;
     if (!this._live(agent)) return false;
-    if (agent.running()) return false;
+    if (agent.inTurn()) return false;
     if (agent.hasPending()) return false;
     if (state.competingQueued) return false;
     return true;
@@ -556,7 +556,7 @@ class GoalRoundDriver {
     const attempt = state.attempt;
     const agent = state.agent;
     if (!attempt || attempt.phase !== "queued" || attempt.stale) return;
-    if (!agent || agent.running() || this.unloading || state.stopping) return;
+    if (!agent || agent.inTurn() || this.unloading || state.stopping) return;
     if (!this._live(agent)) return;
     const head = agent.inbox.nextTurn[0];
     if (!head || head.id !== attempt.messageId) return; // someone else's input goes first

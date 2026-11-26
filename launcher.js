@@ -72,6 +72,15 @@ app.whenReady()
         });
       },
     });
+    // A paused turn only survives a restart through its snapshot
+    // (docs/runtime/turn-pause.md §4): restore before any client can open a
+    // session, so the first look at that session already shows it paused.
+    try {
+      const restored = await core.snapshots.restoreAll(core.agent);
+      if (restored.length) console.log(`[launcher] restored paused session(s): ${restored.join(", ")}`);
+    } catch (e) {
+      console.error("[launcher] pause restore failed:", (e && e.message) || e);
+    }
     server = await startTransport(TRANSPORT, core);
     ui = await loadUI(AGENT_UI);
     return server;
@@ -94,6 +103,16 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", async () => {
+  // Paused sessions are snapshotted before anything else is torn down, and
+  // before the store closes (docs/runtime/turn-pause.md §4.2).
+  if (core && core.snapshots && core.agent) {
+    try {
+      const written = await core.snapshots.writeAll(core.agent.registry.list());
+      if (written.length) console.log(`[launcher] wrote pause snapshot(s): ${written.join(", ")}`);
+    } catch (e) {
+      console.error("[launcher] pause snapshot failed:", (e && e.message) || e);
+    }
+  }
   if (channels) await channels.stopAll();
   if (core && core.browser) await core.browser.stop();
   if (core && core.lsp) await core.lsp.disposeAll();

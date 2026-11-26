@@ -20,6 +20,7 @@ import { ScheduleService } from "./schedule/index.js";
 import { A2AService } from "./a2a/index.js";
 import { BrowserService } from "./browser/index.js";
 import { createFlowService } from "./flow/index.js";
+import { createSnapshotService } from "./snapshots/index.js";
 import { runTool } from "./tools/executor.js";
 import { createCapabilities } from "./capabilities.js";
 import { createRpc } from "./rpc/index.js";
@@ -31,6 +32,7 @@ const { SkillRegistry,
   FileSystemSkillProvider,
   setSkillsRegistry, } = _mod0;
 import { resolveWorkspaceFolder } from "./context/workspace.js";
+import { PROJECT_ROOT } from "./../lib/paths/index.js";
 import { fileURLToPath as __fileURLToPath } from "node:url";
 import { dirname as __pathDirname } from "node:path";
 const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
@@ -112,6 +114,7 @@ async function createCore(overrides = {}) {
     // Mounted goal module (docs/agents/goal.md); it plugs in through the turn
     // lifecycle interfaces and nothing else references it.
     goals: null,
+    snapshots: null,
     rpc: null,
   };
   agent.setCore(core);
@@ -165,6 +168,13 @@ async function createCore(overrides = {}) {
     resume: (ctx) => core.agent.chat(ctx),
   });
   await core.schedule.init();
+  // Pause snapshots cross the process boundary only at quit and start
+  // (docs/runtime/turn-pause.md §4): the launcher writes them before closing
+  // the store and restores them right after the core is composed.
+  core.snapshots = createSnapshotService({
+    store,
+    dir: path.resolve(PROJECT_ROOT, "data", "snapshots"),
+  });
   // A2A is an edge adapter over the same agent runtime. It owns no timers or
   // background workers; the HTTP server entry starts it explicitly.
   core.a2a = new A2AService({ store, agent: core.agent, interactions, logger: console });

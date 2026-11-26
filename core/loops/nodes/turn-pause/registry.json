@@ -1,0 +1,7 @@
+{
+  "id": "turn-pause",
+  "next": "model-call",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}
