@@ -220,3 +220,23 @@ test("duplicate instance ids are refused at construction", () => {
   const two = createFakeChannel({ instance: { id: "same" } });
   assert.throws(() => createChannelManager({ channels: [one, two] }), /duplicate instance "same"/);
 });
+
+test("subscribe sends the roster immediately, then a full snapshot on every status change", async () => {
+  const fake = createFakeChannel({ instance: { id: "bot" } });
+  const manager = createChannelManager({ channels: [fake], sink: createSink() });
+  const snapshots = [];
+  const unsubscribe = manager.subscribe((rows) => snapshots.push(rows));
+
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0][0].status, "stopped");
+
+  await manager.start("bot");
+  assert.equal(snapshots[snapshots.length - 1][0].status, "running");
+  await manager.stop("bot");
+  assert.equal(snapshots[snapshots.length - 1][0].status, "stopped");
+
+  const before = snapshots.length;
+  unsubscribe();
+  await manager.start("bot");
+  assert.equal(snapshots.length, before);
+});

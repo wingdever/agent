@@ -48,6 +48,7 @@
       </div>
       <div class="sidebar-nav-group" data-name="sidebar-nav-group">
         <div class="sidebar-nav-title" data-name="sidebar-nav-title">配置</div>
+        <button class="view-btn channels-view-btn" data-view="channels" data-name="channels-view-btn">🔌 通道</button>
         <button class="permissions-btn" id="permissionsBtn" data-view="permissions" data-name="permissions-btn">🔐 权限</button>
         <button class="settings-btn" id="settingsBtn" data-view="settings" data-name="settings-btn">⚙ 设置</button>
       </div>
@@ -149,6 +150,19 @@
         </div>
         <div class="terminal-statusbar" id="terminalStatus" data-name="terminal-status"></div>
       </div>
+
+      <!-- channels-page: 通道主视图页。左列表选实例，右详情看状态并启停；
+           状态由 channel.subscribe 的全量快照推送，断连后靠手动刷新。 -->
+      <div class="channels-page" id="channelsPage" data-view="channels" data-name="channels-page" hidden>
+        <div class="channels-banner" id="channelsBanner" data-name="channels-banner" hidden>
+          <span>状态推送已断开，当前显示的是最后一次快照</span>
+          <button class="channels-refresh-btn" id="channelsRefresh" data-name="channels-refresh">刷新</button>
+        </div>
+        <div class="channels-body" data-name="channels-body">
+          <div class="channels-list" id="channelsList" data-name="channels-list"></div>
+          <div class="channels-detail" id="channelsDetail" data-name="channels-detail"></div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -190,6 +204,7 @@
 <script src="pause-ui.js"></script>
 <script src="composer.js"></script>
 <script src="terminal-panel.js"></script>
+<script src="channel-ui.js"></script>
 <script src="app.js"></script>
 <script src="shortcuts.js"></script>
 <script src="models.js"></script>

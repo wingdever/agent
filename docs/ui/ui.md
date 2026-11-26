@@ -28,6 +28,7 @@
   - [3.6 meta-page](#36-meta-page)
   - [3.7 快捷键](#37-快捷键)
   - [3.8 terminal-page（运行期交互）](#38-terminal-page运行期交互)
+  - [3.9 channels-page（运行期交互）](#39-channels-page运行期交互)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
 - [6. 前端文件构成与调用关系（M0 拆分）](#6-前端文件构成与调用关系m0-拆分)
@@ -81,7 +82,7 @@
 | **settings-btn** | 主视图入口：设置（settings-page），位于「配置」分组，该组以 margin-top:auto 贴底 |
 | **chat-viewport** | 中间聊天主视口 |
 | **chat-header** | 顶部表头；两段式布局：左组贴左（left-collapse-button + session-name / view-title），右组 `header-controls-group` 由 `margin-left:auto` 靠右；中间为弹性空白。结构恒定，内容随主视图变化 |
-| **session-name** | 当前会话名（左组；仅会话类视图 chat / trajectory 显示，尽量完整展开不省略） |
+| **session-name** | 当前会话名（左组；仅会话类视图 chat / trajectory 显示）：最大宽度 220px，超出省略号；`title` 属性保留全名供悬停查看 |
 | **view-title** | 当前主视图页名（左组；非会话类视图显示，与 session-name 互斥） |
 | **view-dirty-badge** | 当前页「未保存」标记（左组，仅该页有未保存改动时显示）；切页前有未保存改动会弹确认，选「确定」后放弃改动 |
 | **header-controls-group** | 右侧控件组（chat-header：靠右合并容器，含 view-header-slot / session-header-controls / right-collapse-button；由 margin-left:auto 推到右侧；空间不足时切紧凑样式，见 composer.js 的 ResizeObserver） |
@@ -151,6 +152,18 @@
 | **terminal-empty** | 无终端空态（terminal-empty-text + terminal-empty-new） |
 | **terminal-empty-text** | 空态文案：有会话显示「暂无终端」并附新建按钮，无会话显示「选择会话后可新建终端」 |
 | **terminal-statusbar** | 终端状态行：终端 id / 工作目录 / 进程状态 / 归属 |
+| **channels-view-btn** | 左栏配置组的通道入口（🔌 通道）：打开 channels-page |
+| **channels-page** | 通道主视图页：左实例列表 + 右详情；状态由流式快照推送，不读写通道配置 |
+| **channels-banner** | 推送断开时常驻提示条，附 channels-refresh |
+| **channels-refresh** | 手动刷新按钮，走 channel.list |
+| **channels-list** | 左侧实例列表（channels-list-item*）与无实例空态 |
+| **channels-list-item** | 一个通道实例行：instanceId / 驱动类型 / 状态 / 错误标记；点击选中 |
+| **channels-empty** | 无实例空态：提示在 user/channels.json 配置并给出模板路径 |
+| **channels-detail** | 右侧详情区：标题、错误条、快照全字段只读、背后 agent 信息区、启停按钮 |
+| **channels-agent-info** | 背后 agent 信息区：模型 / provider / 工作区 / 权限默认 / ask 工具数 / 活动 / 来源标记 / 会话映射说明 |
+| **channels-agent-title** | 背后 agent 信息区标题 |
+| **channels-error** | 启停失败错误条，保留后端原文（字段名与环境变量名） |
+| **channels-action-btn** | 启停按钮，只在详情区；按状态切换启动/停止，操作前二次确认 |
 | **compaction-card** | 聊天区 checkpoint 卡：按最新 `compaction/summary` 事件的 `boundaryMessageId` 插在**边界消息之后**（切点可能落在 turn 内部；找不到消息时退回 `boundaryTurnSeq` 的 turn 末尾）；标题显示压缩 turn 数 / `~tokensBefore → ~tokensAfter` / 边界 message / 模型 / 时间，正文为模型写的 8 段 summary（默认展开；preamble 与 `<compacted-summary>` 标签只给模型看，卡片不显示）。原始 turns/steps 仍然全部展示（DSH transcript 语义），卡片只标出模型视角被替换的位置 |
 | **compaction-notice** | 压缩状态提示行（`compaction` 事件驱动）：start / prune / overflow / done / failed 的短文案，压缩完成后由重建的会话视图与 checkpoint 卡取代 |
 | **/compact 斜杠命令** | composer 输入以 `/` 开头时在发送前拦截：`/compact`（无参数）触发手动压缩；bare-chat 提示不可用；未知命令提示可用命令。不进入对话历史 |
@@ -401,6 +414,7 @@ shell
 │     │  └─ meta-btn
 │     └─ sidebar-nav-group（配置，贴底）
 │        ├─ sidebar-nav-title
+│        ├─ channels-view-btn
 │        ├─ permissions-btn
 │        └─ settings-btn
 ├─ chat-viewport
@@ -486,6 +500,23 @@ shell
 │     │  │     ├─ terminal-empty-text
 │     │  │     └─ terminal-empty-new
 │     │  └─ terminal-statusbar
+│     ├─ channels-page                        （channels）
+│     │  ├─ channels-banner
+│     │  │  └─ channels-refresh
+│     │  └─ channels-body
+│     │     ├─ channels-list
+│     │     │  ├─ channels-list-item*
+│     │     │  └─ channels-empty?
+│     │     └─ channels-detail
+│     │        ├─ channels-detail-head
+│     │        ├─ channels-error?
+│     │        ├─ channels-fields
+│     │        │  └─ channels-field*
+│     │        ├─ channels-agent-info
+│     │        │  ├─ channels-agent-title
+│     │        │  └─ channels-agent-field*
+│     │        └─ channels-actions
+│     │           └─ channels-action-btn
 │     ├─ flow-page                            （flow）
 │     │  ├─ flow-body
 │     │  │  ├─ flow-list
@@ -762,6 +793,7 @@ permissions-btn -> permissions-page
 loops-btn -> loops-page
 meta-btn -> meta-page
 settings-btn -> settings-page
+channels-view-btn -> channels-page
 选择会话 / 新建会话 -> 自动切回 chat-view
 
 ### 3.2 models-page
@@ -831,6 +863,17 @@ agent 新建终端 -> toast 提示，不自动切页
 切换主视图 -> onViewChange：隐藏时保持 WebSocket 连接与 xterm 写入，可见时重新 fit 与聚焦
 选择会话 -> setSession 按 session_id 重建终端列表，随后回到 chat-view
 
+### 3.9 channels-page（运行期交互）
+
+channels-view-btn -> channels-page（配置组入口，普通主视图页）
+首次进入 -> channel.subscribe（streaming）：订阅建立即推全量实例快照，此后每次状态变化推全量快照
+首次进入 -> config.get / config.permissions.get / workspace.list -> 详情区背后 agent 信息模型/provider/工作区/权限默认/ask 工具数；活动固定 chat；会话映射见 data/channels/sessions.json
+channels-list-item(click) -> 选中实例；默认选第一个，切页后保留选中
+channels-action-btn(click) -> uiConfirm -> channel.start / channel.stop({id}) -> 用返回快照更新详情；失败时详情顶部错误条 + toast
+推送断开/失败 -> channels-banner 常驻提示 + channels-refresh -> channel.list 刷新快照；不自动重连、不轮询
+离开页面 -> 订阅不取消；页面卸载时客户端取消订阅
+无实例 -> channels-empty 提示配置 user/channels.json 与模板路径 channels/channels.example.json
+
 ## 4. 布局关系
 
 shell
@@ -840,7 +883,7 @@ shell
 thread-sidebar
    children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, sidebar-nav
    arrange: vertical
-   nav-groups: 会话（chat-view-btn / trajectory-view-btn）| 编排（sidebar-nav-title + models / tools / skills / flow / loops / meta）| 配置（sidebar-nav-title + permissions / settings，贴底）
+   nav-groups: 会话（chat-view-btn / trajectory-view-btn / terminal-view-btn）| 编排（sidebar-nav-title + models / tools / skills / flow / loops / meta）| 配置（sidebar-nav-title + channels / permissions / settings，贴底）
    row-actions: 工作区头部常显「+ 会话」，会话行常显名称；重命名 / 删除收进行内「⋯」菜单（点击「⋯」不触发选中会话，点菜单外关闭）
    note: 导航按钮组在会话树之下，settings-btn 以 margin-top:auto 固定在最底部；当前页按钮带 active 高亮
 
@@ -857,7 +900,7 @@ chat-viewport
    arrange: vertical
 
 main-view
-   children: chat-view, terminal-page, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
+   children: chat-view, terminal-page, channels-page, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
    arrange: 单页显示（同一时刻只显示 data-view 与当前视图名相同的一页；各页首次进入时懒建）
    note: chat-view 承载 chat / trajectory 两个视图（内容由 tab-body 内的 data-view 切换）
 
@@ -866,10 +909,15 @@ terminal-page
    arrange: vertical
    note: 按当前 session_id 过滤终端；无会话时空态文案为「选择会话后可新建终端」。切换主视图只隐藏页面，WebSocket 与终端进程保持，xterm 继续写入；fit 与聚焦只在可见时执行，隐藏终端不抢焦点。agent 新建终端只 toast 提示
 
+channels-page
+   children: channels-banner, channels-body
+   arrange: vertical（body 横向：channels-list 固定 240px + channels-detail 自适应）
+   note: 只展示 manager.list() 快照，不读写 user/channels.json；enabled:false 实例不出现。订阅全量快照驱动状态，断连后不重连、不轮询，靠 channels-refresh 手动刷新。启停只在详情区、需二次确认且不受权限预设约束。背后 agent 用全局模型/人格/工作区/权限，channel turn 在入口层强制 autonomous（ask 自动 deny），trust 未接线
+
 chat-header
    contains: left-collapse-button, session-name? / view-title?, header-controls-group
    header-controls-group: view-header-slot, right-collapse-button
-   note: 两段式，左组贴左（left-collapse-button + session-name / view-title）、右组 header-controls-group margin-left:auto 靠右，中间为弹性空白；空间不足时右组切紧凑（收间距 + 文案缩写，见 composer.js 的 ResizeObserver）
+   note: 两段式，左组贴左（left-collapse-button + session-name / view-title）、右组 header-controls-group margin-left:auto 靠右，中间为弹性空白；空间不足时右组切紧凑（收间距 + 文案缩写，见 composer.js 的 ResizeObserver）；session-name 最大宽 220px，超出省略号，title 保留全名
    note: 表头结构恒定，内容随主视图变化——聊天/轨迹显示 session-name + session-header-controls；其余页显示 view-title + 该页在 view-header-slot 里声明的内容
 
 view-header-slot
@@ -995,8 +1043,10 @@ graph LR
     CT --> APP
     CU --> APP
     CO --> APP
-    APP --> MD2["models/settings/permissions/loops/skills/tools/graph/flow (各主视图页)"]
+    APP --> MD2["models/settings/permissions/loops/skills/tools/graph/flow/channels (各主视图页)"]
 ```
+
+通道页的后端契约由 `channels/manager.js` 的全量快照订阅与 `core/rpc/handlers/channels.js` 的 `channel.list/start/stop/subscribe` 提供。
 
 各域文件职责与相互调用（`App.*`）：
 
@@ -1014,6 +1064,7 @@ graph TD
     CU["compaction-ui.js<br/>handleCompactionEvent / runCompact / renderCompactionCard"]
     CO["composer.js<br/>onSend / runBareChat / 模型·推理选择器 / @引用 / initHeaderCompact"]
     TP["terminal-panel.js<br/>终端页：xterm / WebSocket / 会话绑定 / onViewChange"]
+    CH["channel-ui.js<br/>通道页：订阅快照 / 启停确认 / 手动刷新"]
 
     APP -->|调 init*| M
     APP -->|调 init*| SB
@@ -1024,6 +1075,7 @@ graph TD
     APP -->|调 init*| CU
     APP -->|调 init*| CO
     APP -->|调 init*| TP
+    APP -->|调 init*| CH
     APP -.填 DOM 根.-> ST
 
     SB -->|selectSession 渲染消息| CT

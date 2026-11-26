@@ -46,14 +46,14 @@ class RpcRegistry {
     return [...this.commands.values()].map((c) => ({ name: c.name, streaming: c.streaming }));
   }
 
-  async handle(name, params, { onEvent = () => {} } = {}) {
+  async handle(name, params, { onEvent = () => {}, onCancel = () => {} } = {}) {
     const command = this.get(name);
     const value = params == null ? {} : params;
     const violations = validateSchema(command.params, value, { noun: "params" });
     if (violations.length > 0) {
       throw new Error("invalid params: " + violations.join("; "));
     }
-    return await command.handler(this.core, value, { onEvent });
+    return await command.handler(this.core, value, { onEvent, onCancel });
   }
 }
 

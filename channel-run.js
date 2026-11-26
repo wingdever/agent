@@ -178,6 +178,8 @@ async function main() {
           messages: message.messages,
           onEvent: emit,
           inputSource: `channel:${message.type}:${message.instanceId}`,
+          // No channel-side approver exists: `ask` would leave the turn hanging.
+          autonomy: "autonomous",
         });
       },
     });

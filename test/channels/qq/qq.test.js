@@ -131,6 +131,18 @@ test("identify uses the QQBot scheme and READY resolves start", async () => {
   }
 });
 
+test("the real turn's done event is sent as a passive reply", async () => {
+  const fetchImpl = fakeFetch();
+  const channel = build({ fetchImpl, sockets: [] });
+  await channel.project(
+    { recvType: "group", conversationKey: "G_DONE", replyTo: "m_done", messages: [] },
+    { type: "done", message: { content: "真实轮次回包" } }
+  );
+  const sent = fetchImpl.calls.find((c) => c.url.includes("/v2/groups/G_DONE/messages"));
+  assert.ok(sent, "done must produce a send, not be silently ignored");
+  assert.equal(JSON.parse(sent.body).content, "真实轮次回包");
+});
+
 test("a group @ message runs one turn and answers passively with its id", async () => {
   const sockets = [];
   const fetchImpl = fakeFetch();
@@ -295,4 +307,24 @@ test("attachments with no url, or from a bot, are dropped", () => {
   assert.equal(parseDispatch({ t: "GROUP_MESSAGE_CREATE", d: urlless }), null);
   const selfAttach = { id: "m_self", content: "", group_openid: "g", author: { id: "bot1" }, attachments: [{ url: "https://x", content_type: "file" }] };
   assert.equal(parseDispatch({ t: "GROUP_MESSAGE_CREATE", d: selfAttach }, { botId: "bot1" }), null);
+});
+
+test("a 200 response with err_code is a failure, not a sent message", async () => {
+  const cases = [
+    [{ err_code: 40034005, message: "回复消息msg_id已过期" }, ERROR_KINDS.PLATFORM, "40034005"],
+    [{ err_code: 1100100, message: "rate limited" }, ERROR_KINDS.RETRYABLE, "1100100"],
+    [{ err_code: 11243, message: "invalid token" }, ERROR_KINDS.AUTH, "11243"],
+  ];
+  for (const [body, kind, codeText] of cases) {
+    const fetchImpl = async (url) => {
+      if (url.includes("getAppAccessToken")) return json({ access_token: "tok_1", expires_in: "7200" });
+      return json(body, 200);
+    };
+    const auth = createQqAuth({ appId: "a", appSecret: "s", fetchImpl });
+    const api = createQqApi({ auth, fetchImpl, qps: 0 });
+    await assert.rejects(
+      api.sendMessage({ groupOpenId: "g", content: "x", msgId: "m" }),
+      (err) => err.kind === kind && err.code === Number(codeText) && err.message.includes(codeText)
+    );
+  }
 });

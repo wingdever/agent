@@ -398,6 +398,14 @@ M2 的断言落点（`channels/feishu/*.test.js`，19 条）：
 
 
 
+### 14.1 UI 控制面
+
+左栏配置组「🔌 通道」进入通道主视图页：左侧实例列表、右侧详情。列表与详情只展示 `manager.list()` 的全量快照，不读 `user/channels.json`；`enabled:false` 的实例不出现在 UI。
+
+页面通过流式 RPC `channel.subscribe` 接收快照：订阅建立即推一份当前列表，之后每次状态变化推全量列表。启停走 `channel.start` / `channel.stop`，均需二次确认；操作按钮只在右侧详情区，失败时在详情顶部显示后端原文（含缺失凭据字段名与 `CHANNEL_<ID>_<FIELD>` 环境变量名）并 toast。当前权限预设不约束 UI 启停，确认就是边界。
+
+推送断开后不自动重连、不轮询降级：页面顶部常驻提示并提供手动刷新（`channel.list`）。订阅在首次进入页面时建立，切页不取消；页面卸载时客户端取消订阅。UI 不写配置、不提供实例增删改，配置仍手工维护 `user/channels.json`（模板见 `channels/channels.example.json`）。
+
 ## 15 里程碑
 
 | 阶段 | 交付 | 依赖凭据 |

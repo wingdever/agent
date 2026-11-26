@@ -103,12 +103,14 @@ export function createChannel({ instance = {}, deps = {} } = {}) {
     async project(message, event) {
       const kind = event && event.type;
       if (kind === "token") return; // no edit endpoint: partial text would be a second message
-      if (kind !== "final" && kind !== "error") return;
+      // core's real turn ends with `done` carrying `message.content`; `final`
+      // is the shape a direct emitter uses. Both are terminal here.
+      if (kind !== "final" && kind !== "done" && kind !== "error") return;
 
       const text =
         kind === "error"
           ? `⚠️ 这轮没有跑完：${(event && (event.message || event.kind)) || "unknown error"}`
-          : String((event && event.content) || "").trim();
+          : String((event && (event.content || (event.message && event.message.content))) || "").trim();
       if (!text) return;
 
       const target =

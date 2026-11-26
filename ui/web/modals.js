@@ -162,6 +162,7 @@
     // 页面刚建出来时也要按最新视图同步一次显隐（mount 里新建的节点默认 hidden 或未设）。
     App.syncViewVisibility();
     if (App.terminalPanel && App.terminalPanel.onViewChange) App.terminalPanel.onViewChange(name);
+    if (App.channelsUI && App.channelsUI.onViewChange) App.channelsUI.onViewChange(name);
     App.scheduleHeaderEval(); // 表头内容随视图变化，重新评估紧凑态
     if (name === "trajectory" && App.loadTrajectory) App.loadTrajectory(App.currentSessionId);
     if (App.refreshViewLayout) App.refreshViewLayout(name);

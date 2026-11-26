@@ -68,8 +68,11 @@ export function createProjector({ api, throttleMs = 800, now = Date.now } = {}) 
         return;
       }
 
-      if (type === "final") {
-        const text = typeof event.content === "string" && event.content ? event.content : state.text;
+      // core's real turn emits `done` with the message on `event.message`;
+      // a direct emitter uses `final` with `event.content`. Both end the reply.
+      if (type === "final" || type === "done") {
+        const content = type === "done" && event.message ? event.message.content : event.content;
+        const text = typeof content === "string" && content ? content : state.text;
         await deliver(state, message, text);
         sessions.delete(key);
         return;

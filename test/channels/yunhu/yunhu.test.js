@@ -205,6 +205,22 @@ test("a group message replies to the chat, never to the person who spoke", async
   }
 });
 
+test("the real turn's done event is delivered like final", async () => {
+  const platform = await createFakeYunhuPlatform().start();
+  const channel = buildChannel(platform);
+  const pipeline = wire(channel, async (_message, emit) => emit({ type: "done", message: { content: "真实轮次回包" } }));
+
+  try {
+    await channel.start((message) => pipeline.handle(message));
+    await platform.deliver(channel.webhookUrl, fakeEnvelope({ recvId: "g_200", recvType: "group", text: "在吗", at: [platform.botId] }));
+    await pipeline.idle();
+    assert.equal(platform.state.sends.length, 1, "done must produce a send, not be silently ignored");
+  } finally {
+    await channel.stop();
+    await platform.stop();
+  }
+});
+
 test("a group message survives the mention gate only when it is aimed at the bot", async () => {
   const platform = await createFakeYunhuPlatform().start();
   const channel = buildChannel(platform);

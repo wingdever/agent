@@ -17,6 +17,26 @@ import { ChannelError, ERROR_KINDS } from "./../../accounts/errors.js";
 export const DEFAULT_API_BASE = "https://api.sgroup.qq.com";
 export const TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
 
+// QQ reports business failures in a 200 response body: `err_code` is the
+// authority, `message` is explanatory text that may change. Checking only
+// response.ok silently swallows "msg_id expired", "private messages closed"
+// and security rejections -- the send looks successful and nothing is sent.
+const AUTH_ERR_CODES = new Set([
+  11242, // check token failed
+  11243, // token not valid
+  11251, // wrong appid
+  11252, // app privilege check failed
+  11253, // app privilege not granted
+  11254, // interface banned
+  11261, // appid missing
+  11275, // appid missing (variant)
+]);
+const RETRYABLE_ERR_CODES = new Set([
+  1100100, // rate limited by the security layer
+  1100300, // internal error
+  304018,  // bot not connected to the gateway
+]);
+
 /** appid/appsecret -> rotating access token, cached until shortly before expiry. */
 export function createQqAuth({ appId, appSecret, fetchImpl = globalThis.fetch, now } = {}) {
   if (!appId || !appSecret) throw new TypeError("qq auth needs appId and appSecret");
@@ -33,9 +53,10 @@ export function createQqAuth({ appId, appSecret, fetchImpl = globalThis.fetch, n
       });
       const payload = await response.json().catch(() => ({}));
       if (!payload.access_token) {
-        throw new ChannelError(ERROR_KINDS.AUTH, `qq token rejected: ${payload.message || payload.code || response.status}`, {
+        const code = payload.err_code || payload.code;
+        throw new ChannelError(ERROR_KINDS.AUTH, `qq token rejected: ${payload.message || code || response.status}`, {
           status: response.status,
-          code: payload.code,
+          code,
         });
       }
       return { token: payload.access_token, expiresInMs: Number(payload.expires_in) * 1000 };
@@ -71,6 +92,19 @@ export function createQqApi({ auth, baseUrl = DEFAULT_API_BASE, fetchImpl = glob
       throw new ChannelError(ERROR_KINDS.PLATFORM, `qq api error: ${payload.message || payload.code || response.status}`, {
         status: response.status,
         code: payload.code,
+      });
+    }
+    const errCode = Number(payload.err_code || 0);
+    if (errCode !== 0) {
+      const kind = AUTH_ERR_CODES.has(errCode)
+        ? ERROR_KINDS.AUTH
+        : RETRYABLE_ERR_CODES.has(errCode)
+          ? ERROR_KINDS.RETRYABLE
+          : ERROR_KINDS.PLATFORM;
+      const message = String(payload.message || "business error");
+      throw new ChannelError(kind, `qq api error ${errCode}: ${message}`, {
+        status: response.status,
+        code: errCode,
       });
     }
     return payload;

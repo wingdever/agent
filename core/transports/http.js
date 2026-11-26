@@ -27,12 +27,18 @@ function createHttpTransport(options = {}) {
               const fn = payload.fn;
               const params = payload.params || {};
               const callId = payload.callId || "";
-              const onEvent = (e) => res.write("data: " + JSON.stringify(Object.assign({ callId }, e)) + "\n\n");
+              const onEvent = (e) => {
+                if (res.writableEnded || res.destroyed) return;
+                res.write("data: " + JSON.stringify(Object.assign({ callId }, e)) + "\n\n");
+              };
+              const onCancel = (fn2) => {
+                if (!res.writableEnded && !res.destroyed) res.once("close", fn2);
+              };
 
               if (core.rpc.isStreaming(fn)) {
                 res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
                 try {
-                  const result = await core.rpc.handle(fn, params, { onEvent });
+                  const result = await core.rpc.handle(fn, params, { onEvent, onCancel });
                   res.write("data: " + JSON.stringify({ callId, type: "result", result: result ?? null }) + "\n\n");
                 } catch (err) {
                   res.write("data: " + JSON.stringify({ callId, type: "error", error: String(err.message || err) }) + "\n\n");

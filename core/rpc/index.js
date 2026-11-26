@@ -9,6 +9,7 @@ import defineCatalogCommands from "./handlers/catalog.js";
 import defineInteractionCommands from "./handlers/interactions.js";
 import defineFlowCommands from "./handlers/flow.js";
 import defineTerminalCommands from "./handlers/terminal.js";
+import defineChannelCommands from "./handlers/channels.js";
 import defineTurnCommands from "./handlers/turn.js";
 
 function createRpc(core) {
@@ -21,6 +22,7 @@ function createRpc(core) {
   defineInteractionCommands(rpc);
   defineFlowCommands(rpc);
   defineTerminalCommands(rpc);
+  defineChannelCommands(rpc);
   defineTurnCommands(rpc);
   return rpc;
 }

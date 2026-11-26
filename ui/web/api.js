@@ -3,16 +3,25 @@
   var BASE = window.AGENT_API_BASE || "http://127.0.0.1:18765";
 
   function httpClient() {
+    var controllers = {};
     return {
       name: "http",
       listFunctions: function () {
         return this.call("tools.list", {}, function () {});
       },
+      cancel: function (callId) {
+        var controller = controllers[callId];
+        if (controller) controller.abort();
+      },
       call: function (fn, params, onEvent) {
-        return fetch(BASE + "/api/call", {
+        var callId = Math.random().toString(36).slice(2);
+        var controller = new AbortController();
+        controllers[callId] = controller;
+        var promise = fetch(BASE + "/api/call", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fn: fn, params: params || {}, callId: Math.random().toString(36).slice(2) }),
+          body: JSON.stringify({ fn: fn, params: params || {}, callId: callId }),
+          signal: controller.signal,
         }).then(function (res) {
           var ct = res.headers.get("content-type") || "";
           if (ct.indexOf("text/event-stream") !== -1) {
@@ -47,6 +56,10 @@
           }
           return res.json();
         });
+        function cleanup() { delete controllers[callId]; }
+        promise.then(cleanup, cleanup);
+        promise.callId = callId;
+        return promise;
       },
     };
   }

@@ -7,17 +7,20 @@ contextBridge.exposeInMainWorld("agentBridge", {
   selectFolder() {
     return ipcRenderer.invoke("agent:selectFolder");
   },
-  async call(fn, params, onEvent) {
+  cancel(callId) {
+    return ipcRenderer.send("agent:cancel", callId);
+  },
+  call(fn, params, onEvent) {
     const callId = Math.random().toString(36).slice(2);
     const listener = (_e, evt) => {
       if (evt && evt.callId === callId && onEvent) onEvent(evt);
     };
     ipcRenderer.on("agent:event", listener);
-    try {
-      return await ipcRenderer.invoke("agent:call", { fn: fn, params: params || {}, callId: callId });
-    } finally {
-      ipcRenderer.removeListener("agent:event", listener);
-    }
+    const promise = ipcRenderer
+      .invoke("agent:call", { fn: fn, params: params || {}, callId: callId })
+      .finally(() => ipcRenderer.removeListener("agent:event", listener));
+    promise.callId = callId;
+    return promise;
   },
   listFunctions() {
     return ipcRenderer.invoke("agent:call", { fn: "tools.list", params: {}, callId: "x" });

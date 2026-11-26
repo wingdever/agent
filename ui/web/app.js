@@ -37,6 +37,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.registerView("chat", { title: "聊天", sessionHeader: true });
   App.registerView("trajectory", { title: "轨迹", sessionHeader: true });
   App.registerView("terminal", { title: "终端" });
+  App.registerView("channels", { title: "通道" });
   App.registerView("flow", { title: "流程" });
   App.registerView("models", { title: "模型" });
   App.registerView("tools", { title: "工具" });
@@ -52,6 +53,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.initArtifactPreview();// modals.js：产物预览 DOM 缓存
   App.initSidebar();        // sidebar.js：工作区/会话树/回收站/搜索 绑定
   App.initTerminalPanel();  // terminal-panel.js：终端主视图页
+  App.initChannelsUI();     // channel-ui.js：通道主视图页
   App.initTrajectory();     // trajectory.js：轨迹面板 DOM 缓存
   App.initGraph();          // graph-ui.js：本体模态框入口（meta-btn）与代码图页
   App.initPresence();       // context-panel.js：presence/autonomy/activity 绑定
@@ -72,7 +74,11 @@ document.addEventListener("DOMContentLoaded", function () {
     App.currentActivity = (sess && sess.activity) || "research";
     if (App.terminalPanel) App.terminalPanel.setSession(sess.id);
     if (App.resetTrajectory) App.resetTrajectory(); // 切换会话后轨迹需重新拉取
-    if (App.sessionNameLabel) App.sessionNameLabel.textContent = sess.name || ("会话 " + sess.id);
+    if (App.sessionNameLabel) {
+      var label = sess.name || ("会话 " + sess.id);
+      App.sessionNameLabel.textContent = label;
+      App.sessionNameLabel.title = label; // 表头截断后悬停显示全名
+    }
     App.scheduleHeaderEval(); // 会话名变了（D2 可能撑大左组）→ 重新评估紧凑（D6）
     App.showView("chat");     // 点会话即回到聊天页（主视图由左栏切换，选会话是聊天页的动作）
     document.querySelectorAll(".session-item").forEach(function (n) { n.classList.remove("active"); });

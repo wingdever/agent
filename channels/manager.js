@@ -35,6 +35,8 @@ export function createChannelManager({
 } = {}) {
   /** @type {Map<string, Object>} */
   const entries = new Map();
+  /** @type {Set<Function>} */
+  const subscribers = new Set();
 
   for (const channel of channels) {
     if (!channel || typeof channel !== "object") throw new TypeError("channel manager: channel must be an object");
@@ -86,6 +88,22 @@ export function createChannelManager({
     return [...entries.values()].map(snapshot);
   }
 
+  function emit() {
+    const current = list();
+    for (const listener of subscribers) {
+      try { listener(current); } catch (_) { /* a dead listener must not block status changes */ }
+    }
+  }
+
+  // A new subscriber gets the current roster immediately, then one full roster
+  // snapshot on every status change. The initial send happens after registration
+  // so no change between the two can be missed.
+  function subscribe(listener) {
+    subscribers.add(listener);
+    listener(list());
+    return () => subscribers.delete(listener);
+  }
+
   function status(id) {
     return snapshot(requireEntry(id));
   }
@@ -127,6 +145,7 @@ export function createChannelManager({
     entry.status = "starting";
     entry.error = null;
     entry.stopRequested = false;
+    emit();
 
     const pending = (async () => {
       try {
@@ -152,16 +171,19 @@ export function createChannelManager({
         if (entry.stopRequested) {
           await entry.channel.stop();
           entry.status = "stopped";
+          emit();
           return snapshot(entry);
         }
         entry.status = "running";
         entry.startedAt = now();
         entry.startedBy = by;
+        emit();
         return snapshot(entry);
       } catch (err) {
         const reason = (err && err.message) || String(err);
         entry.status = "error";
         entry.error = reason;
+        emit();
         // A preflight refusal is not a connection failure: say what is missing,
         // without claiming that connecting was attempted.
         if (err && err.name === "ChannelPreflightError") {
@@ -193,6 +215,7 @@ export function createChannelManager({
     }
     if (entry.status === "stopped") return snapshot(entry);
     entry.status = "stopping";
+    emit();
     try {
       await entry.channel.stop();
       entry.status = "stopped";
@@ -200,10 +223,12 @@ export function createChannelManager({
       entry.pipeline = null; // a restart begins with an empty dedupe window
       entry.startedAt = 0;
       entry.startedBy = null;
+      emit();
       return snapshot(entry);
     } catch (err) {
       entry.status = "error";
       entry.error = (err && err.message) || String(err);
+      emit();
       throw new Error(`channel "${entry.id}" failed to stop: ${entry.error}`);
     }
   }
@@ -219,5 +244,5 @@ export function createChannelManager({
     }
   }
 
-  return { list, status, has, start, stop, stopAll, setSink, STATUS };
+  return { list, status, has, start, stop, stopAll, setSink, subscribe, STATUS };
 }

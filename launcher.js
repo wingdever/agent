@@ -69,6 +69,9 @@ app.whenReady()
           messages: message.messages,
           onEvent: emit,
           inputSource: `channel:${message.type}:${message.instanceId}`,
+          // Nobody can answer an approval prompt from a chat platform, so an
+          // `ask` tool would hang the turn forever. Autonomous denies it.
+          autonomy: "autonomous",
         });
       },
     });
