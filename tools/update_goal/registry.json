@@ -1,6 +1,6 @@
 {
   "name": "update_goal",
-  "description": "Update the current goal.",
+  "description": "Update the current goal. The goal state machine rejects illegal phase transitions and stale revisions; there is no caller authorization.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -14,7 +14,7 @@
       },
       "action": {
         "type": "string",
-        "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.",
+        "description": "Use edit, pause, and resume when the user requests them; use complete only when the objective is achieved; use blocked only when the same blocking condition persists across rounds. In a goal continuation round, blocked is rejected before the configured minimum round count.",
         "enum": [
           "edit",
           "pause",
@@ -46,6 +46,6 @@
   "group": "goal",
   "entry": "run.js",
   "defaultVisible": true,
-  "prompt": "create_goal may infer goal intent from a direct human request in any language. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least {{blockedAfterConsecutiveRounds}} consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
+  "prompt": "create_goal may infer goal intent from a user request in any language. After session resume or fork, an active goal is disarmed: when the user asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least {{blockedAfterConsecutiveRounds}} consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
   "promptSection": "goal"
 }

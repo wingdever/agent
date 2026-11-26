@@ -2,7 +2,7 @@
 
 主线：满足个人使用的 agent 助手，采用 DSH 的模型通信格式，并兼容其插件生态。
 支线：学习harness开发以及作为求职作品，各子系统做到完整自洽、设计可讲清楚即可。
-里程：minimal → tool → workflow → role → auto → team → colony → distributed → users → eval → robustness
+里程：minimal → tool → workflow → role → auto → team → colony → serviceization → distributed → users → eval → robustness
 
 ## principles & collaboration rules
 
@@ -74,6 +74,11 @@ flowchart LR
         m7b["终极使命"]
         m7c["全层容器与编组"]
     end
+    subgraph M75["M7.5 serviceization-deployment（服务化与部署）"]
+        direction TB
+        m75a["微服务框架"]
+        m75b["容器化部署"]
+    end
     subgraph M8["M8 distributed-agents（群众合作）"]
         direction TB
         m8a["网络传输与寻址"]
@@ -101,7 +106,7 @@ flowchart LR
         m11e["渐进部署"]
     end
 
-    M0 --> M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7 --> M8 --> M9 --> M10 --> M11
+    M0 --> M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7 --> M75 --> M8 --> M9 --> M10 --> M11
     m1a -.->|依赖| m3g
     m2a -.-> m3f
     m2b -.-> m3f
@@ -115,6 +120,9 @@ flowchart LR
     m6b -.->|编排范式基础| m7c
     m5a -.->|预算/熔断复用| m7a
     m6c -.->|协议基础| m8c
+    m3h -.->|服务边界复用| m75a
+    m75a -.->|部署单元| m75b
+    m75b -.->|跨主机运行底座| m8a
     m8d -.->|课题对照| m11c
     m7b -.->|使命按 user 隔离| m9a
     m9a -.->|scope 虚拟地址| m9c
@@ -149,13 +157,13 @@ flowchart LR
 
 #### session-save
 
-重启后恢复会话 + 挂起状态（待审批 / 待回答 / user job）接续。事件溯源已存全量数据，缺的是恢复投影与在途交互的接续。
+重启后恢复会话 + 挂起状态（待审批 / 待回答 / user job）接续。事件溯源已存全量数据，缺的是恢复投影与在途交互的接续。设计见 `docs/runtime/session-recovery.md`。
 
 #### goal-auto-continue
 
 goal 驱动自动续轮（max_goal_rounds 上限，blocked/complete 终止，连续失败自动暂停防死循环，参照 Cline mistake limits / Goose Ralph Loop 完成判据）。goal CRUD 已就绪，缺驱动侧。
 
-按 DSH 语义实现单会话的持久目标与自动续轮：状态与回放、goal 三件套工具及执行时权限、人类控制面、续轮驱动器，以及它们依赖的轮次生命周期接口（`docs/agents/lifecycle.md`）。goal 只解决「一个目标在多个轮次里持续推进」，不为其它任务形态做预留。设计见 `docs/agents/goal.md`。
+按 DSH 语义实现单会话的持久目标与自动续轮：状态与回放、goal 三件套工具及状态约束、人类控制面、续轮驱动器，以及它们依赖的轮次生命周期接口（`docs/agents/lifecycle.md`）。goal 只解决「一个目标在多个轮次里持续推进」，不为其它任务形态做预留。设计见 `docs/agents/goal.md`。
 
 进阶形态 = ToT / LATS 完整形态：在单路径续轮之上做树搜索 / 多分支展开 + 评估 + 回溯 + LATS 反思闭环。
 
@@ -344,6 +352,27 @@ A2A 协议与通用通信协议、无状态编排的 handoff & routines、群聊
 colony 作为容器嵌套包含 agent（含其 subagent 委派能力）/ agent-team；以编排范式（supervisor / swarm / hierarchical / role specialization）与 actor 运行时作编组底座。
 
 
+### M7.5 serviceization-deployment（服务化与部署）
+
+目的：把单进程 harness 变成可打包、可部署、可扩展的服务集合；默认仍是单进程，服务化是部署形态，不改变 core 语义。
+
+判据：一条命令拉起完整服务；会话数据不丢；单个服务可独立重启；新增一个服务不需要改核心装配。
+
+> 本里程碑只落地单机容器化与单用户公网服务；微服务拆分与多副本扩展不在首版。设计见 `docs/ops/cloud-deployment.md`。
+
+> 术语区分：本节的「容器」指进程 / 镜像容器（Docker / Podman），不是 M7 的 agent 嵌套容器；灰度 / 金丝雀发布仍归 M11。
+
+#### 微服务框架（serviceization）
+
+把现有单进程能力按稳定边界拆成可独立部署的服务：session / model gateway / tool executor / scheduler / transport。统一 RPC 契约、服务发现、健康检查、配置注入与版本协商；先做「模块化单体 + 可拆分边界」，不直接上分布式事务。服务边界优先复用模块系统与 registry，不另造一套装配。默认运行形态仍是单进程；只有需要独立扩缩、隔离故障或跨主机时才拆服务。
+
+#### 容器化部署（containerized deployment）
+
+提供镜像与编排：Dockerfile / compose、镜像分层、数据卷、配置与密钥注入、健康检查、日志、升级与回滚。先单机 compose 跑通，再谈多机；不做 Kubernetes 级平台（除非后续 M8 / M9 需要）。容器化不改变权限 gate 与 fs 策略，工具仍直接操作真实系统。
+
+这两项一起做：微服务框架定义可部署单元，容器化部署提供运行与交付形态。只做容器化而不拆服务，得到的是「单进程镜像」；只拆服务而不容器化，部署与升级不可复现。
+
+
 ### M8 distributed-agents（群众合作）
 
 判据：agent 可跨主机部署、经网络互联为对等节点，节点间能互相发现、寻址与通信；在无中心调度的前提下自组织形成协作网络，人类可借助该网络承载跨主体协作。
@@ -452,7 +481,7 @@ fixture 任务评测框架、SWE-bench / GAIA / AgentBench / WebArena / OSWorld 
 
 ## strategic-direction
 
-主线从单 agent 起步，经能力复用、subagent、agent-role、自治运行时、agent-team，到 agent-colony 持续生态、群众合作、多用户、评测，最终以健壮性构建收尾；可观测性作为模块设计基本准则贯穿各里程碑，健壮性课题按「先功能实现、再界面美观、最后恶劣条件健壮」的开发优先级放在最后统一收口。
+主线从单 agent 起步，经能力复用、subagent、agent-role、自治运行时、agent-team，到 agent-colony 持续生态、服务化与容器化部署、群众合作、多用户、评测，最终以健壮性构建收尾；可观测性作为模块设计基本准则贯穿各里程碑，健壮性课题按「先功能实现、再界面美观、最后恶劣条件健壮」的开发优先级放在最后统一收口。
 
 ## 外部参照
 

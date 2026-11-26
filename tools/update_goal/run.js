@@ -1,8 +1,9 @@
 "use strict";
 
-// update_goal: CAS edit / pause / resume / complete / blocked, with the DSH
-// authority split and blocked threshold. Shared implementation lives in
-// tools/goal/shared.js (docs/agents/goal.md §3-§4).
+// update_goal: CAS edit / pause / resume / complete / blocked. GoalService
+// validates phase, exact ref and round budget; the shared implementation also
+// applies the goal-round blocked threshold and closing instruction
+// (docs/agents/goal.md §3-§4).
 
 import { updateGoal } from "../goal/shared.js";
 

@@ -35,8 +35,8 @@
 import { randomUUID } from "node:crypto";
 
 const SOURCE = "goal";
-// The human grant source: only an input the host attributed to the human may
-// take the next turn ahead of a reserved round.
+// The human scheduling source: a human input queued ahead of a reserved round
+// takes the next turn first. This is queue priority, not goal authorization.
 const HUMAN_SOURCE = "user";
 
 // The retained continuation prompt: envelope, field order and wording follow

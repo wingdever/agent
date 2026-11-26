@@ -9,10 +9,11 @@
 //   - `clear` writes a tombstone;
 //   - `admitRound` appends the round row that advances roundsStarted.
 //
-// Authority (which caller may run which verb) is enforced by the goal tools,
-// not here. Activation is per session in this process and starts `disarmed`
-// for every agent instance (goal.md §7): a session restored or reopened after a
-// restart never continues on its own until someone resumes it.
+// There is no caller authorization in this service: it accepts a mutation from
+// any tool caller and leaves "which caller" to the host/API design. Activation
+// is per session in this process and starts `disarmed` for every agent instance
+// (goal.md §7): a session restored or reopened after a restart never continues
+// on its own until someone resumes it.
 
 import { GoalRoundDriver } from "./driver.js";
 import { createGoalStore } from "./store.js";

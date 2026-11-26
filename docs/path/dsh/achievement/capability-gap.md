@@ -46,9 +46,10 @@ DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一�
 | 24 | SDK / ACP | `sdk/*`、`acp/*` | ACP 入站适配器可用；无对外 SDK | 部分 | P2 |
 | 25 | 浏览器 / 桌面操作 | `browser-use`、`computer-use` | Playwright `browser_*` 七工具；无桌面操作 | 部分 | P2 |
 | 26 | 产物 / 文档 | `deliverables/*`、`document/*` | `present` 交付、右栏预览、Lark 文档代理；无工作区变更记录、无 Office 渲染 | 部分 | P2 |
-| 27 | 遥测 / 反馈 / 账号 | `telemetry`、`feedback`、`account` | 无 | 缺失 | 不做 |
-| 28 | 预设 / 角色 | `preset/*` | 只有 activity/autonomy/activity 三轴，无声明式 preset 与 revision | 雏形 | P2 |
-| 29 | 验证 / 治理 | 88 个 `verify-*`、Agent Notes | `node --test` 478 项、`scan.js` 12 条架构规则、distributed-dev 规范 | 部分 | P1 |
+| 27 | 遥测 / 反馈 | `telemetry`、`feedback` | 无 | 缺失 | 不做 |
+| 28 | 账号 / 身份 | `account`、`identity` | 无；当前单用户 | 暂不做 | M9 |
+| 29 | 预设 / 角色 | `preset/*` | 只有 activity/autonomy/activity 三轴，无声明式 preset 与 revision | 雏形 | P2 |
+| 30 | 验证 / 治理 | 88 个 `verify-*`、Agent Notes | `node --test` 520 项、`scan.js` 12 条架构规则、distributed-dev 规范 | 部分 | P1 |
 
 ### 1.2 已对齐的部分（不必再补）
 
@@ -90,11 +91,11 @@ DSH 是 Cordis 插件组合的 monorepo：55 个能力组、406 个包，同一�
 | 文档 | Lark 文档代理 | 没有本地 Office 渲染/转换（LibreOffice kit） |
 | MCP 进阶 | 工具调用、资源读取、重连 | 没有 `resources/subscribe`、prompt 模板、sampling / elicitation / roots、tasks extension |
 
-### 2.3 明确不做
+### 2.3 明确不做与暂不做
 
-- **进程级沙箱**：DSH 用 `read-only / workspace-write / danger-full-access` 三档约束子进程；本项目 roadmap 已明确不做。现状是 `bash` 直接继承用户权限，靠 fs 策略与工具权限兜。若未来开放远程执行，再重新评估。
-- **多用户账号体系**：本项目是个人单用户；`account`、`identity`、多租户隔离不追。
-- **Cordis 全量组合机制**：55 组 406 包的 profile/bundle/patch 体系不适合这个规模；只借“清单 + 生命周期 + 可替换”三点，不引入三层 YAML。
+- **进程级沙箱（明确不做）**：DSH 用 `read-only / workspace-write / danger-full-access` 三档约束子进程；本项目 roadmap 已明确不做。现状是 `bash` 直接继承用户权限，靠 fs 策略与工具权限兜。若未来开放远程执行，再重新评估。
+- **多用户账号体系（暂不做，M9 必做）**：当前实现是个人单用户；`account`、`identity`、多租户隔离暂不落地。这不是永久边界：公开服务前必须拍板“每人一实例”还是“多租户”，前者复用现有单用户 core，后者属于 M9。详见 [`maturity-gap.md`](maturity-gap.md) §2.4。
+- **Cordis 全量组合机制（明确不做）**：55 组 406 包的 profile/bundle/patch 体系不适合这个规模；只借“清单 + 生命周期 + 可替换”三点，不引入三层 YAML。
 - **Windows PowerShell（`pwsh` / 持久 `pwsh`）**：目标环境只有 Linux，不做 Windows 方言、ConPTY 和对应工具；`bash` / PTY 终端是唯一 shell 面。
 
 ## 3 后续计划

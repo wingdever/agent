@@ -2,15 +2,15 @@
 
 ## 范围
 
-本文件定义 goal：一个持久的完成目标，在它处于 `active` 且续轮被授权（`armed`）时，由驱动器在同一会话里自动开启后续轮次，直到目标完成、耗尽、阻塞或被人暂停。
+本文件定义 goal：一个持久的完成目标，在它处于 `active` 且续轮被激活（`armed`）时，由驱动器在同一会话里自动开启后续轮次，直到目标完成、耗尽、阻塞或被人暂停。
 
-- **状态服务**：目标状态、阶段、轮次计数、比较并交换（CAS）与授权开关。
-- **模型侧工具**：`get_goal` / `create_goal` / `update_goal`，含执行时权限检查。
+- **状态服务**：目标状态、阶段、轮次计数、比较并交换（CAS）与 activation 开关。服务不判断 caller，只执行状态机。
+- **模型侧工具**：`get_goal` / `create_goal` / `update_goal`，只解析参数并调用状态服务；没有 caller 权限检查。
 - **人类控制面**：`/goal` 命令在 UI 层直接读写同一状态，不经过模型轮次。
 - **续轮驱动器**：在会话空闲、目标 active 且 armed、还有轮次余量时，排一条 goal 轮次。
 - **事件与投影**：`goal/change` 持久事件、严格回放、`goal` UI 投影。
 
-与 DSH（`dsh-goal` / `dsh-tool-goal` / `dsh-goal-round-driver` / `dsh-command-goal`）保持同一通信契约：工具名、参数、返回的紧凑 JSON 形状、系统提示段落原文、三处权限分歧、续轮提示词结构、blocked 阈值语义都照 DSH。**goal 是单会话能力**：它不为其它会话排轮次、不派任务，只让当前会话一轮一轮地继续。
+与 DSH（`dsh-goal` / `dsh-tool-goal` / `dsh-goal-round-driver` / `dsh-command-goal`）保持同一通信契约：工具名、参数、返回的紧凑 JSON 形状、系统提示段落原文、续轮提示词结构、blocked 阈值语义都照 DSH。**goal 是单会话能力**：它不为其它会话排轮次、不派任务，只让当前会话一轮一轮地继续。
 
 goal 只管单会话续轮。无人值守任务周期是一类独立的运行方式（`docs/agents/unattended.md`），它可以选择引用 goal，也可以完全不用；goal 不为它做任何设计预留。
 
@@ -55,7 +55,7 @@ CREATE TABLE goal_changes (
 
 ### 1.3 进程内状态
 
-`activation`（`armed` / `disarmed`）不是持久事实：每个进程对每个会话各有一份，进程重建即为 `disarmed`。它表示「当前进程是否被授权执行自动续轮」，不代表目标阶段。所有会停止续轮的操作（pause、complete、block、clear、轮次耗尽）都置为 `disarmed`；resume 置为 `armed`。
+`activation`（`armed` / `disarmed`）不是持久事实：每个进程对每个会话各有一份，进程重建即为 `disarmed`。它表示「当前进程是否允许执行自动续轮」，不代表目标阶段。所有会停止续轮的操作（pause、complete、block、clear、轮次耗尽）都置为 `disarmed`；resume 置为 `armed`。
 
 ## 2 状态机
 
@@ -88,21 +88,26 @@ CREATE TABLE goal_changes (
 
 `update_goal` 的字段约束：`objective` 与 `max_goal_rounds` 仅对 `edit` 生效；`blocked_reason` 仅对 `blocked` 生效且必填非空，落库 code 固定为 `model-reported`；`edit` 时空串 objective 与 0 轮次上限视为未提供，至少要有一项有效替换。调用前必须先 `get_goal`，把返回的 `goal_id` 与 `revision` 原样带上；过期版本返回明确的 stale 错误而不是静默覆盖。
 
-## 4 执行时权限
+## 4 调用模型与状态约束
 
-工具只在调用方是注册表里那个活着的 agent、且其轮次正在运行时执行。权限分三档：
+goal 工具**没有 caller 授权**：任何能调用这三个工具的 agent 都可以执行 `create` / `edit` / `pause` / `resume` / `complete` / `blocked`。工具只解析参数并调用 `GoalService`；服务不接收 caller，也不判断 `direct-human` / `goal-round` / `none`。
 
-| 调用来源 | create / edit / pause / resume | complete / blocked |
-|---|---|---|
-| 直接人类输入（运行时根会话当前轮次里含 `source=user` 的输入） | 允许 | 允许 |
-| 当前 goal 的接纳轮（本轮首条输入是该 goal 当前版本的第 `roundsStarted` 轮） | 拒绝 | 允许 |
-| 其它（子代理、驱动器之外的非人类来源、不带来源的轮次） | 拒绝 | 拒绝 |
+`GoalService` 保留的是业务合法性，不是权限：
 
-`resume` 在工具侧拒绝 `paused` 阶段的目标：从 `paused` 恢复属于人类控制面，工具只负责把 `active` 但 disarmed 的目标重新武装。
+- 所有变更必须带精确 `{ goal_id, revision }`，旧版本返回 stale 错误，不能静默覆盖；
+- `create` 不能覆盖未完成的当前 goal；
+- `pause` 只能从 `active` 开始；
+- `resume` 只能从 `active` / `paused` / `blocked` 开始，轮次耗尽时拒绝；工具路径传 `fromPaused: false`，所以不能恢复 `paused`，从 `paused` 恢复属于 `/goal` 控制面；
+- `complete` 只能作用于非 `complete` 的 goal；
+- `blocked` 只能从 `active` 开始，code 与说明必须合法；
+- `pause` / `complete` / `blocked` / `clear` 成功后置 `disarmed`，`create` / `resume` 成功后置 `armed`。
 
-`blocked` 在接纳轮里执行时要求 `roundsStarted` 已达到阈值（`blockedAfterConsecutiveRounds`，默认 3）；直接人类请求可以立即停止目标。阈值是机械下限，判断「同一阻塞条件是否持续」仍是模型职责。
+工具层另有两个**与 goal 轮次生命周期相关、但不是权限**的行为，判断依据是 `agent.turn.claim.goalRound`，不是消息 `source`：
 
-接纳轮里成功的 `complete` 或 `blocked` 会在本步之后向模型追加一段收尾指令（`<goal_complete>` / `<goal_blocked>`）：陈述结果、已做与验证方式、下一步该看什么、需要人类提供什么；本轮不再调用工具，自动运行到此结束。
+1. **blocked 阈值**：只有 `goalRound` 轮次才要求 `roundsStarted` 达到 `blockedAfterConsecutiveRounds`（默认 3）。非 goal 轮次调用 `blocked` 可以立即停止目标；阈值约束的是“自动续轮不能过早放弃”，不是调用者身份。
+2. **收尾提示**：只有 `goalRound` 轮次里成功的 `complete` / `blocked` 才追加 `<goal_complete>` / `<goal_blocked>` 收尾指令。非 goal 轮次的终端更新不追加。
+
+`source` 继续作为输入来源与调度信息保留：驱动器用它判断人类输入是否优先于自动轮次，但它不再参与 goal 授权。未标注来源的输入默认成 `user`，只影响调度优先级，不会授予 goal 变更权限。
 
 ## 5 人类控制面
 
@@ -119,7 +124,7 @@ CREATE TABLE goal_changes (
 
 控制词只在完整占满输入时生效（`/goal pause after verification` 是创建一个字面目标）。领域拒绝按稳定文案直接报错，不暴露内部 id 与版本。
 
-不带 `source` 的输入一律视为人类输入，因此所有非人类来源（子代理任务、驱动器指令、后台通知）必须显式标注自己的来源，不能借用人类权限。
+`source` 是输入来源与调度信息，不是权限。运行时把未标注来源的输入默认成 `user`，只影响人类输入是否优先开轮，不会授予 goal 变更权限；所有非人类来源仍应标注自己的来源，避免抢占人类优先队列。
 
 ## 6 续轮驱动器
 
@@ -182,7 +187,7 @@ Continue working toward the objective in this same session. Treat the current wo
 - activation 不持久：每个进程对每个会话各有一份，初值 `disarmed`。**实例创建边**（会话在进程内第一次被实例化，也就是恢复一个持久会话、进程重启后第一次打开该会话）一律置 `disarmed`；只有工具 `resume` 或人类控制面的 `resume` 把它置 `armed`。
 - 因此「重启后不自动继续」有两层含义：
   - **进程级的即时续跑**：驱动器不在启动时扫描 goal、不主动实例化会话。进程重启后，只有该会话被人类或其它动作再次实例化时，驱动器才从那一刻起判断要不要续轮。
-  - **会话级的续轮授权**：即使会话被实例化，恢复出来的 active goal 也是 `disarmed`，不继续；人类发出继续指令（`/goal resume`，或明确要求模型调用 `update_goal resume`）之后才恢复自动续轮。
+  - **会话级的续轮激活**：即使会话被实例化，恢复出来的 active goal 也是 `disarmed`，不继续；人类发出继续指令（`/goal resume`，或明确要求模型调用 `update_goal resume`）之后才恢复自动续轮。
 - fork 出来的会话同理：继承的目标是 active 但 disarmed，等人类决定是否让它自己跑。
 - 驱动器装到既有会话上时从不主动武装任何目标；卸载时取消在途轮次并保证此后不再排轮。
 
@@ -200,7 +205,7 @@ Continue working toward the objective in this same session. Treat the current wo
 三个工具共用一段 `tool:goal`（顺序 2400）：
 
 ```text
-create_goal may infer goal intent from a direct human request in any language. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least <blockedAfter> consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.
+create_goal may infer goal intent from a user request in any language. After session resume or fork, an active goal is disarmed: when the user asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least <blockedAfter> consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.
 ```
 
 `<blockedAfter>` 取 goal 工具包的 `blockedAfterConsecutiveRounds`。段落随工具可见性出现，只要三个工具里有一个可见就注入；工具被裁剪而段落保留会让模型按无工具可用的说明行动，两者要一起作用域。
@@ -209,7 +214,7 @@ create_goal may infer goal intent from a direct human request in any language. A
 
 - `goal/change`：每次持久变更提交后发出，携带操作、精确 ref 与新的完整视图；`clear` 不带视图。
 - `goal/round`：一轮被接纳（`operation=round` 行写入）后发出，携带 `{ goalId, revision, round }`。
-- `goal/activation-changed`：进程内授权变化，携带当前 ref，不产生持久变更。
+- `goal/activation-changed`：进程内激活变化，携带当前 ref，不产生持久变更。
 - UI 投影 `goal`：当前 goal 或 `null`，含阶段、轮数、上限、block 原因；会话恢复与跨端推送都读这一份，不另存状态。
 
 ## 11 驱动器的触发与挂载（经由 `docs/agents/lifecycle.md` 的接口）
