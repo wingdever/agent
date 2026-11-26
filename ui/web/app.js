@@ -36,6 +36,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // 会话类页（聊天/轨迹）右槽用常驻的会话控制组，其余页的 header 由各域文件自注册时补上。
   App.registerView("chat", { title: "聊天", sessionHeader: true });
   App.registerView("trajectory", { title: "轨迹", sessionHeader: true });
+  App.registerView("terminal", { title: "终端" });
   App.registerView("flow", { title: "流程" });
   App.registerView("models", { title: "模型" });
   App.registerView("tools", { title: "工具" });
@@ -50,7 +51,7 @@ document.addEventListener("DOMContentLoaded", function () {
   App.initToolDetail();     // modals.js：tool-call 检视器 DOM 缓存
   App.initArtifactPreview();// modals.js：产物预览 DOM 缓存
   App.initSidebar();        // sidebar.js：工作区/会话树/回收站/搜索 绑定
-  App.initTerminalPanel();  // terminal-panel.js：右侧 xterm 终端侧栏
+  App.initTerminalPanel();  // terminal-panel.js：终端主视图页
   App.initTrajectory();     // trajectory.js：轨迹面板 DOM 缓存
   App.initGraph();          // graph-ui.js：本体模态框入口（meta-btn）与代码图页
   App.initPresence();       // context-panel.js：presence/autonomy/activity 绑定

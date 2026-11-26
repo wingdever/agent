@@ -1,6 +1,10 @@
 # 终端面板（User Terminal）
 
-状态：第一版实现（2026-11-25）。目标是 DSH 的 User Terminal 语义：侧栏有真实终端、用户可新建和接管、agent 只能读不能写、全屏 TUI 接近原生。
+状态：第一版实现（2026-11-25）。目标是 DSH 的 User Terminal 语义：终端页有真实终端、用户可新建和接管、agent 只能读不能写、全屏 TUI 接近原生。
+
+## 界面落位
+
+终端是主视图的一页（`ui/web/index.html` 的 `terminal-page`），入口在左栏会话组，与聊天/轨迹并列。终端按 `session_id` 过滤，只显示当前会话的终端；无会话时页面显示空态。切换其它主视图时页面隐藏，但 WebSocket 与终端进程保持，xterm 继续写入原始字节；尺寸拟合与聚焦只在页面可见时执行，隐藏终端不抢焦点。Agent 新建终端只提示，不自动切页。
 
 ## 数据模型
 
@@ -19,7 +23,7 @@
 - `terminal_close` 只 detach，不调用 `close()`；shell 和进程继续运行。
 - `terminal_list` 隐藏 `createdBy=user` 和 `detached=true`；`user_terminal_list` 只列 `control=user` 的终端。
 - `terminal_read` 对 `createdBy=user` 返回错误，避免 agent 绕过 user_terminal 语义读用户终端；用户接管的 agent 终端仍可被 `terminal_read` 读。
-- 侧栏的关闭按钮调用 `terminal.panel.close`，走 `actor=user`，真正 kill 进程树。
+- 终端页标签的关闭按钮调用 `terminal.panel.close`，走 `actor=user`，真正 kill 进程树。
 
 ## 屏幕模型
 
@@ -44,7 +48,7 @@ PTY 的原始字节同时进入两处：
 ws://127.0.0.1:<port>/terminal?sessionId=<id>&terminalId=<term_id>&cols=<n>&rows=<n>
 ```
 
-只支持 `AGENT_TRANSPORT=http`；`ipc` transport 不挂载侧栏，也不默认下发 `user_terminal_*`。
+只支持 `AGENT_TRANSPORT=http`；`ipc` transport 不挂载终端页，也不默认下发 `user_terminal_*`。
 
 服务端连接流程：
 
@@ -82,9 +86,9 @@ ws://127.0.0.1:<port>/terminal?sessionId=<id>&terminalId=<term_id>&cols=<n>&rows
 
 `ws.bufferedAmount > 1 MiB` 时调用 node-pty 的 `pause()`；50ms 轮询，降到 256 KiB 以下 `resume()`。不丢字节。
 
-客户端断开不杀终端。重连时重新走 hello 快照；浏览器先 `term.reset()` 再写快照。面板收起时断开 socket，展开时重连。
+客户端断开不杀终端。重连时重新走 hello 快照；浏览器先 `term.reset()` 再写快照。终端页隐藏时 socket 保持连接、xterm 继续写入；页面可见时重新拟合尺寸并聚焦，不因切页重连。
 
-## 侧栏 RPC
+## 终端页 RPC
 
 | RPC | 参数 | 行为 |
 |---|---|---|

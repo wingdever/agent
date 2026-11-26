@@ -27,6 +27,7 @@
   - [3.5 loops-page](#35-loops-page)
   - [3.6 meta-page](#36-meta-page)
   - [3.7 快捷键](#37-快捷键)
+  - [3.8 terminal-page（运行期交互）](#38-terminal-page运行期交互)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
 - [6. 前端文件构成与调用关系（M0 拆分）](#6-前端文件构成与调用关系m0-拆分)
@@ -136,6 +137,20 @@
 | **session-statistics** | 左段：`⟳ N turns M steps · K tok/s`（图标 + 会话累计 turns/steps + 最近一轮 TPS，turns/steps 间空格） |
 | **token-usage** | 中段：`▤ X.XM tok · Cache hit NN%`（图标 + total tokens 人类可读 + 缓存命中率） |
 | **context-used** | 右段：SVG donut（track + 动态 fill 弧）+ `NN%` 文本，按占上下文窗口估算占比实时更新。窗口经 `contextWindow` RPC 解析：providers.json 每模型 `context_window` > settings.contextWindow > 128000（与自动压缩阈值同源） |
+| **terminal-view-btn** | 左栏会话组的主视图入口（💻 终端）：打开 terminal-page |
+| **terminal-page** | 终端主视图页（main-view 内一页，铺满内容区）：按当前会话显示终端，页面隐藏时 WebSocket 保持连接 |
+| **terminal-panel-head** | 终端页顶部工具条：标题 + terminal-new-btn |
+| **terminal-panel-title** | 终端页标题 |
+| **terminal-new-btn** | 新建用户终端（createdBy=user），需先选中会话 |
+| **terminal-tab-close** | 关闭当前终端标签（确认后结束进程树） |
+| **terminal-host** | xterm 挂载点，填满 terminal-slot |
+| **terminal-tabs** | 终端标签条（terminal-tab*） |
+| **terminal-tab** | 单个终端标签：名称 + 归属标记 + 关闭按钮 |
+| **terminal-stage** | 终端显示区（terminal-slot*） |
+| **terminal-slot** | 单个终端的 xterm 宿主，active 时显示 |
+| **terminal-empty** | 无终端空态（terminal-empty-text + terminal-empty-new） |
+| **terminal-empty-text** | 空态文案：有会话显示「暂无终端」并附新建按钮，无会话显示「选择会话后可新建终端」 |
+| **terminal-statusbar** | 终端状态行：终端 id / 工作目录 / 进程状态 / 归属 |
 | **compaction-card** | 聊天区 checkpoint 卡：按最新 `compaction/summary` 事件的 `boundaryMessageId` 插在**边界消息之后**（切点可能落在 turn 内部；找不到消息时退回 `boundaryTurnSeq` 的 turn 末尾）；标题显示压缩 turn 数 / `~tokensBefore → ~tokensAfter` / 边界 message / 模型 / 时间，正文为模型写的 8 段 summary（默认展开；preamble 与 `<compacted-summary>` 标签只给模型看，卡片不显示）。原始 turns/steps 仍然全部展示（DSH transcript 语义），卡片只标出模型视角被替换的位置 |
 | **compaction-notice** | 压缩状态提示行（`compaction` 事件驱动）：start / prune / overflow / done / failed 的短文案，压缩完成后由重建的会话视图与 checkpoint 卡取代 |
 | **/compact 斜杠命令** | composer 输入以 `/` 开头时在发送前拦截：`/compact`（无参数）触发手动压缩；bare-chat 提示不可用；未知命令提示可用命令。不进入对话历史 |
@@ -374,7 +389,8 @@ shell
 │  └─ sidebar-nav
 │     ├─ sidebar-nav-group（会话）
 │     │  ├─ chat-view-btn
-│     │  └─ trajectory-view-btn
+│     │  ├─ trajectory-view-btn
+│     │  └─ terminal-view-btn
 │     ├─ sidebar-nav-group（编排）
 │     │  ├─ sidebar-nav-title
 │     │  ├─ models-btn
@@ -457,6 +473,19 @@ shell
 │     │     ├─ session-statistics
 │     │     ├─ token-usage
 │     │     └─ context-used
+│     ├─ terminal-page                        （terminal）
+│     │  ├─ terminal-panel-head
+│     │  │  ├─ terminal-panel-title
+│     │  │  └─ terminal-new-btn
+│     │  ├─ terminal-tabs
+│     │  │  └─ terminal-tab*
+│     │  ├─ terminal-stage
+│     │  │  ├─ terminal-slot*
+│     │  │  │  └─ terminal-host
+│     │  │  └─ terminal-empty
+│     │  │     ├─ terminal-empty-text
+│     │  │     └─ terminal-empty-new
+│     │  └─ terminal-statusbar
 │     ├─ flow-page                            （flow）
 │     │  ├─ flow-body
 │     │  │  ├─ flow-list
@@ -725,6 +754,7 @@ add-workspace-btn -> folder-selector -> add-workspace(folder)
 add-session-btn -> name-prompt -> add-session(worksapce,name)
 chat-view-btn -> chat-view
 trajectory-view-btn -> trajectory-tab
+terminal-view-btn -> terminal-page
 models-btn -> models-page
 skills-btn -> skills-page
 tools-btn -> tools-page
@@ -791,6 +821,16 @@ Esc        -> 关闭最上层弹层：modal-overlay（走取消路径）/ row-me
 
 规则：有弹层打开时 Esc 优先且只关最上层；弹层打开期间其余快捷键不生效；焦点在输入控件内时不抢单键快捷键，Ctrl/⌘ 组合键仍生效。
 
+### 3.8 terminal-page（运行期交互）
+
+terminal-view-btn -> terminal-page（主视图页，左栏会话组入口）
+terminal-new-btn / terminal-empty-new -> terminal.panel.open({session_id}) -> 刷新 terminal-tabs 并选中新终端
+terminal-tab(click) -> 切换活动终端（fit + 聚焦仅在页面可见时执行）
+terminal-tab-close -> 确认后 terminal.panel.close({session_id, id}) -> 结束进程树
+agent 新建终端 -> toast 提示，不自动切页
+切换主视图 -> onViewChange：隐藏时保持 WebSocket 连接与 xterm 写入，可见时重新 fit 与聚焦
+选择会话 -> setSession 按 session_id 重建终端列表，随后回到 chat-view
+
 ## 4. 布局关系
 
 shell
@@ -817,9 +857,14 @@ chat-viewport
    arrange: vertical
 
 main-view
-   children: chat-view, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
+   children: chat-view, terminal-page, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
    arrange: 单页显示（同一时刻只显示 data-view 与当前视图名相同的一页；各页首次进入时懒建）
    note: chat-view 承载 chat / trajectory 两个视图（内容由 tab-body 内的 data-view 切换）
+
+terminal-page
+   children: terminal-panel-head, terminal-tabs, terminal-stage, terminal-statusbar
+   arrange: vertical
+   note: 按当前 session_id 过滤终端；无会话时空态文案为「选择会话后可新建终端」。切换主视图只隐藏页面，WebSocket 与终端进程保持，xterm 继续写入；fit 与聚焦只在可见时执行，隐藏终端不抢焦点。agent 新建终端只 toast 提示
 
 chat-header
    contains: left-collapse-button, session-name? / view-title?, header-controls-group
@@ -968,6 +1013,7 @@ graph TD
     CT["chat-tab.js<br/>onChatEvent / renderSessionMessages / createToolCard / appendMessage"]
     CU["compaction-ui.js<br/>handleCompactionEvent / runCompact / renderCompactionCard"]
     CO["composer.js<br/>onSend / runBareChat / 模型·推理选择器 / @引用 / initHeaderCompact"]
+    TP["terminal-panel.js<br/>终端页：xterm / WebSocket / 会话绑定 / onViewChange"]
 
     APP -->|调 init*| M
     APP -->|调 init*| SB
@@ -977,6 +1023,7 @@ graph TD
     APP -->|调 init*| CT
     APP -->|调 init*| CU
     APP -->|调 init*| CO
+    APP -->|调 init*| TP
     APP -.填 DOM 根.-> ST
 
     SB -->|selectSession 渲染消息| CT

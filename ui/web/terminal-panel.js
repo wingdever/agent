@@ -1,29 +1,30 @@
 "use strict";
 
-// 右侧终端侧栏：xterm 直接接收 PTY 的原始字节，不做行缓冲、不做文本中间层。
+// 终端主视图页：xterm 直接接收 PTY 的原始字节，不做行缓冲、不做文本中间层。
 // 每个终端一条 WebSocket；重连时服务端发 serialized screen 快照，客户端先
-// reset 再写快照，因此全屏 TUI 也能恢复到同一屏。
+// reset 再写快照，因此全屏 TUI 也能恢复到同一屏。页面隐藏时连接保持。
 (function () {
   var App = (window.App = window.App || {});
 
   App.initTerminalPanel = function initTerminalPanel() {
     var panel = document.getElementById("terminalPanel");
-    var toggle = document.getElementById("terminalToggle");
+    var navBtn = document.querySelector(".terminal-view-btn");
     var tabsEl = document.getElementById("terminalTabs");
     var stage = document.getElementById("terminalStage");
     var empty = document.getElementById("terminalEmpty");
+    var emptyText = document.getElementById("terminalEmptyText");
     var statusEl = document.getElementById("terminalStatus");
     var newBtn = document.getElementById("terminalNew");
     var emptyNew = document.getElementById("terminalEmptyNew");
-    var closePanelBtn = document.getElementById("terminalClosePanel");
 
+    var stub = {
+      setSession: function () {},
+      refresh: function () {},
+      isVisible: function () { return false; },
+      onViewChange: function () {},
+    };
     if (!panel || !tabsEl || !stage) {
-      App.terminalPanel = {
-        setSession: function () {},
-        setVisible: function () {},
-        refresh: function () {},
-        isVisible: function () { return false; },
-      };
+      App.terminalPanel = stub;
       return;
     }
 
@@ -32,7 +33,6 @@
       items: {},
       activeId: null,
       visible: false,
-      userClosed: false,
       initialized: false,
       pollTimer: null,
       busy: false,
@@ -44,17 +44,11 @@
     }
 
     if (!baseUrl()) {
-      // IPC transport has no WebSocket upgrade endpoint yet. Keep the panel
-      // out of the layout and the terminal toggle hidden rather than offering
-      // a control that can only fail.
+      // IPC transport has no WebSocket upgrade endpoint yet. Hide the page and
+      // its navigation entry rather than offering a control that can only fail.
       panel.hidden = true;
-      if (toggle) toggle.hidden = true;
-      App.terminalPanel = {
-        setSession: function () {},
-        setVisible: function () {},
-        refresh: function () {},
-        isVisible: function () { return false; },
-      };
+      if (navBtn) navBtn.hidden = true;
+      App.terminalPanel = stub;
       return;
     }
 
@@ -84,8 +78,8 @@
       return (row && row.name) || "terminal";
     }
 
-    function updateToggle() {
-      if (toggle) toggle.setAttribute("data-active", state.visible ? "1" : "0");
+    function syncVisible() {
+      state.visible = !panel.hidden;
     }
 
     function renderTabs() {
@@ -130,6 +124,7 @@
     function syncEmpty() {
       var has = Object.keys(state.items).length > 0;
       if (empty) empty.hidden = has;
+      if (emptyText) emptyText.textContent = state.sessionId ? "暂无终端，点「新建终端」开一个" : "选择会话后可新建终端";
       if (stage) stage.setAttribute("data-has-terminal", has ? "1" : "0");
     }
 
@@ -180,7 +175,7 @@
 
     function scheduleReconnect(item) {
       if (!item || item.exiting || item.retryTimer) return;
-      if (!state.visible || state.activeId !== item.row.id) return;
+      if (state.activeId !== item.row.id) return;
       if (item.retries >= 5) {
         setStatus("终端连接已断开（重连 5 次失败）");
         return;
@@ -189,7 +184,7 @@
       item.retries += 1;
       item.retryTimer = setTimeout(function () {
         item.retryTimer = null;
-        if (state.items[item.row.id] && state.visible && state.activeId === item.row.id) {
+        if (state.items[item.row.id] && state.activeId === item.row.id) {
           connect(item);
         }
       }, delay);
@@ -219,7 +214,8 @@
         item.connected = true;
         sendResize(item);
         render();
-        try { item.term.focus(); } catch (_) {}
+        syncVisible();
+        if (state.visible) { try { item.term.focus(); } catch (_) {} }
       };
 
       socket.onmessage = function (event) {
@@ -371,10 +367,11 @@
       });
       render();
       var item = state.items[id];
+      syncVisible();
       requestAnimationFrame(function () {
-        fitItem(item);
+        if (state.visible) fitItem(item);
         connect(item);
-        try { item.term.focus(); } catch (_) {}
+        if (state.visible) { try { item.term.focus(); } catch (_) {} }
       });
     }
 
@@ -419,8 +416,6 @@
         return;
       }
       state.busy = true;
-      state.userClosed = false;
-      setVisible(true);
       call("terminal.panel.open", { session_id: state.sessionId }).then(function (handle) {
         state.busy = false;
         return refresh().then(function () { if (handle && handle.id) selectTerminal(handle.id); });
@@ -436,6 +431,7 @@
     }
 
     function refresh() {
+      syncVisible();
       if (!state.sessionId) {
         Object.keys(state.items).forEach(disposeItem);
         state.activeId = null;
@@ -447,7 +443,6 @@
         var seen = {};
         var beforeIds = {};
         Object.keys(state.items).forEach(function (id) { beforeIds[id] = true; });
-        var before = Object.keys(state.items).length;
         rows.forEach(function (row) {
           seen[row.id] = true;
           var item = state.items[row.id];
@@ -464,37 +459,33 @@
         });
         if (!state.activeId && ids.length) state.activeId = ids[0];
         if (state.activeId && !state.items[state.activeId]) state.activeId = ids[0] || null;
-        // A newly opened agent terminal should be visible if the user has not
-        // explicitly collapsed the panel. Switching sessions does not pop it.
-        if (!firstLoad && !state.visible && hasNewAgent && !state.userClosed) {
-          state.visible = true;
-          panel.hidden = false;
-          updateToggle();
+        // An agent-created terminal is announced, never pulled into view: the
+        // terminal page stays an explicit destination chosen from the sidebar.
+        if (!firstLoad && hasNewAgent && App.toast) {
+          App.toast("Agent 打开了新终端，可在「💻 终端」查看");
         }
         state.initialized = true;
-        if (state.visible && state.activeId) {
+        Object.keys(state.items).forEach(function (key) {
+          state.items[key].slot && state.items[key].slot.classList.toggle("active", key === state.activeId);
+        });
+        if (state.activeId) {
           var item = state.items[state.activeId];
-          item.slot && item.slot.classList.add("active");
-          requestAnimationFrame(function () { fitItem(item); connect(item); });
+          requestAnimationFrame(function () {
+            if (state.visible) fitItem(item);
+            connect(item);
+            if (state.visible) { try { item.term.focus(); } catch (_) {} }
+          });
         } else {
           render();
         }
       }).catch(function () {});
     }
 
-    function setVisible(visible) {
-      state.visible = !!visible;
-      panel.hidden = !state.visible;
-      updateToggle();
-      if (state.visible) {
-        state.userClosed = false;
-        refresh();
-        if (state.activeId && state.items[state.activeId]) selectTerminal(state.activeId);
-      } else {
-        state.userClosed = true;
-        Object.keys(state.items).forEach(function (id) { disconnect(state.items[id]); });
-        render();
-      }
+    // 页面显隐由 App.showView 统一控制；隐藏时只停布局测量，不断 socket。
+    function onViewChange(name) {
+      state.visible = name === "terminal";
+      if (state.visible) refresh();
+      else render();
     }
 
     function setSession(sessionId) {
@@ -505,8 +496,7 @@
       state.sessionId = next;
       state.initialized = false;
       render();
-      if (state.visible) refresh();
-      else if (!state.userClosed) refresh();
+      refresh();
       updatePolling();
     }
 
@@ -515,13 +505,10 @@
       state.pollTimer = null;
       if (!state.sessionId) return;
       state.pollTimer = setInterval(function () {
-        if (!state.sessionId) return;
-        if (state.visible || !state.userClosed) refresh();
+        if (state.sessionId) refresh();
       }, 2500);
     }
 
-    if (toggle) toggle.addEventListener("click", function () { setVisible(!state.visible); });
-    if (closePanelBtn) closePanelBtn.addEventListener("click", function () { setVisible(false); });
     if (newBtn) newBtn.addEventListener("click", newTerminal);
     if (emptyNew) emptyNew.addEventListener("click", newTerminal);
     var resizeTimer = null;
@@ -529,6 +516,7 @@
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(function () {
         resizeTimer = null;
+        syncVisible();
         if (!state.visible || !state.activeId) return;
         var item = state.items[state.activeId];
         if (!item) return;
@@ -540,14 +528,14 @@
       Object.keys(state.items).forEach(function (id) { disconnect(state.items[id], true); });
     });
 
-    updateToggle();
+    syncVisible();
     render();
 
     App.terminalPanel = {
       setSession: setSession,
-      setVisible: setVisible,
       refresh: refresh,
-      isVisible: function () { return state.visible; },
+      isVisible: function () { syncVisible(); return state.visible; },
+      onViewChange: onViewChange,
       newTerminal: newTerminal,
     };
   };

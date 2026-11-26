@@ -69,7 +69,6 @@ select, textarea, input { font-family: inherit; }
 .chat-header .session-mode-indicator,
 .chat-header .activity-indicator,
 .chat-header .presence-switch,
-.chat-header .terminal-toggle,
 .chat-header .autonomy-switch { height: 28px; box-sizing: border-box; border-radius: 6px; padding: 0 10px; font-size: 12px; line-height: 1; }
 .chat-header .left-collapse-button,
 .chat-header .right-collapse-button { width: 28px; padding: 0; flex: 0 0 28px; }
@@ -903,19 +902,16 @@ select, textarea, input { font-family: inherit; }
 .flow-btn.primary { background: #1d4ed8; border-color: #2563eb; }
 .flow-btn.danger { background: #7f1d1d; border-color: #b91c1c; margin-top: 8px; }
 
-/* terminal-panel: 右侧终端侧栏。深色背景让 xterm 的 ANSI 配色接近原生终端。 */
-.terminal-panel {
-  width: clamp(300px, 40vw, 460px);
-  flex: 0 0 clamp(300px, 40vw, 460px);
+/* terminal-page: 终端主视图页。深色背景让 xterm 的 ANSI 配色接近原生终端。 */
+.terminal-page {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   background: #0b1020;
   color: #dbeafe;
-  border-left: 1px solid #1f2937;
 }
-.terminal-panel[hidden] { display: none; }
+.terminal-page[hidden] { display: none; }
 .terminal-panel-head {
   display: flex;
   align-items: center;
@@ -926,8 +922,7 @@ select, textarea, input { font-family: inherit; }
   background: #111827;
 }
 .terminal-panel-title { font-size: 13px; font-weight: 600; color: #e5e7eb; }
-.terminal-new-btn,
-.terminal-close-panel-btn {
+.terminal-new-btn {
   border: 1px solid #374151;
   background: #1f2937;
   color: #dbeafe;
@@ -936,11 +931,9 @@ select, textarea, input { font-family: inherit; }
   padding: 0 9px;
   font-size: 12px;
   cursor: pointer;
+  margin-left: auto;
 }
-.terminal-new-btn { margin-left: auto; }
-.terminal-close-panel-btn { width: 28px; padding: 0; }
-.terminal-new-btn:hover,
-.terminal-close-panel-btn:hover { background: #374151; }
+.terminal-new-btn:hover { background: #374151; }
 .terminal-tabs {
   display: flex;
   gap: 4px;
@@ -1016,17 +1009,6 @@ select, textarea, input { font-family: inherit; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.terminal-toggle {
-  border: 1px solid #d1d5db;
-  background: #fff;
-  border-radius: 6px;
-  color: #4b5563;
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-.terminal-toggle[data-active="1"] { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
-
 /* 暂停卡片（docs/runtime/turn-pause.md §3.3） */
 .pause-card { border: 1px solid #f59e0b; background: #fffbeb; border-radius: 8px; padding: 10px 12px; margin: 8px 0; font-size: 13px; }
 .pause-card-head { font-weight: 600; color: #92400e; margin-bottom: 6px; }
