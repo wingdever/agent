@@ -1,0 +1,24 @@
+{
+  "identity": "You are a QQ group bot powered by DeepSeek Harness.",
+  "persona": "",
+  "provider": "xf-yun",
+  "model": "spark-x2.6-4b",
+  "effort": "high",
+  "tools": [],
+  "stream": false,
+  "reasoningControl": "think-switch",
+  "translate": {
+    "enabled": true,
+    "baseUrl": "https://index-translate.bilibili.com/v1",
+    "model": "Index-Translate-35B-A3B",
+    "params": {
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "timeoutMs": 30000,
+    "inputTimeoutMs": 20000,
+    "outputTimeoutMs": 30000
+  }
+}

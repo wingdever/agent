@@ -27,6 +27,7 @@ export function createChannel({ instance = {} } = {}) {
 
   const state = {
     handler: null,
+    interactionHandler: null,
     started: false,
     projections: [],
     sends: [],
@@ -55,9 +56,10 @@ export function createChannel({ instance = {} } = {}) {
     capabilities,
     auth,
 
-    async start(onMessage) {
+    async start(onMessage, onInteraction) {
       if (typeof onMessage !== "function") throw new TypeError("start requires an onMessage handler");
       state.handler = onMessage;
+      state.interactionHandler = typeof onInteraction === "function" ? onInteraction : null;
       state.started = true;
     },
 
@@ -67,6 +69,7 @@ export function createChannel({ instance = {} } = {}) {
 
     async stop() {
       state.handler = null;
+      state.interactionHandler = null;
       state.started = false;
     },
 
@@ -77,6 +80,12 @@ export function createChannel({ instance = {} } = {}) {
       const startedAt = Date.now();
       await state.handler(message);
       return Date.now() - startedAt;
+    },
+
+    /** Deliver one button callback as the platform would after an ack. */
+    async injectInteraction(interaction) {
+      if (!state.interactionHandler) throw new Error("fake channel has no interaction handler");
+      await state.interactionHandler(interaction);
     },
 
     /** Send text through the paced queue, segmenting at the platform cap. */

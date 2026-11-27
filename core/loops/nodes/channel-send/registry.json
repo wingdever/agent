@@ -1,0 +1,7 @@
+{
+  "id": "channel-send",
+  "next": "decide-next",
+  "type": "core",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

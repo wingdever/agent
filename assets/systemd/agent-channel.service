@@ -1,0 +1,21 @@
+[Unit]
+Description=QQ channel service (standalone channel runner)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/wing/Projects/agent
+Environment=NODE_BIN=/usr/bin/node
+# The channel service owns the QQ socket + DuckDB history. It does not run an
+# agent; core subscribes to /messages/subscribe over HTTP/SSE.
+Environment=CHANNEL_RUN_ID=alice-qq
+EnvironmentFile=-/home/wing/Projects/agent/user/channel-daemon.env
+ExecStart=/bin/bash /home/wing/Projects/agent/scripts/channel-daemon.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

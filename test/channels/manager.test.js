@@ -42,6 +42,53 @@ test("channels are built but never started on their own", () => {
   assert.equal(entry.eventMode, "ws");
 });
 
+test("publish hook receives accepted inbound messages", async () => {
+  const fake = createFakeChannel({ instance: { id: "bot" } });
+  const published = [];
+  const manager = createChannelManager({
+    channels: [fake],
+    publish: (m) => published.push(m.eventId),
+  });
+  manager.setSink(createSink());
+  await manager.start("bot");
+
+  await fake.inject(message({ eventId: "evt-pub-1" }));
+  await fake.inject(message({ eventId: "evt-pub-2" }));
+  assert.deepEqual(published, ["evt-pub-1", "evt-pub-2"]);
+  await manager.stopAll();
+});
+
+test("publish hook skips duplicate eventIds", async () => {
+  const fake = createFakeChannel({ instance: { id: "bot" } });
+  const published = [];
+  const manager = createChannelManager({
+    channels: [fake],
+    publish: (m) => published.push(m.eventId),
+  });
+  manager.setSink(createSink());
+  await manager.start("bot");
+
+  await fake.inject(message({ eventId: "evt-dup-pub" }));
+  await fake.inject(message({ eventId: "evt-dup-pub" }));
+  assert.deepEqual(published, ["evt-dup-pub"]);
+  await manager.stopAll();
+});
+
+test("without a sink the service still dedupes and publishes inbound messages", async () => {
+  const fake = createFakeChannel({ instance: { id: "bot" } });
+  const published = [];
+  const manager = createChannelManager({
+    channels: [fake],
+    publish: (m) => published.push(m.eventId),
+  });
+  assert.equal((await manager.start("bot")).status, "running");
+  await fake.inject(message({ eventId: "standalone-1" }));
+  await fake.inject(message({ eventId: "standalone-1" }));
+  assert.deepEqual(published, ["standalone-1"], "no sink, no turn, dedupe still works");
+  assert.equal(manager.status("bot").turns, 0);
+  await manager.stopAll();
+});
+
 test("start opens the channel and an inbound message reaches the sink and projects", async () => {
   const fake = createFakeChannel({ instance: { id: "bot" } });
   const manager = createChannelManager({ channels: [fake] });
@@ -130,9 +177,8 @@ test("a stop that arrives mid-start still leaves the channel closed", async () =
   assert.equal(fake.started, false);
 });
 
-test("start without a sink, an unknown channel and a driver failure are all explicit errors", async () => {
+test("an unknown channel and a driver failure are explicit errors", async () => {
   const manager = createChannelManager({ channels: [createFakeChannel({ instance: { id: "bot" } })] });
-  await assert.rejects(manager.start("bot"), /before a sink is attached/);
   await assert.rejects(manager.start("nope"), /unknown channel "nope"/);
 
   const broken = createFakeChannel({ instance: { id: "broken" } });
@@ -239,4 +285,43 @@ test("subscribe sends the roster immediately, then a full snapshot on every stat
   unsubscribe();
   await manager.start("bot");
   assert.equal(snapshots.length, before);
+});
+
+test("a button callback goes to the sink's interact, not into a turn, and duplicates are dropped", async () => {
+  const fake = createFakeChannel({ instance: { id: "bot" } });
+  const manager = createChannelManager({ channels: [fake] });
+  const interactions = [];
+  manager.setSink({
+    async runTurn() {},
+    async interact(interaction) {
+      interactions.push(interaction);
+    },
+  });
+  await manager.start("bot");
+
+  await fake.injectInteraction({ kind: "approval", id: 1, decision: "approve", eventId: "int-1" });
+  await fake.injectInteraction({ kind: "approval", id: 1, decision: "approve", eventId: "int-1" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(interactions.length, 1);
+  assert.equal(interactions[0].id, 1);
+  assert.equal(manager.status("bot").interactions, 1);
+  // A callback is not a message: no turn was opened.
+  assert.equal(manager.status("bot").turns, 0);
+});
+
+test("the sink receives the channel instance so it can choose supervised vs autonomous", async () => {
+  const fake = createFakeChannel({ instance: { id: "bot" } });
+  const manager = createChannelManager({ channels: [fake] });
+  let seen = null;
+  manager.setSink({
+    async runTurn(_message, _emit, context) {
+      seen = context;
+    },
+  });
+  await manager.start("bot");
+  await fake.inject(message({ eventId: "ctx" }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(seen.channel.type, "fake");
+  assert.equal(seen.channel.capabilities.canPromptUser, false);
 });

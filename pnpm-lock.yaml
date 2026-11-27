@@ -194,6 +194,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 1.4.0
         version: 1.4.0(zod@4.6.7)
+      '@duckdb/node-api':
+        specifier: 2.0.1-r.1
+        version: 2.0.1-r.1
       '@joplin/turndown-plugin-gfm':
         specifier: ^1.0.68
         version: 1.0.68
@@ -218,6 +221,9 @@ importers:
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0
+      better-sqlite3:
+        specifier: ^13.2.0
+        version: 13.2.0
       ipaddr.js:
         specifier: ^2.5.0
         version: 2.5.0
@@ -283,6 +289,44 @@ packages:
 
   '@dagrejs/graphlib@4.0.6':
     resolution: {integrity: sha512-Hjv7hbfmSBMP4nVXMFt4gusqWWHghQF0qNT4V5KHo4Jatvd+2L5VHKFnnIjXVuDnaHIRz7ZuHSnlf0RuZkOwWA==}
+
+  '@duckdb/node-api@2.0.1-r.1':
+    resolution: {integrity: sha512-YAuAEZOgd511AZkXl0i3c7WFlTdIE6hEa5avih+fwJ+FYgkhgyis9IU7b++IEadT2+9tGRh8QZK9qALOtLwdXw==}
+
+  '@duckdb/node-bindings-darwin-arm64@2.0.1-r.1':
+    resolution: {integrity: sha512-QifZjrl3fev63wEIDpSNVdvClA0TdZ/4KAlBwmfdymdG57xPZihGak5PbHmT4IC4V7bgV6nzembJkz6qf/2gXQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-darwin-x64@2.0.1-r.1':
+    resolution: {integrity: sha512-aEHIDa/isgQLUzkxAbgOhsu4oE8IunLzBS+/90Jnxab892FQ1HJa+AcXTaoWrDZLPfhOA+HKniN68QK6ioZ1wA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-linux-x64-musl@2.0.1-r.1':
+    resolution: {integrity: sha512-PiEMFB3c3cH7Y1SwkTF749M/bOlzhBP/xlc/QwaHgKJPstNEfSWe8S3Q0XQrlbcYxokJJG83g3Q8EQVjnmbtkg==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@duckdb/node-bindings-linux-x64@2.0.1-r.1':
+    resolution: {integrity: sha512-BTVwKGQ1Np/CkOhNq5VNDJRJHKC6+XgVJ23wqjxviHDGdkeFmnfdCs6OzUADQ42BTKhnBzh+5bKQX1lB0gbo9A==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@duckdb/node-bindings-win32-arm64@2.0.1-r.1':
+    resolution: {integrity: sha512-v22ziq/h3+mYkqY29EU5ej56wEh3I/wyEBFbDne0L0NmX+JF2y+1NTeZfJP23uT/CmrMqj0ehb4rBjMH+DSo/Q==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@duckdb/node-bindings-win32-x64@2.0.1-r.1':
+    resolution: {integrity: sha512-tIyo4NP52GhxRz5ReL9wy6JqcMNfsRr2mVOO40lsx9GB8jE1SRyXZEVFoIskQST8jTiSZV+ezLOPIof62Va/SA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@duckdb/node-bindings@2.0.1-r.1':
+    resolution: {integrity: sha512-Na56IXKC/Rz7wE41VtTyPyX5Q+MtjYWPKcqOdK3kB2TcirUHVRHJUivmspiBP2ImWCnkX5Ko/rp+j5hw+ohdng==}
 
   '@electron-internal/extract-zip@1.0.8':
     resolution: {integrity: sha512-8iajeLFbzNwM0m3AsQZSZgYREWglAImyGvvFSWU34FgMW8sHlzdwj9QKvv9dgN7jMP591EFUF/sLOC3Jl9YIjQ==}
@@ -458,6 +502,10 @@ packages:
   axios@1.21.1:
     resolution: {integrity: sha512-6eI5Q/Y4u/Um9dDlsRoq5pY2rxnUTv+L4PpLitnbk/i4jb3MxLZ5CsN5Ih3IysbeRYK4pR+P7qfMsOQl9fwwFQ==}
 
+  better-sqlite3@13.2.0:
+    resolution: {integrity: sha512-Z8Q/9x/uNyKxA1v4FNodyItRVRw1TeKBrmj32JhxhR0ceNcBY+wMobt/Bv7M7TzwPAXjnZRtNaEsATnUZSKWZQ==}
+    engines: {node: '>=22'}
+
   body-parser@2.4.0:
     resolution: {integrity: sha512-Ifk1KcLrxaGt1occQagQNFNNOqRt1LFuehEnHHzB8Z6cRgIxRU1TBaiIsUiCdA+gy5PL7Y1IX31DNKkRmxtXjQ==}
     engines: {node: '>=18'}
@@ -535,6 +583,10 @@ packages:
   depd@2.0.0:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
     engines: {node: '>= 0.8'}
+
+  detect-libc@2.1.2:
+    resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
+    engines: {node: '>=8'}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -784,6 +836,10 @@ packages:
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-gyp@13.1.0:
     resolution: {integrity: sha512-FpNzOLFACKG0oRBYbZ5WOeWD1EqRTIWX90MaRIWTO18lVYPx8fqIjrdS3pihjnCkSmgop6zVGkSqg1vXZLksuw==}
@@ -1049,6 +1105,39 @@ snapshots:
 
   '@dagrejs/graphlib@4.0.6': {}
 
+  '@duckdb/node-api@2.0.1-r.1':
+    dependencies:
+      '@duckdb/node-bindings': 2.0.1-r.1
+
+  '@duckdb/node-bindings-darwin-arm64@2.0.1-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-darwin-x64@2.0.1-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64-musl@2.0.1-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64@2.0.1-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-win32-arm64@2.0.1-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-win32-x64@2.0.1-r.1':
+    optional: true
+
+  '@duckdb/node-bindings@2.0.1-r.1':
+    dependencies:
+      detect-libc: 2.1.2
+    optionalDependencies:
+      '@duckdb/node-bindings-darwin-arm64': 2.0.1-r.1
+      '@duckdb/node-bindings-darwin-x64': 2.0.1-r.1
+      '@duckdb/node-bindings-linux-x64': 2.0.1-r.1
+      '@duckdb/node-bindings-linux-x64-musl': 2.0.1-r.1
+      '@duckdb/node-bindings-win32-arm64': 2.0.1-r.1
+      '@duckdb/node-bindings-win32-x64': 2.0.1-r.1
+
   '@electron-internal/extract-zip@1.0.8': {}
 
   '@electron/get@5.1.0':
@@ -1234,6 +1323,10 @@ snapshots:
       - debug
       - supports-color
 
+  better-sqlite3@13.2.0:
+    dependencies:
+      node-addon-api: 8.9.2
+
   body-parser@2.4.0:
     dependencies:
       bytes: 3.1.2
@@ -1301,6 +1394,8 @@ snapshots:
   delayed-stream@1.0.0: {}
 
   depd@2.0.0: {}
+
+  detect-libc@2.1.2: {}
 
   dunder-proto@1.0.1:
     dependencies:
@@ -1543,6 +1638,8 @@ snapshots:
       content-type: 2.1.0
 
   node-addon-api@7.1.1: {}
+
+  node-addon-api@8.9.2: {}
 
   node-gyp@13.1.0:
     dependencies:

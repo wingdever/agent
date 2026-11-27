@@ -21,10 +21,10 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-if [ -z "${CHANNEL_WING_BOT_APPSECRET:-}" ]; then
-  echo "[daemon] CHANNEL_WING_BOT_APPSECRET is missing (looked in $ENV_FILE)" >&2
-  exit 78 # EX_CONFIG: do not spin on autorestart for a configuration problem
-fi
+# Credentials live in user/channels.json (read by channels/registry.js); the
+# env file is only for non-secret run settings (port, history/archive paths).
+# The old CHANNEL_WING_BOT_APPSECRET gate is gone — checking it here would
+# reject every instance other than wing-bot.
 
 NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
 if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then

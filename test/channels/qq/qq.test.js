@@ -7,6 +7,8 @@ import { createChannel } from "../../../channels/qq/index.js";
 import { assertChannel } from "../../../channels/contract.js";
 import { createQqApi, createQqAuth } from "../../../channels/qq/api.js";
 import { parseDispatch } from "../../../channels/qq/events.js";
+import { parseInteraction } from "../../../channels/qq/events.js";
+import { buildApprovalCard, parseButtonData } from "../../../channels/qq/cards.js";
 import { ERROR_KINDS } from "../../../accounts/errors.js";
 
 /** A WebSocket stand-in the test drives by hand. */
@@ -43,6 +45,9 @@ function fakeFetch({ failSend } = {}) {
     }
     if (url.endsWith("/gateway/bot")) {
       return json({ url: "wss://api.sgroup.qq.com/websocket", shards: 1 });
+    }
+    if (url.includes("/interactions/")) {
+      return json({ code: 0 });
     }
     if (url.includes("/v2/")) {
       if (failSend) return json({ code: 401, message: "token invalid" }, 401);
@@ -117,7 +122,7 @@ test("identify uses the QQBot scheme and READY resolves start", async () => {
     await new Promise((r) => setTimeout(r, 10)); // identify awaits the token exchange
     assert.deepEqual(socket.sent[0], {
       op: 2,
-      d: { token: "QQBot tok_1", intents: 1 << 25, shard: [0, 1] },
+      d: { token: "QQBot tok_1", intents: (1 << 25) | (1 << 26), shard: [0, 1] },
     });
     socket.emit("message", { data: JSON.stringify({ op: 0, s: 1, t: "READY", d: { session_id: "sess_1", user: { id: "10880449181683288941", bot: true } } }) });
     await started;
@@ -326,5 +331,167 @@ test("a 200 response with err_code is a failure, not a sent message", async () =
       api.sendMessage({ groupOpenId: "g", content: "x", msgId: "m" }),
       (err) => err.kind === kind && err.code === Number(codeText) && err.message.includes(codeText)
     );
+  }
+});
+
+test("a button's data survives the round trip and an approval card carries a keyboard", () => {
+  const card = buildApprovalCard({ id: 7, name: "Bash", args: { command: "ls" }, permission: "ask" });
+  assert.match(card.text, /Bash/);
+  const row = card.keyboard.content.rows[0].buttons;
+  assert.equal(row.length, 2);
+  assert.deepEqual(parseButtonData(row[0].action.data), { kind: "approval", id: 7, decision: "approve" });
+  assert.deepEqual(parseButtonData("qq:a:7:deny"), { kind: "approval", id: 7, decision: "deny" });
+  assert.equal(parseButtonData("qq:a:7:other"), null);
+  assert.equal(parseButtonData("not-ours"), null);
+});
+
+test("INTERACTION_CREATE is only parsed when it is a keyboard callback", () => {
+  const frame = {
+    t: "INTERACTION_CREATE",
+    d: {
+      id: "int_1",
+      type: 11,
+      group_openid: "G1",
+      group_member_openid: "U1",
+      data: { resolved: { button_id: "allow", button_data: "qq:a:1:approve" } },
+    },
+  };
+  assert.deepEqual(parseInteraction(frame), {
+    type: "qq",
+    instanceId: "",
+    conversationKey: "G1",
+    eventId: "int_1",
+    interactionId: "int_1",
+    buttonId: "allow",
+    buttonData: "qq:a:1:approve",
+    senderId: "U1",
+    recvType: "group",
+    scene: "",
+    raw: { event: "INTERACTION_CREATE", id: "int_1", groupOpenId: "G1", senderId: "U1" },
+  });
+  assert.equal(parseInteraction({ ...frame, d: { ...frame.d, type: 2 } }), null);
+  assert.equal(parseInteraction({ t: "GROUP_AT_MESSAGE_CREATE", d: {} }), null);
+});
+
+test("a click is acknowledged before it is routed into the pending interaction", async () => {
+  const fetchImpl = fakeFetch();
+  const sockets = [];
+  const channel = build({ fetchImpl, sockets });
+  const received = [];
+  const started = channel.start(async () => {}, async (interaction) => received.push(interaction));
+  const socket = await waitForSocket(sockets);
+  socket.emit("message", { data: JSON.stringify({ op: 10, d: { heartbeat_interval: 41250 } }) });
+  await new Promise((r) => setTimeout(r, 10));
+  socket.emit("message", { data: JSON.stringify({ op: 0, s: 1, t: "READY", d: { session_id: "sess_1", user: { id: "bot" } } }) });
+  await new Promise((r) => setTimeout(r, 10));
+
+  try {
+    await channel.project(
+      { recvType: "group", conversationKey: "G1", replyTo: "m_in", senderId: "U1", messages: [] },
+      { type: "approval-request", id: 1, name: "Bash", arguments: { command: "rm -rf /tmp/x" }, permission: "ask" },
+    );
+
+    const send = fetchImpl.calls.find((c) => c.url.includes("/v2/groups/G1/messages"));
+    assert.ok(send);
+    const body = JSON.parse(send.body);
+    assert.equal(body.msg_type, 2);
+    assert.equal(body.msg_id, "m_in");
+    assert.equal(body.msg_seq, 1);
+    assert.ok(body.keyboard.content.rows[0].buttons.length === 2);
+
+    socket.emit("message", {
+      data: JSON.stringify({
+        op: 0,
+        s: 2,
+        t: "INTERACTION_CREATE",
+        d: {
+          id: "int_1",
+          type: 11,
+          group_openid: "G1",
+          group_member_openid: "U1",
+          data: { resolved: { button_id: "allow", button_data: "qq:a:1:approve" } },
+        },
+      }),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.deepEqual(received.map((i) => [i.kind, i.id, i.decision]), [["approval", 1, "approve"]]);
+    const ack = fetchImpl.calls.find((c) => c.url.includes("/interactions/int_1"));
+    assert.equal(ack.method, "PUT");
+    assert.deepEqual(JSON.parse(ack.body), { code: 0 });
+  } finally {
+    await channel.stop();
+  }
+});
+
+test("a group member cannot answer someone else's approval", async () => {
+  const fetchImpl = fakeFetch();
+  const sockets = [];
+  const channel = build({ fetchImpl, sockets });
+  const received = [];
+  const started = channel.start(async () => {}, async (interaction) => received.push(interaction));
+  const socket = await waitForSocket(sockets);
+  socket.emit("message", { data: JSON.stringify({ op: 10, d: { heartbeat_interval: 41250 } }) });
+  await new Promise((r) => setTimeout(r, 10));
+  socket.emit("message", { data: JSON.stringify({ op: 0, s: 1, t: "READY", d: { session_id: "s", user: { id: "bot" } } }) });
+  await new Promise((r) => setTimeout(r, 10));
+
+  try {
+    await channel.project(
+      { recvType: "group", conversationKey: "G1", replyTo: "m_in", senderId: "U1", messages: [] },
+      { type: "approval-request", id: 2, name: "Bash", permission: "ask" },
+    );
+    socket.emit("message", {
+      data: JSON.stringify({
+        op: 0, s: 2, t: "INTERACTION_CREATE",
+        d: {
+          id: "int_2", type: 11, group_openid: "G1", group_member_openid: "U2",
+          data: { resolved: { button_data: "qq:a:2:approve" } },
+        },
+      }),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(received.length, 0);
+    const ack = fetchImpl.calls.find((c) => c.url.includes("/interactions/int_2"));
+    assert.deepEqual(JSON.parse(ack.body), { code: 4 });
+  } finally {
+    await channel.stop();
+  }
+});
+
+test("a single-select question is answered by one button and resolves the batch", async () => {
+  const fetchImpl = fakeFetch();
+  const sockets = [];
+  const channel = build({ fetchImpl, sockets });
+  const received = [];
+  const started = channel.start(async () => {}, async (interaction) => received.push(interaction));
+  const socket = await waitForSocket(sockets);
+  socket.emit("message", { data: JSON.stringify({ op: 10, d: { heartbeat_interval: 41250 } }) });
+  await new Promise((r) => setTimeout(r, 10));
+  socket.emit("message", { data: JSON.stringify({ op: 0, s: 1, t: "READY", d: { session_id: "s", user: { id: "bot" } } }) });
+  await new Promise((r) => setTimeout(r, 10));
+
+  try {
+    await channel.project(
+      { recvType: "group", conversationKey: "G1", replyTo: "m_in", senderId: "U1", messages: [] },
+      {
+        type: "ask-user-question",
+        id: 3,
+        questions: [{ id: "q1", header: "部署", question: "用哪个环境？", options: [{ label: "预发" }, { label: "生产" }] }],
+      },
+    );
+    socket.emit("message", {
+      data: JSON.stringify({
+        op: 0, s: 2, t: "INTERACTION_CREATE",
+        d: {
+          id: "int_3", type: 11, group_openid: "G1", group_member_openid: "U1",
+          data: { resolved: { button_data: "qq:q:3:q1:1" } },
+        },
+      }),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(received.map((i) => [i.kind, i.id, i.answers]), [["question", 3, [{ id: "q1", selected: ["生产"] }]]]);
+  } finally {
+    await channel.stop();
   }
 });

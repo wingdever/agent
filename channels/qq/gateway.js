@@ -17,6 +17,9 @@ export const INTENTS = Object.freeze({
   // GROUP_AND_C2C_EVENT: group @-messages and direct messages. This is the bit
   // that matters for a group bot; guild events are a different bit entirely.
   GROUP_AND_C2C: 1 << 25,
+  // INTERACTION: message-button callbacks (INTERACTION_CREATE). Without this bit
+  // the platform accepts the card but the click never reaches the bot.
+  INTERACTION: 1 << 26,
 });
 
 const OP = Object.freeze({
@@ -32,12 +35,12 @@ const OP = Object.freeze({
 
 export function createQqGateway({
   auth,
-  fetchGateway,
+  call,
   dial = (url) => new WebSocket(url),
   onDispatch,
   onReady,
   onError,
-  intents = INTENTS.GROUP_AND_C2C,
+  intents = INTENTS.GROUP_AND_C2C | INTENTS.INTERACTION,
   shard = [0, 1],
   openTimeoutMs = 20000,
   reconnectDelayMs = 5000,
@@ -45,10 +48,15 @@ export function createQqGateway({
   setIntervalImpl = setInterval,
   clearIntervalImpl = clearInterval,
 } = {}) {
-  if (typeof fetchGateway !== "function") throw new TypeError("qq gateway needs fetchGateway");
+  if (typeof call !== "function") throw new TypeError("qq gateway needs call");
   if (typeof onDispatch !== "function") throw new TypeError("qq gateway needs onDispatch");
 
   const stats = { connects: 0, disconnects: 0, heartbeats: 0, resumes: 0, reidentifies: 0, dispatches: 0, errors: 0 };
+
+  /** The socket URL is per bot; shards tells us whether identify needs one shard. */
+  function gateway() {
+    return call("GET", "/gateway/bot");
+  }
 
   let socket = null;
   let stopped = true;
@@ -200,6 +208,7 @@ export function createQqGateway({
 
   return {
     stats,
+    gateway,
     get sessionId() {
       return sessionId;
     },
@@ -211,8 +220,8 @@ export function createQqGateway({
     async connect() {
       if (socket) return;
       stopped = false;
-      const gateway = await fetchGateway();
-      gatewayUrl = gateway && gateway.url;
+      const info = await gateway();
+      gatewayUrl = info && info.url;
       if (!gatewayUrl) throw new Error("qq gateway returned no url");
       return dialUrl();
     },

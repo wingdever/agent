@@ -114,6 +114,45 @@ export function describeAttachment(a) {
   return `[attachment] ${a.name} (${type}${dims}${size ? ", " + size : ""})`;
 }
 
+/**
+ * Normalize a message-button callback.
+ *
+ * QQ delivers it on the same gateway as messages (`INTERACTION_CREATE`), but it
+ * is not a user message: it must be acknowledged and routed back into the
+ * pending interaction, never turned into a fresh turn.
+ *
+ * @param {{t: string, d: Object}} frame
+ * @param {{type?: string, instanceId?: string}} [context]
+ */
+export function parseInteraction(frame, { type = "qq", instanceId = "" } = {}) {
+  if (!frame || frame.t !== "INTERACTION_CREATE") return null;
+  const d = frame.d || {};
+  if (Number(d.type) !== 11) return null; // 11 = inline keyboard callback
+
+  const resolved = (d.data && d.data.resolved) || {};
+  const buttonData = String(resolved.button_data || "");
+  if (!buttonData) return null;
+
+  const groupOpenId = String(d.group_openid || "");
+  const userOpenId = String(d.user_openid || "");
+  const conversationKey = groupOpenId || userOpenId;
+  if (!conversationKey) return null;
+
+  return {
+    type,
+    instanceId,
+    conversationKey,
+    eventId: String(d.id || ""),
+    interactionId: String(d.id || ""),
+    buttonId: String(resolved.button_id || ""),
+    buttonData,
+    senderId: String(d.group_member_openid || d.user_openid || ""),
+    recvType: groupOpenId ? "group" : "user",
+    scene: String(d.scene || ""),
+    raw: { event: frame.t, id: d.id, groupOpenId, senderId: String(d.group_member_openid || d.user_openid || "") },
+  };
+}
+
 /** Kept for callers that only want the download URLs. */
 export function attachmentUrls(dispatchFrame) {
   const d = (dispatchFrame && dispatchFrame.d) || {};

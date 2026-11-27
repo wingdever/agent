@@ -9,7 +9,7 @@
   import { TurnError } from "./../turn-error.js";
   import { RequestSpec } from "./../memory/index.js";
 
-const ENTRY_NODE = "turn-start";
+const DEFAULT_ENTRY_NODE = "turn-start";
 
 class NodeGraphEngine {
   constructor() {
@@ -21,17 +21,12 @@ class NodeGraphEngine {
     this._wireHooksFromOverlay();
   }
 
-  registerHook(nodeId, slot, fn) {
-    if (!this.hooks[nodeId]) this.hooks[nodeId] = { before: [], after: [], onError: [] };
-    if (!Array.isArray(this.hooks[nodeId][slot])) throw new Error("invalid hook slot: " + slot);
-    if (typeof fn !== "function") throw new Error("hook must be a function");
-    this.hooks[nodeId][slot].push(fn);
-    return this;
-  }
-
-  _wireHooksFromOverlay() {
-    const hooks = readLoops();
-    for (const entry of hooks) {
+  /** Clear all hooks and rewire from an explicit entry list. */
+  _wireHooks(entries) {
+    for (const id of Object.keys(this.hooks)) {
+      this.hooks[id] = { before: [], after: [], onError: [] };
+    }
+    for (const entry of entries || []) {
       try {
         const { on, slot, target } = entry;
         this.registerHook(on, slot, async (input, ctx) => {
@@ -44,6 +39,18 @@ class NodeGraphEngine {
         console.error("[loops] skip bad hook entry " + JSON.stringify(entry) + ": " + ((err && err.message) || err));
       }
     }
+  }
+
+  registerHook(nodeId, slot, fn) {
+    if (!this.hooks[nodeId]) this.hooks[nodeId] = { before: [], after: [], onError: [] };
+    if (!Array.isArray(this.hooks[nodeId][slot])) throw new Error("invalid hook slot: " + slot);
+    if (typeof fn !== "function") throw new Error("hook must be a function");
+    this.hooks[nodeId][slot].push(fn);
+    return this;
+  }
+
+  _wireHooksFromOverlay() {
+    this._wireHooks(readLoops());
   }
 
   async _runNode(nodeId, input, ctx) {
@@ -97,7 +104,7 @@ class NodeGraphEngine {
   // adopts a stored turn and starts at the paused step.
   _context(core, agent, turnHandle, inputCtx, onEvent) {
     const persist = !!(agent.sessionId && core.store);
-    return {
+    const nctx = {
       core,
       runtime: core.agent,
       agent,
@@ -130,6 +137,12 @@ class NodeGraphEngine {
         source: inputCtx.inputSource,
         contextMessages: inputCtx.contextMessages,
       },
+      // Delivery target for nodes like channel-send that need to route a
+      // reply back to an external platform. Injected by the entry that opens
+      // the turn; absent for ordinary UI/A2A turns.
+      channelDelivery: inputCtx.channelDelivery || null,
+      // The inbound message an entry node (e.g. channel-listen) consumes.
+      channelMessage: inputCtx.channelMessage || null,
       toolNames: inputCtx.toolNames,
       persona: inputCtx.persona,
       autonomy: inputCtx.autonomy,
@@ -149,6 +162,7 @@ class NodeGraphEngine {
       translatedUser: null,
       translateCfg: null,
     };
+    return nctx;
   }
 
   async _dispatch(nodeId, input, ctx) {
@@ -203,6 +217,9 @@ class NodeGraphEngine {
         reason = err instanceof TurnError ? err.reason : "unexpected-exception";
       }
       errorText = String((err && err.message) || err);
+      if (reason === "unexpected-exception" && err && err.stack) {
+        console.error("[turn] unexpected exception:", err.stack);
+      }
       return { role: "assistant", content: "", error: errorText, stopReason: reason };
     } finally {
       turnHandle.finish({
@@ -220,6 +237,9 @@ class NodeGraphEngine {
   async runLoop(core, ctx, agentArg) {
     const agent = agentArg || core.agent.current();
     if (!agent) throw new Error("node-graph: no agent instance for this turn");
+    // A bot agent carries its own orchestration; it replaces the global hooks
+    // for this turn. Without it the global overlay stays in effect.
+    if (Array.isArray(ctx.loops)) this._wireHooks(ctx.loops);
     const persist = !!(agent.sessionId && core.store);
     const onEvent = ctx.onEvent || (() => {});
     // The instance owns the turn: phase, delivery state and abort all live
@@ -238,8 +258,14 @@ class NodeGraphEngine {
     let status = "succeeded";
     let reason = "no-tool-calls";
     let errorText = null;
+    // The entry node is configurable by the orchestration layer. A channel
+    // event can start a turn at an activated entry node instead of turn-start.
+    const entryNode = ctx.entryNode || DEFAULT_ENTRY_NODE;
+    if (!this.nodes.has(entryNode)) {
+      throw new TurnError("node-not-found", "node-graph: unknown entry node '" + entryNode + "'");
+    }
     try {
-      const result = await this._dispatch(ENTRY_NODE, nctx, nctx);
+      const result = await this._dispatch(entryNode, nctx, nctx);
       return result.output;
     } catch (err) {
       // A cancelled turn ended because someone stopped it, not because it
@@ -252,6 +278,9 @@ class NodeGraphEngine {
         reason = err instanceof TurnError ? err.reason : "unexpected-exception";
       }
       errorText = String((err && err.message) || err);
+      if (reason === "unexpected-exception" && err && err.stack) {
+        console.error("[turn] unexpected exception:", err.stack);
+      }
       if (persist && nctx.turn.row) {
         try {
           if (nctx.step && nctx.step.row) await core.store.run("step.update", { id: nctx.step.row.id, status: "failed" });
@@ -286,4 +315,8 @@ class NodeGraphEngine {
   }
 }
 
-export default { runLoop: (core, ctx, agent) => new NodeGraphEngine().runLoop(core, ctx, agent), resumeLoop: (core, agent) => new NodeGraphEngine().resumeLoop(core, agent), NodeGraphEngine };
+export default {
+  runLoop: (core, ctx, agent) => new NodeGraphEngine().runLoop(core, ctx, agent),
+  resumeLoop: (core, agent) => new NodeGraphEngine().resumeLoop(core, agent),
+  NodeGraphEngine,
+};

@@ -123,13 +123,15 @@ channels/                 本插槽
  * @property {string} instanceId
  * @property {ChannelCapabilities} capabilities
  * @property {ChannelAuth} auth
- * @property {(onMessage:(m:InboundMessage)=>Promise<void>)=>Promise<void>} start
+ * @property {(onMessage:(m:InboundMessage)=>Promise<void>, onInteraction?:(i:Object)=>void)=>Promise<void>} start
  * @property {(m:InboundMessage, event:Object)=>Promise<void>} project   // 事件流投影
  * @property {()=>Promise<void>} stop
  */
 ```
 
 `assertChannel(impl)` 校验：字段齐备、能力值非投机（`ackDeadlineMs` 必须为正数）、`start` 不许在回调里阻塞超过 `ackDeadlineMs`。
+
+`onInteraction` 是可选的第二个入参：只有声明 `canPromptUser: true` 且平台能回调按钮的驱动才会用到。它不是消息入口，按钮点击不能进 `pipeline`，否则会把「一次点击」误当成「一句新话」再跑一轮。
 
 ## 6 共享层只做四件事
 
@@ -337,7 +339,7 @@ M2 的断言落点（`channels/feishu/*.test.js`，19 条）：
 | 心跳 | `Hello.d.heartbeat_interval` = **41250ms** | 间隔随连接下发，不能写死 |
 | 群消息 | 默认只推 **`GROUP_AT_MESSAGE_CREATE`**，`content` 已自动剥掉 @ 前缀 | 「只在被叫到时开口」由平台保证，驱动不必再做 @ 门 |
 | 全量群消息 | 仅当群主允许机器人接收全部消息时，才有 `GROUP_MESSAGE_CREATE` | 想读群里所有话，得让群主在群设置里放开 |
-| 去重 | 同一个 `msg_id` 可能重复推送 | 靠共享 `dedupe` 挡；`msg_seq` 维度尚未用上 |
+| 去重 | 同一个 `msg_id` 可能重复推送 | 靠共享 `dedupe` 挡；同一 `msg_id` 的多条回复用 `msg_seq` 递增 |
 | 回复 | 平台叫「被动消息」：**必须带**收到事件的 `msg_id` | `msgId` 不是可选装饰，缺了就是 400 |
 | 编辑 | **没有** bot 消息编辑接口 | `capabilities.streaming=false`，流式进度在这条通道上不存在 |
 | 主动推送 | 有独立配额（按月/按天），与被动消息分开 | 目前只做被动回复，不碰配额 |
@@ -360,11 +362,11 @@ M2 的断言落点（`channels/feishu/*.test.js`，19 条）：
 - 用**驱动本身**（不是临时探针）跑 35s：`sessionId=f8398afb-…`，`stats={"connects":1,"disconnects":0,"heartbeats":0,"resumes":0,"reidentifies":0,"dispatches":0,"errors":0}`，`seq=1`。心跳计数为 0 是对的——间隔 41.25s，窗口只有 35s。
 - `check()` 对真实配置返回 `[]`（无问题项）；构造期不碰网络，`start()` 才拨号。
 
-断言：`channels/qq/qq.test.js` 8 条（契约 + `streaming=false`、`check()` 文案与 `start()` 拒绝且不联网、`QQBot` 头 + READY 解析、群 @ 一轮 + 被动回复带 `msg_id`、自身/bot/空文本被丢、断线后 op6 带 `session_id`+`seq`、token 过期重取、send 401→AUTH）。
+断言：`channels/qq/qq.test.js` 18 条（契约 + `streaming=false`、`check()` 文案与 `start()` 拒绝且不联网、`QQBot` 头 + READY 解析、群 @ 一轮 + 被动回复带 `msg_id`、自身/bot/空文本被丢、断线后 op6 带 `session_id`+`seq`、token 过期重取、send 401→AUTH，以及按钮数据往返、`INTERACTION_CREATE` 只认 `type=11`、先 ack 后路由、群成员不能替他人审批、单选问题一次点击即解析）。
 
 **通宵压测的结论（环境限制，不是驱动问题）**：后台守护进程在会话空闲约 10 分钟后被云主机回收——日志停在 `+601s` 的快照（`connects=1, heartbeats=14, errors=0, rssMb=69`），既没有 `stopped` 收尾行，也没有守护脚本的重启记录，属于进程被外部杀掉的形态。因此「token 过夜自动刷新」这条路径只能靠单测的注入时钟覆盖（`now()` 拨过 5080s 有效期），不能靠长时间驻留验证。
 
-未校准（仍需实测）：被动回复的时限（官方只说「数分钟内」，具体值未查证）；`POST /v2/groups/{openid}/messages` 的返回体是否带新消息 id（当前实现不看返回体）；`msg_seq` 是否需要在同一事件上回多条时递增；markdown/按钮/附件发送未实现（`canAttachFiles` 目前只在能力位里声明）。
+未校准（仍需实测）：被动回复的时限（官方只说「数分钟内」，具体值未查证）；`POST /v2/groups/{openid}/messages` 的返回体是否带新消息 id（当前实现不看返回体）；`msg_seq` 在同一事件上回多条时按 1..5 递增、第 6 条起省略 `msg_id` 走主动配额，平台是否如此计费未实测；附件发送仍未实现（`canAttachFiles` 只在能力位里声明）。
 
 **端到端实机证据**（机器人 `alice` 已进真实群 `bot-test`）：
 
@@ -374,6 +376,20 @@ M2 的断言落点（`channels/feishu/*.test.js`，19 条）：
 - 踩坑记录：`id` 必须整串原样回填，不能 trim 掉尾部 `!`，也不能 URL 编码。第一版没有这个问题，但值得写下来。
 
 未验证：`GROUP_AT_MESSAGE_CREATE`（默认模式）在本群的实机帧、以及 `msg_id` 被重放（同 id 再回一次）时平台的错误码。
+
+### 消息按钮与交互回调
+
+QQ 没有自由卡片，只有「Markdown 消息 + `keyboard`」：最多 5 行、每行最多 5 个按钮，按钮文案约 10 字。驱动把它收敛成三张固定卡：
+
+- 审批：`允许一次` / `拒绝`，按钮数据 `qq:a:<id>:approve|deny`；
+- 提问：单选且选项 ≤5 时每个选项一个按钮，`qq:q:<id>:<questionId>:<index>`；多选、无选项或超过 5 个选项转文本/Web；
+- 计划审批：`批准` / `退回` / `我要修改`，`qq:p:<id>:approve|reject|edit`。
+
+点击不是新消息，而是同一 socket 上的 `INTERACTION_CREATE`（`type=11`，Intent `1<<26`）。驱动必须先 `PUT /interactions/{id}` 回应（`code=0` 成功、`4` 无权限），再把结果交给 core 的 `InteractionService`。`channels/manager.js` 用 `interact` 与按钮事件 id 去重，且**不**把它塞进 turn 队列；`launcher.js` 只在 `capabilities.canPromptUser === true` 时把该通道的 turn 改成 `supervised`，否则仍 `autonomous` 自动拒绝。
+
+投影时序也随之改变：`channels/inbound/pipeline.js` 不再等 turn 结束才批量投影，而是 emit 时立即入一条串行投影链。审批卡必须在 turn 等待点击时发出去，否则就是「turn 等按钮、按钮等 turn 结束」的死锁。
+
+已知边界：群聊被动回复窗口约 5 分钟，超过后按钮消息发不出去，目前没有主动消息兜底；多问题里只要有一个不可按钮化，整批转 Web；计划「我要修改」和单条自由文本问题用下一条同会话同发送者的文本作为答案。
 
 ### 附件：唯一能进来的文件通道
 

@@ -36,3 +36,27 @@ test("state survives a restart through the state file", () => {
   const second = createDedupe({ capacity: 4, file });
   assert.equal(second.claim("persisted"), false);
 });
+
+test("persist writes an atomic rename and leaves no temp file", async () => {
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dedupe-atomic-"));
+  const file = path.join(dir, "state.json");
+  try {
+    const dedupe = createDedupe({ capacity: 4, file });
+    dedupe.claim("atomic-1");
+    dedupe.claim("atomic-2");
+    const state = JSON.parse(await fs.readFile(file, "utf8"));
+    assert.equal(state.version, 1);
+    assert.equal(state.entries.length, 2);
+    // The temp artifact must be gone after a successful rename.
+    await assert.rejects(() => fs.access(file + ".tmp"), /ENOENT/);
+    // A fresh instance reads the complete file, not a truncated one.
+    const reopened = createDedupe({ capacity: 4, file });
+    assert.equal(reopened.claim("atomic-1"), false);
+    assert.equal(reopened.claim("atomic-2"), false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

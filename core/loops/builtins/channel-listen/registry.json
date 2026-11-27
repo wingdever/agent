@@ -1,0 +1,8 @@
+{
+  "id": "builtin.channel-listen",
+  "next": "resolve-target",
+  "type": "builtin",
+  "kind": "entry",
+  "hooks": { "before": [], "after": [], "onError": [] },
+  "entry": "run.js"
+}

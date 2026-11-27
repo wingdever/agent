@@ -1,15 +1,14 @@
 "use strict";
 
-// Headless runner for one channel instance (inbound).
+// Standalone channel service for one channel instance.
 //
-// Why a script instead of the launcher: the entry point of this project is
-// Electron, and a bot connection is not a window. This runs the same channel +
-// manager + core stack without a UI so inbound can be exercised on a head
-// machine (the cloud host has no display).
+// It owns the QQ/Feishu connection, the message history (SQLite WAL), and the HTTP
+// surface core subscribes to. It does NOT import core: inbound messages are
+// appended to history and published over SSE; a separate core process pulls
+// them and runs the agent.
 //
 // Usage:
-//   node channel-run.js --channel wing-bot            # turns go to core.agent.chat
-//   node channel-run.js --channel wing-bot --echo      # echo the text back, no model
+//   node channel-run.js --channel wing-bot           # run the service
 //   node channel-run.js --channel wing-bot --quiet
 //
 // Credentials come from user/channels.json with CHANNEL_<ID>_<FIELD> env overrides
@@ -21,20 +20,20 @@ import process from "node:process";
 
 import { createChannels, loadConfig } from "./channels/registry.js";
 import { createChannelManager } from "./channels/manager.js";
+import { createChannelCallback } from "./channels/callback.js";
 import { createDedupe } from "./channels/inbound/dedupe.js";
+import { createChannelHistory } from "./lib/channel-history/index.js";
+import { createMemoryAdapter } from "./lib/channel-history/adapters.js";
+import { createSqliteAdapter } from "./lib/channel-history/sqlite-adapter.js";
 import { createSdkConnect } from "./channels/feishu/sdk-connect.js";
-import { createSessionBinder } from "./channels/inbound/sessions.js";
-import { createCore } from "./core/index.js";
 import { PROJECT_ROOT } from "./lib/paths/index.js";
-import { profileFor, chatOptions } from "./lib/agent-profile/index.js";
 import { createDirectFetch } from "./lib/net/direct-fetch.js";
 
 function parseArgs(argv) {
-  const out = { channel: null, echo: false, quiet: false };
+  const out = { channel: null, quiet: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--echo") out.echo = true;
-    else if (arg === "--quiet") out.quiet = true;
+    if (arg === "--quiet") out.quiet = true;
     else if (arg === "--channel" || arg === "-c") out.channel = argv[++i];
     else if (arg.startsWith("--channel=")) out.channel = arg.slice("--channel=".length);
     else if (arg === "--help" || arg === "-h") out.help = true;
@@ -54,10 +53,9 @@ function makeLogger(quiet) {
   };
 }
 
-const HELP = `usage: node channel-run.js --channel <instance-id> [--echo] [--quiet]
+const HELP = `usage: node channel-run.js --channel <instance-id> [--quiet]
 
   --channel <id>  which instance from user/channels.json to start
-  --echo          do not call the model; echo the incoming text back as a card
   --quiet         only print warnings/errors`;
 
 /**
@@ -142,63 +140,93 @@ async function main() {
   // Build only the requested instance: an unused bot sitting in "stopped" is fine,
   // but there is no reason to even resolve a driver we are not going to start.
   const channels = await createChannels({ config: { channels: [instance] }, deps });
+  // Message history: SQLite WAL when the native package is available, memory
+  // otherwise. Accepted inbound/outbound messages are appended here; pending
+  // (undelivered) messages are replayed when a subscriber reconnects.
+  const historyFile = process.env.CHANNEL_HISTORY_DB ||
+    path.join(PROJECT_ROOT, "data", "channels", `history-${id}.db`);
+  let db = createMemoryAdapter();
+  try {
+    db = await createSqliteAdapter({ file: historyFile });
+    log(`[${id}] history: SQLite WAL ${historyFile}`);
+  } catch (err) {
+    log(`[${id}] SQLite unavailable, using memory history: ${(err && err.message) || err}`);
+  }
+  const history = createChannelHistory({ db });
+  // Archive delivered messages older than 90 days into monthly SQLite files.
+  // Runs once at startup; pending (undelivered) messages are never archived.
+  const archiveDir = process.env.CHANNEL_ARCHIVE_DIR ||
+    path.join(PROJECT_ROOT, "data", "archive", "qq");
+  if (db.kind === "sqlite") {
+    const archived = await history.archive({
+      olderThanDays: 90, archiveDir, archiveAdapter: createSqliteAdapter,
+    });
+    if (archived.length) log(`[${id}] archived ${archived.length} month(s): ${archived.map((r) => r.month).join(", ")}`);
+  }
+
+  // The channel service publishes accepted inbound messages over SSE so a
+  // separate core process can subscribe (core-pull). In this headless runner
+  // core is still in-process; both paths receive the message during the
+  // transition.
+  let outboundSeq = 0;
+  const callback = createChannelCallback({
+    // Fixed port when configured so core can point CHANNEL_SERVICE_ENDPOINT at
+    // it; 0 (default) picks an ephemeral port for tests/dev.
+    port: Number(process.env.CHANNEL_SERVICE_PORT || 0),
+    lookupChannel: (candidate) => (String(candidate) === id ? channels[0] : null),
+    getPending: (instanceId) => history.getPending(instanceId),
+    // Replays count as delivery attempts; only an explicit ACK from core
+    // marks a message delivered.
+    onReplay: (messages) => history.markPublished(messages.map((m) => m.eventId)),
+    // ACK is bundled into POST /proactive by core (ackEventId / status=failed).
+    onAck: (ids) => history.ack(ids),
+    // Record what was actually sent to QQ. Outbound messages are stored as
+    // already-delivered so they never re-enter the pending queue and get
+    // replayed to core as if they were inbound.
+    onDeliver: async (payload) => {
+      outboundSeq += 1;
+      const eventId = `out:${Date.now()}:${outboundSeq}`;
+      const record = {
+        eventId,
+        instanceId: String(payload.instanceId || id),
+        conversationKey: String(payload.conversationKey || ""),
+        direction: "outbound",
+        messages: [{ role: "assistant", content: String(payload.text || "") }],
+      };
+      await history.appendOutbound(record);
+    },
+    log,
+  });
+  const callbackAddress = await callback.listen();
+  log(`[${id}] channel service on ${callbackAddress.url}`);
+
   const manager = createChannelManager({
     channels,
     log,
+    publish: async (message) => {
+      await history.append(message);
+      const result = callback.publish(message);
+      if (result.sent > 0) await history.markPublished(result.eventIds);
+      // Published is not acknowledged: a later reconnect replays this message
+      // until core ACKs it via POST /messages/ack. With no subscriber the
+      // message stays pending with attempts=0.
+    },
     dedupeFactory: () =>
       createDedupe({ file: path.join(PROJECT_ROOT, "data", "channels", `dedupe-${id}.json`) }),
   });
 
-  let core = null;
-  let turns = 0;
-  if (args.echo) {
-    manager.setSink({
-      runTurn: async (message, emit) => {
-        turns++;
-        const text = (message.messages || []).map((m) => m.content).join("\n");
-        log(`[echo] ${message.conversationKey} ${message.eventId}: ${text.slice(0, 120)}`);
-        emit({ type: "token", content: `回显：${text}` });
-        emit({ type: "done" });
-      },
-    });
-  } else {
-    core = await createCore();
-    // core addresses sessions by store id; a chat id is not one. The binder maps
-    // the conversation key to a session row and keeps that row across restarts.
-    const sessions = createSessionBinder({
-      store: core.store,
-      file: path.join(PROJECT_ROOT, "data", "channels", `sessions-${id}.json`),
-      workspaceFolder: PROJECT_ROOT,
-    });
-    manager.setSink({
-      runTurn: async (message, emit) => {
-        turns++;
-        const sessionId = await sessions.resolve(message);
-        return core.agent.chat(Object.assign({
-          sessionId,
-          messages: message.messages,
-          onEvent: emit,
-          inputSource: `channel:${message.type}:${message.instanceId}`,
-          // No channel-side approver exists: `ask` would leave the turn hanging.
-          autonomy: "autonomous",
-        }, chatOptions(profileFor(message.instanceId))));
-      },
-    });
-  }
-
+  // No sink: messages go to history + SSE subscribers only. core is a separate
+  // process that subscribes and runs the agent.
   const snapshot = await manager.start(id, { by: "channel-run" }).catch((err) => {
     dropLock();
     throw err;
   });
-  log(
-    `[${id}] ${snapshot.status} eventMode=${snapshot.eventMode} streaming=${snapshot.streaming} ` +
-      `mode=${args.echo ? "echo" : "model"}`
-  );
+  log(`[${id}] ${snapshot.status} eventMode=${snapshot.eventMode} streaming=${snapshot.streaming}`);
   log(`[${id}] waiting for events; Ctrl-C to stop`);
 
   const heartbeat = setInterval(() => {
     const current = manager.status(id);
-    log(`[${id}] deliveries=${current.deliveries} turns=${turns} status=${current.status}`);
+    log(`[${id}] deliveries=${current.deliveries} status=${current.status}`);
   }, 60_000);
 
   let stopping = false;
@@ -209,7 +237,8 @@ async function main() {
     log(`[${id}] ${signal}, closing`);
     try {
       await manager.stopAll();
-      if (core && core.browser) await core.browser.stop();
+      await callback.close();
+      if (db && typeof db.close === "function") db.close();
     } finally {
       dropLock();
       process.exit(0);

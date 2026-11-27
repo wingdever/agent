@@ -111,21 +111,59 @@ export function createQqApi({ auth, baseUrl = DEFAULT_API_BASE, fetchImpl = glob
   }
 
   return {
-    /** The socket URL is per bot; shards tells us whether identify needs one shard. */
-    gateway() {
-      return call("GET", "/gateway/bot");
-    },
+    /** Shared HTTP caller: throttled, authenticated, classified. */
+    call,
+
     /**
      * Passive reply: QQ only allows a fresh message when it carries the id of the
      * one being answered (active pushes have a separate, ratelimited quota).
-     * @param {{groupOpenId?: string, userOpenId?: string, content: string, msgId: string, msgType?: number}} input
+     *
+     * A card is still a message: `msg_type=2` + `markdown` + `keyboard`. `content`
+     * is kept as the plain fallback because group sends require it.
+     *
+     * @param {{
+     *   groupOpenId?: string, userOpenId?: string,
+     *   content?: string, msgId?: string, eventId?: string,
+     *   msgType?: number, msgSeq?: number,
+     *   markdown?: Object, keyboard?: Object
+     * }} input
      */
-    sendMessage({ groupOpenId, userOpenId, content, msgId, msgType = 0 }) {
+    sendMessage({
+      groupOpenId,
+      userOpenId,
+      content,
+      msgId,
+      eventId,
+      msgType = 0,
+      msgSeq,
+      markdown,
+      keyboard,
+    }) {
       const target = groupOpenId ? `/v2/groups/${groupOpenId}/messages` : `/v2/users/${userOpenId}/messages`;
       if (!groupOpenId && !userOpenId) throw new TypeError("qq send needs groupOpenId or userOpenId");
-      const body = { content, msg_type: msgType };
+      const body = { msg_type: msgType };
+      if (content !== undefined) body.content = content;
+      if (markdown !== undefined) body.markdown = markdown;
+      if (keyboard !== undefined) body.keyboard = keyboard;
       if (msgId) body.msg_id = msgId;
+      if (eventId) body.event_id = eventId;
+      // Two replies to the same inbound message need distinct msg_seq; QQ rejects
+      // a repeated msg_id + msg_seq pair even when the body differs.
+      if (Number.isInteger(msgSeq)) body.msg_seq = msgSeq;
       return call("POST", target, body);
+    },
+
+    /**
+     * Acknowledge a button callback. This is not a message send: the client
+     * keeps a loading spinner until this PUT arrives, and the same interaction
+     * id can only be acknowledged once.
+     *
+     * @param {string} interactionId
+     * @param {number} [code] 0=success, 1=failed, 2=too frequent, 3=duplicate, 4=no permission
+     */
+    ackInteraction(interactionId, code = 0) {
+      if (!interactionId) throw new TypeError("qq ackInteraction needs an interaction id");
+      return call("PUT", `/interactions/${encodeURIComponent(interactionId)}`, { code: Number(code) || 0 });
     },
   };
 }

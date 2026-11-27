@@ -3,8 +3,14 @@
 // Node 注册表加载器（仿 tools/registry.js 的目录化注册）。
 //
 // 每个节点一个目录 core/loops/nodes/<node-id>/，含：
-//   registry.json  : { id, next, type: "core"|"builtin", hooks:{before:[],after:[],onError:[]}, entry }
+//   registry.json  : { id, next, type: "core"|"builtin", kind, hooks:{before:[],after:[],onError:[]}, entry }
 //   run.js         : module.exports = async function run(input, ctx) { return { output, next?, done? }; }
+//
+// kind 是节点在编排中的角色（三类）：
+//   entry 入口节点 — 作为 turn 起点，接收外部事件
+//   pipe  管道节点 — turn 内转场（默认）
+//   exit  出口节点 — turn 结束的输出
+// 缺省 kind 视为 pipe，兼容既有节点。
 //
 // builtin 节点（二级预定义，不在默认 next 链上）放在 core/loops/builtins/<node-id>/，
 // 同样含 registry.json + run.js，由 loadNodes 一并载入，type 标记为 "builtin"。
@@ -20,6 +26,8 @@ const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
 
 const NODES_DIR = path.join(__dirname, "nodes");
 const BUILTINS_DIR = path.join(__dirname, "builtins");
+
+const NODE_KINDS = Object.freeze(["entry", "pipe", "exit"]);
 
 async function loadFromDir(dir, typeOverride) {
   const out = [];
@@ -74,6 +82,11 @@ async function loadNodesAsync() {
       console.error("[loops] node '" + node.id + "' has no run() function; skipped");
       continue;
     }
+    if (node.kind == null) node.kind = "pipe";
+    if (!NODE_KINDS.includes(node.kind)) {
+      console.error("[loops] node '" + node.id + "' has invalid kind '" + node.kind + "'; skipped");
+      continue;
+    }
     map.set(node.id, node);
   }
   return map;
@@ -92,6 +105,6 @@ function loadNodes() {
 
 __nodesCache = await loadNodesAsync();
 
-const __exports = { loadNodes, loadNodesAsync, NODES_DIR, BUILTINS_DIR };
-export { loadNodes, loadNodesAsync, NODES_DIR, BUILTINS_DIR };
+const __exports = { loadNodes, loadNodesAsync, NODES_DIR, BUILTINS_DIR, NODE_KINDS };
+export { loadNodes, loadNodesAsync, NODES_DIR, BUILTINS_DIR, NODE_KINDS };
 export default __exports;

@@ -1,6 +1,6 @@
 "use strict";
 
-// user/loops.json: user-managed hook overlay for the node-graph engine.
+// agent/loops.json: the main agent's hook overlay for the node-graph engine.
 //
 // The file is a FLAT array of hook entries: [ { on, slot, target }, ... ].
 // Array order is execution order. Only hooks are stored; node definitions and
@@ -16,7 +16,7 @@ import { dirname as __pathDirname } from "node:path";
 const __dirname = __pathDirname(__fileURLToPath(import.meta.url));
 
 
-const LOOPS_FILE = path.join(__dirname, "..", "..", "user", "loops.json");
+const LOOPS_FILE = path.join(__dirname, "..", "..", "agent", "loops.json");
 
 // Repo default: keep node-graph behavior identical to the former
 // settings.translate.enabled gating (translate on by default). Builtin node

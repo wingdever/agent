@@ -25,6 +25,7 @@ const STATUS = Object.freeze(["stopped", "starting", "running", "stopping", "err
  * @param {() => number} [options.now]
  * @param {Function} [options.log]
  * @param {Function} [options.dedupeFactory]
+ * @param {(message: Object) => void} [options.publish] called for accepted inbound messages
  */
 export function createChannelManager({
   channels = [],
@@ -32,6 +33,7 @@ export function createChannelManager({
   now = Date.now,
   log = () => {},
   dedupeFactory = () => createDedupe(),
+  publish = null,
 } = {}) {
   /** @type {Map<string, Object>} */
   const entries = new Map();
@@ -52,6 +54,8 @@ export function createChannelManager({
       startedBy: null,
       deliveries: 0,
       turns: 0,
+      interactions: 0,
+      interactionDedupe: dedupeFactory(),
       pipeline: null,
       pending: null,
       stopRequested: false,
@@ -79,6 +83,8 @@ export function createChannelManager({
       startedAt: entry.startedAt,
       startedBy: entry.startedBy,
       deliveries: entry.deliveries,
+      turns: entry.turns,
+      interactions: entry.interactions,
       eventMode: caps.eventMode,
       streaming: caps.streaming === true,
     };
@@ -115,16 +121,48 @@ export function createChannelManager({
   /** The entry layer hands over how to run a turn; without it a start is meaningless. */
   function setSink(next) {
     if (!next || typeof next.runTurn !== "function") throw new TypeError("channel sink needs a runTurn function");
+    if (next.interact !== undefined && typeof next.interact !== "function") {
+      throw new TypeError("channel sink interact must be a function when provided");
+    }
     currentSink = next;
+  }
+
+  /**
+   * A button callback is not a message: it must never enter the turn queue.
+   * The driver has already acknowledged the platform; this only routes the
+   * decision back into the pending interaction.
+   */
+  function routeInteraction(entry, interaction) {
+    const eventId = interaction && (interaction.eventId || interaction.interactionId);
+    if (!eventId) {
+      log(`[channel:${entry.id}] dropped interaction without an id`);
+      return;
+    }
+    if (entry.interactionDedupe && !entry.interactionDedupe.claim(`interaction:${eventId}`)) {
+      log(`[channel:${entry.id}] dropped duplicate interaction ${eventId}`);
+      return;
+    }
+    entry.interactions++;
+    if (!currentSink || typeof currentSink.interact !== "function") {
+      log(`[channel:${entry.id}] no interaction sink; dropped ${eventId}`);
+      return;
+    }
+    Promise.resolve()
+      .then(() => currentSink.interact(interaction))
+      .catch((err) => {
+        log(`[channel:${entry.id}] interaction ${eventId} failed: ${(err && err.stack) || err}`);
+      });
   }
 
   function ensurePipeline(entry) {
     if (entry.pipeline) return entry.pipeline;
-    if (!currentSink) throw new Error(`channel "${entry.id}" cannot start before a sink is attached`);
+    // A sink is optional now: a standalone channel service only needs the
+    // pipeline for dedupe + publish, with no agent turn to run.
     entry.pipeline = createInboundPipeline({
       runTurn: (message, emit) => {
+        if (!currentSink) return Promise.resolve();
         entry.turns++;
-        return currentSink.runTurn(message, emit);
+        return currentSink.runTurn(message, emit, { channel: entry.channel });
       },
       project: (message, event) => entry.channel.project(message, event),
       dedupe: dedupeFactory(),
@@ -159,15 +197,26 @@ export function createChannelManager({
           throw refused;
         }
         const pipeline = ensurePipeline(entry);
-        await entry.channel.start((message) => {
-          entry.deliveries++;
-          // The pipeline acks synchronously by contract; a rejection here would
-          // mean an event was dropped after the platform already believed it landed.
-          const result = pipeline.handle(message);
-          if (result && result.accepted === false) {
-            log(`[channel:${entry.id}] dropped event ${message.eventId || "?"}: ${result.reason || "refused"}`);
-          }
-        });
+        await entry.channel.start(
+          (message) => {
+            entry.deliveries++;
+            // The pipeline acks synchronously by contract; a rejection here would
+            // mean an event was dropped after the platform already believed it landed.
+            const result = pipeline.handle(message);
+            if (result && result.accepted === false) {
+              log(`[channel:${entry.id}] dropped event ${message.eventId || "?"}: ${result.reason || "refused"}`);
+            } else if (typeof publish === "function") {
+              // Only accepted (non-duplicate) messages reach subscribers. A
+              // platform redelivery is deduped by the pipeline and never published.
+              // publish may be async (history write); don't await it here — the
+              // driver's ack must not wait on storage.
+              Promise.resolve()
+                .then(() => publish(message))
+                .catch((err) => log(`[channel:${entry.id}] publish failed: ${(err && err.message) || err}`));
+            }
+          },
+          (interaction) => routeInteraction(entry, interaction),
+        );
         if (entry.stopRequested) {
           await entry.channel.stop();
           entry.status = "stopped";
@@ -221,6 +270,7 @@ export function createChannelManager({
       entry.status = "stopped";
       entry.error = null;
       entry.pipeline = null; // a restart begins with an empty dedupe window
+      entry.interactionDedupe = dedupeFactory();
       entry.startedAt = 0;
       entry.startedBy = null;
       emit();

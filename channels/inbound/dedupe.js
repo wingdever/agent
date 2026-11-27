@@ -76,9 +76,15 @@ export function createDedupe({ capacity = 2000, ttlMs = 24 * 60 * 60 * 1000, now
   function persist() {
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify({ version: 1, entries: [...seen] }));
+      // Write to a sibling temp file then rename: a crash mid-write leaves
+      // either the old complete file or the new one, never a truncated file
+      // that load() would silently treat as an empty dedupe window.
+      const temp = file + ".tmp";
+      fs.writeFileSync(temp, JSON.stringify({ version: 1, entries: [...seen] }));
+      fs.renameSync(temp, file);
     } catch (_) {
-      // persistence is best effort; in-memory dedupe still holds for this run
+      // persistence is best effort; in-memory dedupe still holds for this run.
+      // A leftover .tmp is harmless — the next persist overwrites it.
     }
   }
 

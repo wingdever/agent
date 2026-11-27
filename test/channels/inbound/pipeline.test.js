@@ -57,6 +57,33 @@ test("handle returns before the turn finishes, so the platform can be acked", as
   assert.equal(finished, true);
 });
 
+test("an approval card is projected while the turn is still waiting for the answer", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const projected = [];
+
+  const pipeline = pipelineWith({
+    runTurn: async (_message, emit) => {
+      emit({ type: "approval-request", id: 1, name: "Bash" });
+      await gate;
+      emit({ type: "final", content: "done" });
+    },
+    project: async (_message, event) => {
+      projected.push(event.type);
+    },
+  });
+
+  pipeline.handle(message({ eventId: "live" }));
+  await sleep(20);
+  // The card must already be out: waiting for the turn to end would deadlock
+  // because the turn is waiting for the card's button.
+  assert.deepEqual(projected, ["approval-request"]);
+
+  release();
+  await pipeline.idle();
+  assert.deepEqual(projected, ["approval-request", "final"]);
+});
+
 test("two events in one conversation never run concurrently", async () => {
   let active = 0;
   let peak = 0;

@@ -10,6 +10,8 @@ import { createProxies } from "./proxies/registry.js";
 import { createChannels } from "./channels/registry.js";
 import { createChannelManager } from "./channels/manager.js";
 import { createSessionBinder } from "./channels/inbound/sessions.js";
+import { attach as attachChannelListen } from "./core/loops/builtins/channel-listen/run.js";
+import { stopAllListeners } from "./lib/channel-listen/index.js";
 import { PROJECT_ROOT } from "./lib/paths/index.js";
 import { profileFor, chatOptions } from "./lib/agent-profile/index.js";
 import { startTransport } from "./core/transport.js";
@@ -17,6 +19,7 @@ import { startTransport } from "./core/transport.js";
 const AGENT_UI = process.env.AGENT_UI || "electron";
 const TRANSPORT = process.env.AGENT_TRANSPORT || "http";
 const LOOP_ENGINE = process.env.AGENT_LOOP_ENGINE || "node-graph";
+const channelListeners = [];
 
 // UI 子项目注册表：将来新增 UI（如 web）在此登记即可，无需改协调逻辑。
 const UIS = {
@@ -50,9 +53,34 @@ app.whenReady()
     // Channels are built (and validated) here but started only on request: an
     // open connection tells an external platform this machine is online, and
     // that must never be a side effect of launching the app.
-    channels = createChannelManager({ channels: await createChannels(), log: (line) => console.log(line) });
+    const channelInstances = await createChannels();
+    channels = createChannelManager({ channels: channelInstances, log: (line) => console.log(line) });
     console.log(`[launcher] channels=${channels.list().length} configured, none started`);
     core = await createCore({ proxies, channels });
+
+    // When a standalone channel service is configured, subscribe to it. Each
+    // message it publishes opens a turn whose entry node is channel-listen.
+    // Without the endpoint, local channels keep using the sink below.
+    const channelEndpoint = process.env.CHANNEL_SERVICE_ENDPOINT || "";
+    if (channelEndpoint) {
+      for (const instance of channelInstances.filter((i) => i.type === "qq")) {
+        channelListeners.push(attachChannelListen(core, {
+          endpoint: channelEndpoint,
+          instanceId: instance.instanceId,
+          // SQLite WAL allows core to open the channel service's history file
+          // read-only across processes — no HTTP history endpoint needed.
+          historyFile: process.env.CHANNEL_HISTORY_DB ||
+            path.join(PROJECT_ROOT, "data", "channels", `history-${instance.instanceId}.db`),
+          archiveDir: process.env.CHANNEL_ARCHIVE_DIR ||
+            path.join(PROJECT_ROOT, "data", "archive", "qq"),
+          // Core-side eventId dedupe survives restarts so a replay after a
+          // process restart does not run the same turn twice.
+          dedupeFile: path.join(PROJECT_ROOT, "data", "channels", `core-dedupe-${instance.instanceId}.json`),
+          log: (line) => console.log(line),
+        }));
+      }
+      console.log(`[launcher] channel-listen attached to ${channelEndpoint}`);
+    }
     // A channel turn is an ordinary agent turn: the sink maps one inbound message
     // to one chat call, whose events the channel projects into cards.
     // The conversation key is a platform id, not a session id: the binder opens
@@ -63,17 +91,39 @@ app.whenReady()
       workspaceFolder: PROJECT_ROOT,
     });
     channels.setSink({
-      runTurn: async (message, emit) => {
+      runTurn: async (message, emit, context = {}) => {
         const sessionId = await sessions.resolve(message);
+        const capabilities = (context.channel && context.channel.capabilities) || {};
         return core.agent.chat(Object.assign({
           sessionId,
           messages: message.messages,
           onEvent: emit,
           inputSource: `channel:${message.type}:${message.instanceId}`,
-          // Nobody can answer an approval prompt from a chat platform, so an
-          // `ask` tool would hang the turn forever. Autonomous denies it.
-          autonomy: "autonomous",
+          // A channel that can render a button card may wait for a click.
+          // Platforms without that affordance would otherwise hang an `ask`
+          // tool forever, so they stay autonomous and auto-deny.
+          autonomy: capabilities.canPromptUser === true ? "supervised" : "autonomous",
         }, chatOptions(profileFor(message.instanceId))));
+      },
+      interact: async (interaction) => {
+        const id = Number(interaction && interaction.id);
+        if (!Number.isInteger(id) || id <= 0) throw new Error("interaction id is missing");
+        const kind = interaction.kind;
+        let accepted = false;
+        if (kind === "approval") {
+          accepted = core.interactions.approve(id, interaction.decision === "approve" ? "approve" : "deny");
+        } else if (kind === "question") {
+          accepted = core.interactions.answerQuestions(id, interaction.answers || []);
+        } else if (kind === "plan-review") {
+          accepted = core.interactions.answerPlanReview(id, {
+            approved: interaction.approved === true,
+            feedback: interaction.feedback || "",
+          });
+        } else {
+          throw new Error(`unknown interaction kind "${kind}"`);
+        }
+        if (!accepted) throw new Error(`interaction ${kind}:${id} is no longer pending`);
+        return { accepted };
       },
     });
     // A paused turn only survives a restart through its snapshot
@@ -118,6 +168,8 @@ app.on("before-quit", async () => {
     }
   }
   if (channels) await channels.stopAll();
+  for (const listener of channelListeners) { if (listener && listener.closeHistory) listener.closeHistory(); }
+  stopAllListeners();
   if (core && core.browser) await core.browser.stop();
   if (core && core.lsp) await core.lsp.disposeAll();
   if (core && core.mcp) core.mcp.close();

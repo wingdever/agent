@@ -93,9 +93,20 @@ export function createInboundPipeline({
   }
 
   async function runOne(message) {
-    /** @type {Object[]} */
-    const events = [];
-    const emit = (event) => events.push(event);
+    // Projection runs live, not after the turn: an approval card must reach the
+    // user while the turn is suspended waiting for the click. A serial queue
+    // preserves event order for projectors that patch one message in place.
+    let projection = Promise.resolve();
+    const projectEvent = (event) => {
+      projection = projection
+        .then(() => project(message, event))
+        .catch((err) => {
+          stats.failures++;
+          if (onError) onError(err, message);
+        });
+    };
+    const emit = (event) => projectEvent(event);
+
     try {
       stats.turns++;
       await runTurn(message, emit);
@@ -105,16 +116,9 @@ export function createInboundPipeline({
       if (onError) onError(err, message);
       // A failed turn still projects its terminal error event: silence would
       // leave the user staring at "typing..." forever.
-      events.push({ type: "error", kind, message: String((err && err.message) || err) });
+      projectEvent({ type: "error", kind, message: String((err && err.message) || err) });
     }
-    for (const event of events) {
-      try {
-        await project(message, event);
-      } catch (err) {
-        stats.failures++;
-        if (onError) onError(err, message);
-      }
-    }
+    await projection;
   }
 
   function maybeResolve() {

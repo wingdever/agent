@@ -68,8 +68,12 @@ async function harness({ onRequest = null } = {}) {
     readGoalConfig: () => ({ defaultMaxGoalRounds: 256 }),
   };
   const context = new ContextService({ config, model, tools, skills: null, store });
-  const agent = new AgentRuntime({ config, model, context, tools, skills: null, interactions: null, store });
-  const core = { config, model, context, tools, skills: null, interactions: null, store, goals: null, agent, snapshots: null };
+  // A tool call in this fixture hits the real approval gate. The test is about
+  // pause/resume, not permission UI, so give it an approvals stub instead of
+  // leaving `interactions` null (which the gate would dereference).
+  const interactions = { requestApproval: async () => "approve" };
+  const agent = new AgentRuntime({ config, model, context, tools, skills: null, interactions, store });
+  const core = { config, model, context, tools, skills: null, interactions, store, goals: null, agent, snapshots: null };
   agent.setCore(core);
   context.setRuntime(agent);
   core.snapshots = createSnapshotService({ store, dir: path.join(dir, "snapshots"), logger: quiet() });
