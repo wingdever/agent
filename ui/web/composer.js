@@ -25,6 +25,28 @@
   App.getSettings = getSettings;
   App.saveSettings = saveSettings;
 
+  // ---------- 智能预设选择（新建会话时调用） ----------
+  App.openAgentPicker = function openAgentPicker(callback) {
+    var agents = [];
+    window.AgentClient.call("agent.list", {}).then(function (list) {
+      agents = (list && list.agents) || [];
+      var options = [{ value: "", label: "主智能（默认）" }];
+      agents.forEach(function (agent) {
+        options.push({ value: agent.id, label: agent.name || agent.id });
+      });
+      return App.uiSelect("选择智能预设", options, "");
+    }).then(function (id) {
+      var chosen = null;
+      for (var i = 0; i < agents.length; i += 1) {
+        if (agents[i].id === id) { chosen = agents[i]; break; }
+      }
+      callback(id ? { id: id, name: (chosen && chosen.name) || id } : null);
+    }).catch(function (err) {
+      App.reportError("加载智能预设失败", err);
+      callback(null);
+    });
+  };
+
   // ---------- 权限预设映射（grill Q2） ----------
   //  read-only        : mode=read 的工具 allow，mode=write / both 的 deny
   //  workspace-write  : mode=read / both 的工具 allow，mode=write 的 deny（写路径由 fs-policy 限制）
@@ -423,7 +445,8 @@
     App.addAgentRequest(text);
     try {
       var refs = App.pendingRefs.slice();
-      await window.AgentClient.call("chat.send", { messages: [{ role: "user", content: text }], sessionId: App.currentSessionId, autonomy: App.getAutonomyMode(), activity: App.getActivityMode(), references: refs, effort: App.computeEffort(), model: (App.modelSelector && App.modelSelector.value ? App.modelSelector.value : undefined) }, App.onChatEvent);
+      var preset = App.getSessionAgent ? App.getSessionAgent(App.currentSessionId) : null;
+      await window.AgentClient.call("chat.send", { messages: [{ role: "user", content: text }], sessionId: App.currentSessionId, autonomy: App.getAutonomyMode(), activity: App.getActivityMode(), references: refs, effort: App.computeEffort(), model: (App.modelSelector && App.modelSelector.value ? App.modelSelector.value : undefined), agentId: preset ? preset.id : undefined }, App.onChatEvent);
       App.pendingRefs = []; App.renderRefChips();
     } catch (e) {
       console.error("chat failed:", e);

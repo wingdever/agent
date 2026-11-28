@@ -458,8 +458,7 @@
 
   function syncDirtyBadge() {
     if (!window.App || !window.App.setViewDirty) return;
-    var dirty = !!state.dirty || !!(state.flow && state.flow.id == null);
-    window.App.setViewDirty("flow", dirty);
+    window.App.setViewDirty("flow", !!state.dirty);
   }
 
   function renderAll() {
@@ -480,12 +479,22 @@
     state.flow = { id: null, name: "新流程图", description: "", definition: emptyDefinition() };
     state.selected = null;
     state.run = null;
+    state.dirty = false;
     renderAll();
   }
 
   async function openFlow(id) {
     var row = await api("flow.get", { id: id });
-    if (!row) return;
+    if (!row) {
+      // 载入失败时占位对象不应留下脏标记；已有图的未保存编辑保持不动。
+      if (state.flow && state.flow.id == null) {
+        state.dirty = false;
+        syncDirtyBadge();
+      }
+      state.statusText = "流程图不存在或已被删除";
+      renderStatus();
+      return;
+    }
     state.flow = {
       id: row.id,
       name: row.name,

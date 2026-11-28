@@ -57,6 +57,11 @@
     App.setLabels(el, App.isBare() ? "模式: bare-chat" : "模式: turn-step", App.isBare() ? "bare" : "step");
     el.setAttribute("data-mode", mode);
     el.setAttribute("title", "bare-chat：不落库、无工具、纯内存历史、每轮仅 1 step；turn-step：选会话、落库、支持工具调用与多 step 循环。");
+    var agentEl = document.getElementById("sessionAgentIndicator");
+    if (agentEl) {
+      var preset = App.getSessionAgent ? App.getSessionAgent(App.currentSessionId) : null;
+      App.setLabels(agentEl, "预设: " + (preset ? preset.name : "主智能"), preset ? preset.name : "主档");
+    }
   };
 
   App.switchActivity = function switchActivity(target) {

@@ -20,7 +20,7 @@ section 按 `order` 升序拼接，同 order 按 name 排序；空文本段落�
 
 | section | order | 来源 |
 |---|---|---|
-| `harness:identity` | -1000 | 主档 `agent/config.json` 的 `identity`，缺省 `You are an AI agent powered by DeepSeek Harness.` |
+| `harness:identity` | -1000 | 当前会话的 `ctx.identity`：带 `agentId` 的会话取该预设的 `identity`，否则取主档 `agent/config.json` 的 `identity`；缺省 `You are an AI agent powered by DeepSeek Harness.` |
 | `deployment:persona` | 0 | 主档 `agent/config.json` 的 `persona`，缺省空（不渲染） |
 | `translation:language` | 500 | 仅 `translate.enabled` 时由翻译模块注入 `core/translation.js` 的 `LANGUAGE_POLICY`；关闭时不渲染 |
 | `tool:<name>` | 1000+ | 工具 `registry.json` 的 `prompt` 字段；顺序用 DSH 固定表（bash 1000、read 1100、write 1200、edit 1300、glob 1400、grep 1500、goal 2400…）。`promptSection` 可让多个工具共享一段（goal 三件套） |
@@ -47,7 +47,7 @@ Platform: linux (x64).
 ```
 
 ### 配置
-主档 `agent/config.json` 可写 `identity` / `persona`，例如：
+主档 `agent/config.json` 可写 `identity` / `persona`，bot 预设 `agents/<id>/config.json` 同样可写这两个字段（含独立的 `prompt` 文件）。带 `agentId` 的会话用预设的 identity/persona，未绑定的会话用主档。例如：
 
 ```json
 { "identity": "You are a coding agent.", "persona": "You are powered by the {{model}} model." }

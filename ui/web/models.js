@@ -148,25 +148,20 @@
 
     var nameLabel = el("span", { className: "provider-name-label", dataset: { name: "provider-name-label" } }, p.name || ("供应者 " + p.id));
 
-    var renameBtn = el("button", {
-      className: "provider-rename-btn", dataset: { name: "provider-rename-btn" },
-      onclick: function (e) { e.stopPropagation(); startInlineRename(nameLabel, p.name, function (v) { doUpdateProvider(p.id, { name: v }); }); },
-    }, "改名");
-
-    var delBtn = el("button", {
-      className: "provider-delete-btn", dataset: { name: "provider-delete-btn" },
-      onclick: function (e) { e.stopPropagation(); deleteProvider(p.id); },
-    }, "删除");
-
     var addModelBtn = el("button", {
       className: "add-model-btn", dataset: { name: "add-model-btn" },
       onclick: function (e) { e.stopPropagation(); state.view = { kind: "model-add", providerId: p.id }; state.expanded[p.id] = true; refresh(); },
     }, "+ 模型");
 
+    var moreBtn = App.buildRowMenu([
+      { label: "改名", onClick: function () { startInlineRename(nameLabel, p.name, function (v) { doUpdateProvider(p.id, { name: v }); }); } },
+      { label: "删除", danger: true, onClick: function () { deleteProvider(p.id); } },
+    ]);
+
     var header = el("div", {
       className: "provider-header" + (selected ? " selected" : ""), dataset: { name: "provider-header" },
       onclick: function () { state.view = { kind: "provider-edit", id: p.id }; refresh(); },
-    }, [toggle, nameLabel, renameBtn, addModelBtn, delBtn]);
+    }, [toggle, nameLabel, addModelBtn, moreBtn]);
 
     var node = el("div", { className: "provider" + (selected ? " selected" : ""), dataset: { name: "provider" } }, [header]);
 
@@ -176,18 +171,14 @@
         var mSel = state.view && state.view.kind === "model-edit" && String(state.view.id) === String(m.id);
         var mName = el("span", { className: "model-name-label", dataset: { name: "model-name-label" } }, m.name || ("模型 " + m.id));
         var fee = el("span", { className: "model-fee-badge fee-" + (m.fee || "free"), dataset: { name: "model-fee-badge" } }, m.fee || "free");
-        var mRename = el("button", {
-          className: "model-rename-btn", dataset: { name: "model-rename-btn" },
-          onclick: function (e) { e.stopPropagation(); startInlineRename(mName, m.name, function (v) { doUpdateModel(m.id, { name: v }); }); },
-        }, "改名");
-        var mDel = el("button", {
-          className: "model-delete-btn", dataset: { name: "model-delete-btn" },
-          onclick: function (e) { e.stopPropagation(); deleteModel(m.id); },
-        }, "删除");
+        var mMore = App.buildRowMenu([
+          { label: "改名", onClick: function () { startInlineRename(mName, m.name, function (v) { doUpdateModel(m.id, { name: v }); }); } },
+          { label: "删除", danger: true, onClick: function () { deleteModel(m.id); } },
+        ]);
         var mNode = el("div", {
           className: "model" + (mSel ? " selected" : ""), dataset: { name: "model" },
           onclick: function () { state.view = { kind: "model-edit", id: m.id }; refresh(); },
-        }, [mName, fee, mRename, mDel]);
+        }, [mName, fee, mMore]);
         modelWrap.appendChild(mNode);
       });
       if (!itsModels.length) modelWrap.appendChild(el("div", { className: "model-empty" }, "暂无模型"));

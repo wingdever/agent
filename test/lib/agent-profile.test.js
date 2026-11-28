@@ -56,7 +56,7 @@ function agentFixture() {
   const agentDir = path.join(dir, "agents", "wingbot");
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "config.json"), JSON.stringify({
-    identity: "wingbot", model: "gpt-x", effort: "high", persona: "from config",
+    identity: "You are wingbot.", model: "gpt-x", effort: "high", persona: "from config",
   }));
   fs.writeFileSync(path.join(agentDir, "loops.json"), JSON.stringify([
     { on: "model-call", slot: "after", target: "builtin.channel-send" },
@@ -113,7 +113,8 @@ test("chatOptions accepts both flat and full agent profiles", () => {
   try {
     const full = loadAgentProfile("wingbot", { agentsDir: path.join(fx.dir, "agents") });
     assert.deepEqual(chatOptions(full), {
-      persona: "from config", model: "gpt-x", effort: "high", toolNames: ["bash", "read"],
+      identity: "You are wingbot.",
+      persona: "from config\n\nYou are a QQ bot.", model: "gpt-x", effort: "high", toolNames: ["bash", "read"],
     });
     assert.deepEqual(chatOptions({ persona: "flat", model: "m", tools: ["x"] }), {
       persona: "flat", model: "m", toolNames: ["x"],

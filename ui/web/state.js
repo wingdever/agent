@@ -123,6 +123,17 @@
         msg.className = "modal-message";
         msg.textContent = opts.message || "";
         box.appendChild(msg);
+      } else if (opts.kind === "select") {
+        input = document.createElement("select");
+        input.className = "modal-input";
+        (opts.options || []).forEach(function (option) {
+          var node = document.createElement("option");
+          node.value = option.value;
+          node.textContent = option.label;
+          input.appendChild(node);
+        });
+        input.value = opts.defaultValue || "";
+        box.appendChild(input);
       } else {
         input = document.createElement("input");
         input.className = "modal-input";
@@ -162,6 +173,7 @@
       function submit() {
         if (opts.kind === "alert") { close(); return; }
         if (opts.kind === "confirm") { close(true); return; }
+        if (opts.kind === "select") { close(input.value); return; }
         var v = input.value.trim();
         if (!v) {
           errEl.textContent = opts.emptyError || "请输入内容";
@@ -179,7 +191,8 @@
           if (e.key === "Enter") { e.preventDefault(); submit(); }
           else if (e.key === "Escape") { e.preventDefault(); close(opts.kind === "confirm" ? false : null); }
         });
-        setTimeout(function () { input.focus(); input.select(); }, 0);
+        // HTMLSelectElement has no select(); only text inputs/textarea do.
+        setTimeout(function () { input.focus(); if (typeof input.select === "function") input.select(); }, 0);
       } else {
         setTimeout(function () { okBtn.focus(); }, 0);
       }
@@ -230,10 +243,73 @@
   App.uiAlert = function uiAlert(message) {
     return App.showModal({ kind: "alert", title: "提示", message: message, okText: "确定" });
   };
+  App.uiSelect = function uiSelect(title, options, defaultValue) {
+    return App.showModal({ kind: "select", title: title, options: options || [], defaultValue: defaultValue || "" });
+  };
+
+  // 会话创建时选中的智能预设：仅前端按 sessionId 记忆。系统提示在会话首轮
+  // 装配后缓存，所以预设不提供会话中途切换。
+  var SESSION_AGENTS_KEY = "agent.sessionAgents";
+  App.sessionAgents = (function () {
+    try { return JSON.parse(localStorage.getItem(SESSION_AGENTS_KEY)) || {}; } catch (e) { return {}; }
+  })();
+  App.setSessionAgent = function setSessionAgent(sessionId, id, name) {
+    if (sessionId == null) return;
+    App.sessionAgents[String(sessionId)] = id ? { id: id, name: name || id } : null;
+    try { localStorage.setItem(SESSION_AGENTS_KEY, JSON.stringify(App.sessionAgents)); } catch (e) { /* storage disabled */ }
+    if (App.renderSessionModeIndicator) App.renderSessionModeIndicator();
+  };
+  App.getSessionAgent = function getSessionAgent(sessionId) {
+    if (sessionId == null) return null;
+    var value = App.sessionAgents[String(sessionId)];
+    return value && value.id ? value : null;
+  };
   // 暴露给 settings.js 等后续模块复用（替代原生 prompt/confirm/alert）。
   window.uiPrompt = App.uiPrompt;
   window.uiConfirm = App.uiConfirm;
   window.uiAlert = App.uiAlert;
+
+  // 行内「⋯」菜单：主操作留在行上，次要操作（改名/删除）收进菜单。
+  // 菜单单例：同一时刻只允许一个打开，点空白处或再次点按钮即关闭。
+  var openRowMenuEl = null;
+  function closeRowMenu() {
+    if (openRowMenuEl && openRowMenuEl.parentNode) openRowMenuEl.parentNode.removeChild(openRowMenuEl);
+    openRowMenuEl = null;
+    document.removeEventListener("click", onDocClickRowMenu, true);
+  }
+  function onDocClickRowMenu(ev) {
+    if (openRowMenuEl && !openRowMenuEl.contains(ev.target)) closeRowMenu();
+  }
+  // items: [{ label, onClick, danger? }] —— 返回 ⋯ 按钮，调用方挂进行节点。
+  App.buildRowMenu = function buildRowMenu(items) {
+    var btn = document.createElement("button");
+    btn.className = "row-menu-btn";
+    btn.setAttribute("data-name", "row-menu-btn");
+    btn.title = "更多操作";
+    btn.textContent = "⋯";
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation(); // 不触发行点击（选中）
+      if (openRowMenuEl) { closeRowMenu(); return; }
+      var menu = document.createElement("div");
+      menu.className = "row-menu";
+      menu.setAttribute("data-name", "row-menu");
+      items.forEach(function (item) {
+        var b = document.createElement("button");
+        b.className = "row-menu-item" + (item.danger ? " danger" : "");
+        b.textContent = item.label;
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          closeRowMenu();
+          item.onClick();
+        });
+        menu.appendChild(b);
+      });
+      btn.parentNode.appendChild(menu);
+      openRowMenuEl = menu;
+      document.addEventListener("click", onDocClickRowMenu, true);
+    });
+    return btn;
+  };
 
   // 创建带 data-name 的 div
   App.makeEl = function makeEl(name, cls) {
@@ -285,6 +361,7 @@
       else header.removeAttribute("data-compact");
     }
     App.applyLabel(document.getElementById("sessionModeIndicator"));
+    App.applyLabel(document.getElementById("sessionAgentIndicator"));
     App.applyLabel(document.getElementById("activityIndicator"));
     App.applyLabel(document.getElementById("presenceSwitch"));
     App.applyLabel(document.getElementById("autonomySwitch"));

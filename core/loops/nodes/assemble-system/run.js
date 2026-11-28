@@ -20,7 +20,10 @@ export default async function run(input, ctx) {
       ? (await services.skills.list({ cwd: ctx.cwd })).filter((s) => isModelInvocable(s))
       : [];
     const assembled = services.context.assembleSystem({
-      identity: settings.identity,
+      // 带 agentId 的会话由预设提供第一段身份；缺省时回退主档/全局 identity。
+      identity: typeof ctx.identity === "string" && ctx.identity.trim()
+        ? ctx.identity
+        : settings.identity,
       persona: typeof ctx.persona === "string"
         ? ctx.persona
         : (typeof settings.persona === "string" ? settings.persona : ""),

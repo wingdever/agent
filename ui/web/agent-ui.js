@@ -18,7 +18,15 @@
       return;
     }
 
-    var state = { main: {}, agents: [], providers: [], selectedId: "main", loaded: false };
+    var state = {
+      main: {}, agents: [], providers: [], toolNames: [], coreNodes: [], allNodes: [],
+      mainHooks: [], builtins: [], engine: {},
+      selectedId: "main", tab: "config", loaded: false,
+    };
+    var DEFAULT_HOOKS = [
+      { on: "assemble-input", slot: "before", target: "builtin.translate-input" },
+      { on: "model-call", slot: "after", target: "builtin.translate-output" },
+    ];
 
     function el(tag, cls, text, name) {
       var node = document.createElement(tag);
@@ -48,10 +56,22 @@
       Promise.all([
         window.AgentClient.call("agent.list", {}).catch(function () { return { main: {}, agents: [] }; }),
         window.AgentClient.call("config.providers.get", {}).catch(function () { return []; }),
+        window.AgentClient.call("tools.list", {}).catch(function () { return []; }),
+        window.AgentClient.call("loops.get", {}).catch(function () { return { nodes: [] }; }),
       ]).then(function (results) {
         state.main = (results[0] && results[0].main) || {};
         state.agents = (results[0] && results[0].agents) || [];
         state.providers = results[1] || [];
+        state.toolNames = (results[2] || []).map(function (tool) { return tool.name; }).filter(Boolean);
+        var loopsData = results[3] || {};
+        var nodes = loopsData.nodes || [];
+        state.coreNodes = nodes.filter(function (node) { return node.type !== "builtin"; }).map(function (node) { return node.id; });
+        state.allNodes = nodes.map(function (node) { return node.id; });
+        state.builtins = loopsData.builtins || [];
+        state.engine = loopsData;
+        state.mainHooks = (Array.isArray(loopsData.hooks) ? loopsData.hooks : []).map(function (hook) {
+          return { on: hook.on, slot: hook.slot, target: hook.target };
+        });
         state.loaded = true;
         var found = state.selectedId === "main" || state.agents.some(function (a) { return a.id === state.selectedId; });
         if (!found) state.selectedId = "main";
@@ -108,6 +128,33 @@
       var title = el("div", "agents-editor-title", isNew ? "新建代理" : (isMain ? "主智能（默认）" : "编辑代理"), "agents-editor-title");
       editorEl.appendChild(title);
 
+      var tabBar = el("div", "agents-tabs", null, "agents-tabs");
+      var configTabBtn = el("button", "agents-tab", "配置", "agents-tab-config");
+      var promptTabBtn = el("button", "agents-tab", "提示词", "agents-tab-prompt");
+      var graphTabBtn = el("button", "agents-tab", "流程图", "agents-tab-graph");
+      configTabBtn.type = "button";
+      promptTabBtn.type = "button";
+      graphTabBtn.type = "button";
+      var configPanel = el("div", "agents-panel", null, "agents-config-panel");
+      var promptPanel = el("div", "agents-panel", null, "agents-prompt-panel");
+      var graphPanel = el("div", "agents-panel", null, "agents-graph-panel");
+      function switchTab(tab) {
+        state.tab = tab;
+        configTabBtn.classList.toggle("active", tab === "config");
+        promptTabBtn.classList.toggle("active", tab === "prompt");
+        graphTabBtn.classList.toggle("active", tab === "flow");
+        configPanel.hidden = tab !== "config";
+        promptPanel.hidden = tab !== "prompt";
+        graphPanel.hidden = tab !== "flow";
+      }
+      configTabBtn.addEventListener("click", function () { switchTab("config"); });
+      promptTabBtn.addEventListener("click", function () { switchTab("prompt"); });
+      graphTabBtn.addEventListener("click", function () { switchTab("flow"); });
+      tabBar.appendChild(configTabBtn);
+      tabBar.appendChild(promptTabBtn);
+      tabBar.appendChild(graphTabBtn);
+      editorEl.appendChild(tabBar);
+
       var idInput = input("input", "agent-id-input", "agents-input", isMain ? "" : (agent && agent.id));
       idInput.placeholder = "小写字母/数字/短横线，如 support-bot";
       idInput.disabled = !isNew;
@@ -139,25 +186,144 @@
         effortInput.appendChild(option);
       });
       var toolsInput = input("textarea", "agent-tools-input", "agents-textarea", agent && Array.isArray(agent.tools) ? agent.tools.join("\n") : "");
-      toolsInput.placeholder = "每行一个工具名，留空表示全部工具";
+      toolsInput.placeholder = isMain
+        ? "每行一个工具名，留空表示全部工具"
+        : "每行一个工具名，留空表示无工具（bot 预设不继承主档工具）";
       toolsInput.rows = 6;
+      var promptInput = input("textarea", "agent-prompt-input", "agents-textarea", agent && agent.prompt);
+      promptInput.placeholder = "bot 预设的系统提示正文：角色、边界、输出格式";
+      promptInput.rows = 10;
 
-      var fields = [
+      var hooksBox = el("div", "agents-hooks", null, "agents-hooks");
+      var topologyHost = el("div", null, null, "agents-topology");
+      function selectedHooks() {
+        if (isMain) return state.mainHooks;
+        return agent && Array.isArray(agent.loops) ? agent.loops : [];
+      }
+      function collectHooks() {
+        var hooks = [];
+        Array.prototype.forEach.call(hooksBox.querySelectorAll("[data-name='agents-hook-row']"), function (row) {
+          var on = row.querySelector("[data-name='hook-on']").value;
+          var slot = row.querySelector("[data-name='hook-slot']").value;
+          var target = row.querySelector("[data-name='hook-target']").value;
+          if (on && slot && target) hooks.push({ on: on, slot: slot, target: target });
+        });
+        return hooks;
+      }
+      function refreshTopology() {
+        var hooks = collectHooks();
+        if (App.renderLoopTopology) {
+          App.renderLoopTopology(topologyHost, hooks, { builtins: state.builtins, engine: state.engine });
+        }
+      }
+      function fillSelect(select, ids, current) {
+        ids.forEach(function (id) {
+          var option = el("option", null, id, null);
+          option.value = id;
+          if (id === current) option.selected = true;
+          select.appendChild(option);
+        });
+        if (current && ids.indexOf(current) < 0) {
+          var stale = el("option", null, current + "（已失效）", null);
+          stale.value = current;
+          stale.selected = true;
+          select.appendChild(stale);
+        }
+      }
+      function addHookRow(hook) {
+        var row = el("div", "agents-hook-row", null, "agents-hook-row");
+        var onSel = el("select", "agents-select", null, "hook-on");
+        fillSelect(onSel, state.coreNodes, hook && hook.on);
+        var slotSel = el("select", "agents-select", null, "hook-slot");
+        ["before", "after", "onError"].forEach(function (value) {
+          var option = el("option", null, value, null);
+          option.value = value;
+          if (value === (hook && hook.slot)) option.selected = true;
+          slotSel.appendChild(option);
+        });
+        var targetSel = el("select", "agents-select", null, "hook-target");
+        fillSelect(targetSel, state.allNodes, hook && hook.target);
+        var remove = el("button", "agents-hook-remove", "移除", "agents-hook-remove");
+        remove.type = "button";
+        remove.addEventListener("click", function () { row.parentNode.removeChild(row); refreshTopology(); });
+        [onSel, slotSel, targetSel].forEach(function (select) {
+          select.addEventListener("change", refreshTopology);
+        });
+        row.appendChild(onSel);
+        row.appendChild(slotSel);
+        row.appendChild(targetSel);
+        row.appendChild(remove);
+        hooksBox.appendChild(row);
+        refreshTopology();
+      }
+      selectedHooks().forEach(addHookRow);
+      var addHook = el("button", "agents-hook-add", "+ 添加钩子", "agents-hook-add");
+      addHook.type = "button";
+      addHook.addEventListener("click", function () {
+        addHookRow({ on: state.coreNodes[0], slot: "after", target: state.allNodes[0] });
+      });
+      hooksBox.appendChild(addHook);
+      refreshTopology();
+
+      var configFields = [
         ["名称", nameInput],
-        ["identity", identityInput],
-        ["persona", personaInput],
         ["provider", providerInput],
         ["模型", modelInput],
         ["推理等级", effortInput],
         ["工具白名单", toolsInput],
       ];
-      if (!isMain) fields.unshift(["id", idInput]);
-      fields.forEach(function (pair) {
+      if (!isMain) configFields.unshift(["id", idInput]);
+      var promptFields = [
+        ["identity", identityInput],
+        ["persona", personaInput],
+      ];
+      if (!isMain) promptFields.push(["prompt（bot 预设）", promptInput]);
+      var toolsHint = el("div", "agents-hint", "可用工具名：" + (state.toolNames.join("、") || "（无）"), "agents-tools-hint");
+      configFields.forEach(function (pair) {
         var row = el("div", "agents-field", null, "agents-field");
         row.appendChild(el("span", "agents-field-label", pair[0], "agents-field-label"));
         row.appendChild(pair[1]);
-        editorEl.appendChild(row);
+        configPanel.appendChild(row);
+        if (pair[1] === toolsInput && !isMain) configPanel.appendChild(toolsHint);
       });
+      promptFields.forEach(function (pair) {
+        var row = el("div", "agents-field", null, "agents-field");
+        row.appendChild(el("span", "agents-field-label", pair[0], "agents-field-label"));
+        row.appendChild(pair[1]);
+        promptPanel.appendChild(row);
+      });
+      promptPanel.appendChild(el("div", "agents-hint",
+        isMain
+          ? "identity 与 persona 注入系统提示；主档是全局默认。"
+          : "identity 作为该预设的系统提示第一段；persona 与 prompt 会拼接后注入。",
+        "agents-prompt-hint"));
+
+      var topologyRow = el("div", "agents-field", null, "agents-field");
+      topologyRow.appendChild(el("span", "agents-field-label", "节点流图（当前档）", "agents-field-label"));
+      topologyRow.appendChild(topologyHost);
+      graphPanel.appendChild(topologyRow);
+      var hookRow = el("div", "agents-field", null, "agents-field");
+      hookRow.appendChild(el("span", "agents-field-label", "loops 钩子（on / slot / target）", "agents-field-label"));
+      hookRow.appendChild(hooksBox);
+      graphPanel.appendChild(hookRow);
+      if (isMain) {
+        var resetHooks = el("button", "agents-hook-add", "恢复默认 hooks", "agents-reset-hooks");
+        resetHooks.type = "button";
+        resetHooks.addEventListener("click", function () {
+          App.uiConfirm("恢复主档默认的两个翻译 hook？当前编辑将被替换。").then(function (ok) {
+            if (!ok) return;
+            return window.AgentClient.call("loops.upsert", { payload: { hooks: DEFAULT_HOOKS } })
+              .then(load)
+              .catch(function (err) { App.reportError("恢复默认失败", err); });
+          });
+        });
+        hookRow.appendChild(resetHooks);
+      }
+
+      editorEl.appendChild(configPanel);
+      editorEl.appendChild(promptPanel);
+      editorEl.appendChild(graphPanel);
+      switchTab(state.tab);
 
       var actions = el("div", "agents-actions", null, "agents-actions");
       var save = el("button", "agents-save-btn", "保存", "agents-save-btn");
@@ -172,10 +338,22 @@
           effort: effortInput.value,
           tools: toolsInput.value.split("\n").map(function (s) { return s.trim(); }).filter(Boolean),
         };
-        if (!isMain) payload.id = isNew ? idInput.value.trim() : agent.id;
-        window.AgentClient.call("agent.upsert", { payload: payload }).then(function (saved) {
-          if (App.toast) App.toast("已保存 " + (saved.name || (isMain ? "主智能" : saved.id)));
-          state.selectedId = saved.id;
+        var hooks = collectHooks();
+        var request;
+        if (isMain) {
+          // 主档的 hooks 存在 agent/loops.json，由 loops.upsert 写；config 仍走 agent.upsert。
+          request = window.AgentClient.call("agent.upsert", { payload: payload }).then(function (saved) {
+            return window.AgentClient.call("loops.upsert", { payload: { hooks: hooks } }).then(function () { return saved; });
+          });
+        } else {
+          payload.id = isNew ? idInput.value.trim() : agent.id;
+          payload.prompt = promptInput.value;
+          payload.loops = hooks;
+          request = window.AgentClient.call("agent.upsert", { payload: payload });
+        }
+        request.then(function (saved) {
+          if (App.toast) App.toast("已保存 " + ((isMain && "主智能") || saved.name || saved.id));
+          state.selectedId = isMain ? "main" : saved.id;
           load();
         }).catch(function (err) {
           if (App.reportError) App.reportError("保存配置档失败", err);
@@ -199,7 +377,7 @@
         actions.appendChild(remove);
       }
       editorEl.appendChild(actions);
-      editorEl.appendChild(el("div", "agents-hint", "主档存 agent/config.json，其它代理存 agents/<id>/config.json。只在新的平台会话生效；已有会话继续使用原有 system prompt。", "agents-hint"));
+      editorEl.appendChild(el("div", "agents-hint", "主档存 agent/config.json 与 agent/loops.json；其它代理存 agents/<id>/{config.json,prompt,tools.json,loops.json}。配置只在新的平台会话生效，已有会话继续使用原有 system prompt。", "agents-hint"));
     }
 
     function render() {

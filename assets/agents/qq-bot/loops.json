@@ -1,15 +1,5 @@
 [
   {
-    "on": "assemble-input",
-    "slot": "before",
-    "target": "builtin.translate-input"
-  },
-  {
-    "on": "model-call",
-    "slot": "after",
-    "target": "builtin.translate-output"
-  },
-  {
     "on": "model-call",
     "slot": "after",
     "target": "channel-send"

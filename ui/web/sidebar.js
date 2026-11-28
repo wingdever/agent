@@ -100,46 +100,8 @@
     container.appendChild(node);
   }
 
-  // 行内「⋯」菜单：主操作（新建会话 / 选中会话）留在行上，次要操作（重命名、删除）收进这里。
-  // items: [{ label, onClick, danger? }]
-  var openMenuEl = null;
-  function closeRowMenu() {
-    if (openMenuEl && openMenuEl.parentNode) openMenuEl.parentNode.removeChild(openMenuEl);
-    openMenuEl = null;
-    document.removeEventListener("click", onDocClickMenu, true);
-  }
-  function onDocClickMenu(ev) {
-    if (openMenuEl && !openMenuEl.contains(ev.target)) closeRowMenu();
-  }
-  function buildRowMenu(items) {
-    var btn = document.createElement("button");
-    btn.className = "row-menu-btn";
-    btn.setAttribute("data-name", "row-menu-btn");
-    btn.title = "更多操作";
-    btn.textContent = "⋯";
-    btn.addEventListener("click", function (ev) {
-      ev.stopPropagation(); // 不要触发行点击（选中会话）
-      if (openMenuEl) { closeRowMenu(); return; }
-      var menu = document.createElement("div");
-      menu.className = "row-menu";
-      menu.setAttribute("data-name", "row-menu");
-      items.forEach(function (item) {
-        var b = document.createElement("button");
-        b.className = "row-menu-item" + (item.danger ? " danger" : "");
-        b.textContent = item.label;
-        b.addEventListener("click", function (e) {
-          e.stopPropagation();
-          closeRowMenu();
-          item.onClick();
-        });
-        menu.appendChild(b);
-      });
-      btn.parentNode.appendChild(menu);
-      openMenuEl = menu;
-      document.addEventListener("click", onDocClickMenu, true);
-    });
-    return btn;
-  }
+  // 行内「⋯」菜单由 state.js 的 App.buildRowMenu 提供（模型页等共用）。
+  function buildRowMenu(items) { return App.buildRowMenu(items); }
 
   // 工作区的完整位置：后端 workspace.list 给出 absolute_path（folder_path 可能是相对路径，
   // 如 "Downloads"）；老数据没有该字段时退回 folder_path。
@@ -213,7 +175,12 @@
     node.appendChild(sessionList);
     treeList.appendChild(node);
 
-    addBtn.addEventListener("click", async function () { var name = await App.uiPrompt("新建会话"); if (name) App.addSession(ws.id, sessionList, name); });
+    addBtn.addEventListener("click", async function () {
+      var name = await App.uiPrompt("新建会话");
+      if (!name) return;
+      var preset = await new Promise(function (resolve) { App.openAgentPicker(resolve); });
+      await App.addSession(ws.id, sessionList, name, preset);
+    });
 
     App.loadSessions(ws.id, sessionList);
     return node;
@@ -304,10 +271,11 @@
     }
   };
 
-  App.addSession = async function addSession(workspaceId, container, name) {
+  App.addSession = async function addSession(workspaceId, container, name, preset) {
     if (!name) return;
     try {
       var sess = await window.AgentClient.call("session.create", { payload: { workspace_id: workspaceId, name: name, activity: App.selectedInitialActivity } });
+      if (preset && preset.id) App.setSessionAgent(sess.id, preset.id, preset.name);
       var node = renderSession(sess, workspaceId, container);
       App.selectSession(sess, node);
     } catch (e) {
@@ -393,11 +361,12 @@
         await new Promise(function (resolve) {
           App.openActivityMenu(function (a) { App.selectedInitialActivity = a; resolve(); });
         });
+        var preset = await new Promise(function (resolve) { App.openAgentPicker(resolve); });
         try {
           var ws = await App.ensureDefaultWorkspace();
           var container = findSessionList(ws.id);
           if (!container) { await App.loadWorkspaces(); container = findSessionList(ws.id); }
-          await App.addSession(ws.id, container, name);
+          await App.addSession(ws.id, container, name, preset);
           App.showView("chat"); // 新建会话是聊天页的动作，右栏其它页面切回聊天
         } catch (e) { console.error("new session failed:", e); }
       });

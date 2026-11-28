@@ -9,10 +9,13 @@ import fs from "fs";
 import path from "path";
 import { PROJECT_ROOT } from "./../../../lib/paths/index.js";
 import { mainProfile } from "./../../../lib/agent-profile/index.js";
+import { loadNodes } from "./../../loops/registry.js";
+import loopsConfig from "./../../loops/loops-config.js";
 
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 const EFFORTS = new Set(["low", "medium", "high"]);
 const FIELDS = ["name", "identity", "persona", "provider", "model", "effort", "tools"];
+const BOT_FILES = ["prompt", "tools.json", "loops.json"];
 
 const byId = {
   type: "object",
@@ -33,6 +36,8 @@ const payloadObject = {
         model: { type: "string" },
         effort: { type: "string" },
         tools: { type: "array", items: { type: "string" } },
+        prompt: { type: "string" },
+        loops: { type: "array" },
       },
       additionalProperties: false,
     },
@@ -42,13 +47,13 @@ const payloadObject = {
 };
 const noParams = { type: "object", properties: {}, additionalProperties: false };
 
+function readJson(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return fallback; }
+}
+
 function readConfig(file) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch (_) {
-    return {};
-  }
+  const parsed = readJson(file, {});
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 }
 
 function profileFile(dir, id) {
@@ -77,6 +82,48 @@ function pick(config) {
   return out;
 }
 
+// Bot profiles keep prompt/tools/loops in their own files; tools.json, not
+// config.tools, is the allowlist the runtime reads for agents/<id>/.
+function readBotFiles(botDir) {
+  const tools = readJson(path.join(botDir, "tools.json"), []);
+  const loops = readJson(path.join(botDir, "loops.json"), []);
+  let prompt = "";
+  try { prompt = fs.readFileSync(path.join(botDir, "prompt"), "utf8").trim(); } catch (_) { /* optional */ }
+  return {
+    tools: Array.isArray(tools) ? tools : [],
+    loops: Array.isArray(loops) ? loops : [],
+    prompt,
+  };
+}
+
+function readBotDetail(dir, id) {
+  return Object.assign(
+    { id },
+    pick(readConfig(profileFile(dir, id))),
+    readBotFiles(path.join(dir, id))
+  );
+}
+
+function validateBotFiles(payload) {
+  const issues = [];
+  if (payload.prompt != null && typeof payload.prompt !== "string") issues.push("prompt must be a string");
+  const tools = payload.tools != null ? payload.tools : [];
+  if (!Array.isArray(tools) || tools.some((name) => typeof name !== "string")) {
+    issues.push("tools must be an array of tool names");
+  }
+  const loops = payload.loops != null ? payload.loops : [];
+  if (!Array.isArray(loops)) {
+    issues.push("loops must be an array of hooks");
+  } else {
+    const nodes = [...loadNodes().values()];
+    const coreNodeIds = nodes.filter((node) => node.type !== "builtin").map((node) => node.id);
+    const allNodeIds = nodes.map((node) => node.id);
+    loopsConfig.validateHooks(loops, coreNodeIds, allNodeIds);
+  }
+  if (issues.length) throw new Error("invalid agent: " + issues.join("; "));
+  return { prompt: typeof payload.prompt === "string" ? payload.prompt : "", tools, loops };
+}
+
 export default function defineAgentCommands(
   rpc,
   {
@@ -100,7 +147,7 @@ export default function defineAgentCommands(
     } catch (_) {
       return [];
     }
-    return names.map((id) => Object.assign({ id }, pick(readConfig(profileFile(agentsDir, id)))));
+    return names.map((id) => readBotDetail(agentsDir, id));
   }
 
   function boundChannels(id) {
@@ -128,7 +175,7 @@ export default function defineAgentCommands(
       if (!id) return main();
       if (!ID_PATTERN.test(id)) throw new Error(`invalid agent id "${id}"`);
       const file = profileFile(agentsDir, id);
-      return fs.existsSync(file) ? Object.assign({ id }, pick(readConfig(file))) : null;
+      return fs.existsSync(file) ? readBotDetail(agentsDir, id) : null;
     },
   });
 
@@ -139,7 +186,7 @@ export default function defineAgentCommands(
       const payload = value.payload || {};
       const id = payload.id || "";
       const config = pick(payload);
-      const issues = validate(id, config);
+      const issues = validate(id, payload);
       if (issues.length) throw new Error("invalid agent: " + issues.join("; "));
       if (!id) {
         fs.mkdirSync(path.dirname(mainFile), { recursive: true });
@@ -147,10 +194,17 @@ export default function defineAgentCommands(
         return config;
       }
       if (!ID_PATTERN.test(id)) throw new Error(`invalid agent id "${id}"`);
+      // Validate everything before any write: a bad hook must not leave a half-updated profile.
+      const botFiles = validateBotFiles(payload);
+      const botConfig = Object.assign({}, config);
+      delete botConfig.tools; // tools.json is authoritative for bot agents
       const dir = path.join(agentsDir, id);
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(profileFile(agentsDir, id), JSON.stringify(config, null, 2));
-      return Object.assign({ id }, config);
+      fs.writeFileSync(profileFile(agentsDir, id), JSON.stringify(botConfig, null, 2));
+      fs.writeFileSync(path.join(dir, "prompt"), botFiles.prompt);
+      fs.writeFileSync(path.join(dir, "tools.json"), JSON.stringify(botFiles.tools, null, 2));
+      fs.writeFileSync(path.join(dir, "loops.json"), JSON.stringify(botFiles.loops, null, 2));
+      return Object.assign({ id }, botConfig, botFiles);
     },
   });
 
@@ -165,8 +219,13 @@ export default function defineAgentCommands(
       if (usedBy.length) throw new Error(`cannot delete agent "${id}": bound to channel ${usedBy.join(", ")}`);
       const file = profileFile(agentsDir, id);
       if (!fs.existsSync(file)) throw new Error(`unknown agent "${id}"`);
+      const dir = path.join(agentsDir, id);
       fs.unlinkSync(file);
-      try { fs.rmdirSync(path.join(agentsDir, id)); } catch (_) { /* keep a directory holding other files */ }
+      for (const name of BOT_FILES) {
+        const extra = path.join(dir, name);
+        if (fs.existsSync(extra)) fs.unlinkSync(extra);
+      }
+      try { fs.rmdirSync(dir); } catch (_) { /* keep a directory holding other files */ }
       return { deleted: true };
     },
   });

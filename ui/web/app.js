@@ -44,7 +44,6 @@ document.addEventListener("DOMContentLoaded", function () {
   App.registerView("tools", { title: "工具" });
   App.registerView("skills", { title: "技能" });
   App.registerView("permissions", { title: "权限" });
-  App.registerView("loops", { title: "循环" });
   App.registerView("meta", { title: "本体" });
   App.registerView("settings", { title: "设置" });
 

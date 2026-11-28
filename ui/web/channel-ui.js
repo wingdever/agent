@@ -20,6 +20,7 @@
 
     var state = {
       channels: [],
+      expanded: {},
       selectedId: null,
       errors: {},
       busy: {},
@@ -101,6 +102,19 @@
       });
     }
 
+    // 平台分组：channels.json 的 type 作为第一级（类似模型页 provider），
+    // 该平台下的实例作为第二级（类似 model）。快照本身不改。
+    function groupedChannels() {
+      var groups = [];
+      var byType = {};
+      state.channels.forEach(function (row) {
+        var type = row.type || "unknown";
+        if (!byType[type]) { byType[type] = { type: type, rows: [] }; groups.push(byType[type]); }
+        byType[type].rows.push(row);
+      });
+      return groups;
+    }
+
     function renderList() {
       listEl.textContent = "";
       if (!state.channels.length) {
@@ -110,20 +124,36 @@
         listEl.appendChild(empty);
         return;
       }
-      state.channels.forEach(function (row) {
-        var item = el("button", "channels-list-item", null, "channels-list-item");
-        item.type = "button";
-        item.setAttribute("data-id", String(row.instanceId));
-        if (String(row.instanceId) === String(state.selectedId)) item.classList.add("active");
-        item.appendChild(el("span", "channels-list-name", row.instanceId || String(row.instanceId), "channels-list-name"));
-        item.appendChild(el("span", "channels-list-type", row.type || "—", "channels-list-type"));
-        item.appendChild(el("span", "channels-list-status " + (row.status || "stopped"), row.status || "stopped", "channels-list-status"));
-        if (row.error || state.errors[row.instanceId]) item.appendChild(el("span", "channels-list-error-mark", "!", "channels-list-error-mark"));
-        item.addEventListener("click", function () {
-          state.selectedId = row.instanceId;
-          render();
+      groupedChannels().forEach(function (group) {
+        var open = state.expanded[group.type] !== false;
+        var platform = el("div", "channels-platform", null, "channels-platform");
+        var header = el("div", "channels-platform-header", null, "channels-platform-header");
+        var toggle = el("button", "channels-platform-collapse-toggle", open ? "▾" : "▸", "channels-platform-collapse-toggle");
+        toggle.type = "button";
+        toggle.addEventListener("click", function () {
+          state.expanded[group.type] = !open;
+          renderList();
         });
-        listEl.appendChild(item);
+        header.appendChild(toggle);
+        header.appendChild(el("span", "channels-platform-name-label", group.type, "channels-platform-name-label"));
+        header.appendChild(el("span", "channels-platform-count", String(group.rows.length), "channels-platform-count"));
+        platform.appendChild(header);
+        if (!open) { listEl.appendChild(platform); return; }
+        group.rows.forEach(function (row) {
+          var item = el("button", "channels-list-item", null, "channels-list-item");
+          item.type = "button";
+          item.setAttribute("data-id", String(row.instanceId));
+          if (String(row.instanceId) === String(state.selectedId)) item.classList.add("active");
+          item.appendChild(el("span", "channels-list-name", row.instanceId || String(row.instanceId), "channels-list-name"));
+          item.appendChild(el("span", "channels-list-status " + (row.status || "stopped"), row.status || "stopped", "channels-list-status"));
+          if (row.error || state.errors[row.instanceId]) item.appendChild(el("span", "channels-list-error-mark", "!", "channels-list-error-mark"));
+          item.addEventListener("click", function () {
+            state.selectedId = row.instanceId;
+            render();
+          });
+          platform.appendChild(item);
+        });
+        listEl.appendChild(platform);
       });
     }
 

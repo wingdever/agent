@@ -1,0 +1,10 @@
+[
+  "read",
+  "write",
+  "bash",
+  "glob",
+  "grep",
+  "web_search",
+  "web_fetch",
+  "todo_write"
+]

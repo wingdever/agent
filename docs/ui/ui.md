@@ -24,12 +24,11 @@
   - [3.2 models-page](#32-models-page)
   - [3.3 permissions-page](#33-permissions-page)
   - [3.4 user-job（运行期交互）](#34-user-job运行期交互)
-  - [3.5 loops-page](#35-loops-page)
-  - [3.6 meta-page](#36-meta-page)
-  - [3.7 快捷键](#37-快捷键)
-  - [3.8 terminal-page（运行期交互）](#38-terminal-page运行期交互)
-  - [3.9 channels-page（运行期交互）](#39-channels-page运行期交互)
-  - [3.10 agents-page（运行期交互）](#310-agents-page运行期交互)
+  - [3.5 meta-page](#35-meta-page)
+  - [3.6 快捷键](#36-快捷键)
+  - [3.7 terminal-page（运行期交互）](#37-terminal-page运行期交互)
+  - [3.8 channels-page（运行期交互）](#38-channels-page运行期交互)
+  - [3.9 agents-page（运行期交互）](#39-agents-page运行期交互)
 - [4. 布局关系](#4-布局关系)
 - [5. 元素样式](#5-元素样式)
 - [6. 前端文件构成与调用关系（M0 拆分）](#6-前端文件构成与调用关系m0-拆分)
@@ -78,7 +77,6 @@
 | **tools-btn** | 主视图入口：工具（tools-page） |
 | **skills-btn** | 主视图入口：技能（skills-page） |
 | **permissions-btn** | 主视图入口：权限（permissions-page） |
-| **loops-btn** | 主视图入口：循环（loops-page） |
 | **meta-btn** | 主视图入口：本体（meta-page，项目本体的内省窗口） |
 | **settings-btn** | 主视图入口：设置（settings-page），位于「配置」分组，该组以 margin-top:auto 贴底 |
 | **chat-viewport** | 中间聊天主视口 |
@@ -157,8 +155,13 @@
 | **channels-page** | 通道主视图页：左实例列表 + 右详情；状态由流式快照推送，不读写通道配置 |
 | **channels-banner** | 推送断开时常驻提示条，附 channels-refresh |
 | **channels-refresh** | 手动刷新按钮，走 channel.list |
-| **channels-list** | 左侧实例列表（channels-list-item*）与无实例空态 |
-| **channels-list-item** | 一个通道实例行：instanceId / 驱动类型 / 状态 / 错误标记；点击选中 |
+| **channels-list** | 左侧平台/实例树（channels-platform*）与无实例空态 |
+| **channels-platform** | 一个平台分组节点（按快照 `type` 分组，类似模型页 provider）：channels-platform-header + 其下 channels-list-item* |
+| **channels-platform-header** | 平台头部：折叠开关 / 平台名 / 实例数 |
+| **channels-platform-collapse-toggle** | 展开/折叠该平台的实例列表 |
+| **channels-platform-name-label** | 平台类型名（qq / feishu / yunhu / fake） |
+| **channels-platform-count** | 该平台下实例数 |
+| **channels-list-item** | 一个通道实例行：instanceId / 状态 / 错误标记；点击选中 |
 | **channels-empty** | 无实例空态：提示在 user/channels.json 配置并给出模板路径 |
 | **channels-detail** | 右侧详情区：标题、错误条、快照全字段只读、背后 agent 信息区、启停按钮 |
 | **channels-agent-info** | 背后 agent 信息区：模型 / provider / 工作区 / 权限默认 / ask 工具数 / 活动 / 来源标记 / 会话映射说明 |
@@ -167,12 +170,22 @@
 | **channels-action-btn** | 启停按钮，只在详情区；按状态切换启动/停止，操作前二次确认 |
 | **channels-agent-select** | 通道详情里的 agent 下拉：主智能（默认）或 agents/ 里的某个代理 |
 | **agents-view-btn** | 编排组的智能入口（🧠 智能）：打开 agents-page |
-| **agents-page** | 智能配置档页：左列表 + 右编辑表单，读写走 agent.* RPC |
-| **agents-list** | 左侧配置档列表（agents-list-item*）与新建按钮 |
+| **agents-page** | 智能配置档页：左列表 + 右编辑区（配置 / 提示词 / 流程图三 tab），读写走 agent.* 与 loops.* RPC |
+| **agents-list** | 左侧配置档列表（agents-list-item*）与新建按钮；宽度 176px，名称与 id 超长省略 |
 | **agents-list-item** | 一个配置档：显示名 + id；点击选中 |
 | **agents-new-btn** | 新建配置档，清空右侧表单并把 id 置为可编辑 |
-| **agents-editor** | 右侧编辑表单：id / 名称 / persona / 模型 / 推理等级 / 工具白名单 |
-| **agents-save-btn** | 保存配置档（agent.upsert） |
+| **agents-editor** | 右侧编辑区：标题 + agents-tabs + 三个面板 + 共享页脚 |
+| **agents-tabs** | 配置 / 提示词 / 流程图三 tab 条（agents-tab*） |
+| **agents-tab*** | 单个标签：配置 / 提示词 / 流程图；切换只显隐面板，不重建 DOM |
+| **agents-config-panel** | 配置面板：id（非主档）/ 名称 / provider / 模型 / 推理等级 / 工具白名单 |
+| **agents-prompt-panel** | 提示词面板：identity / persona，非主档另有 prompt；底部说明哪些字段实际注入系统提示 |
+| **agents-graph-panel** | 流图面板：节点流图只读预览 + hooks 编辑表；主档另含恢复默认 hooks |
+| **agents-topology** | 节点流图预览：复用 loops.js 的 `App.renderLoopTopology`，显示静态 next 链、回环与该档 hooks 虚线边、builtin 列表与当前引擎 |
+| **agents-hooks** | 当前档 hooks 编辑表（agents-hook-row* + agents-hook-add） |
+| **agents-hook-row*** | 一条 hook：on / slot / target 三个下拉 + 移除按钮；改动实时刷新流图预览 |
+| **agents-hook-add** | 新增 hook 行；主档另复用为「恢复默认 hooks」按钮（agents-reset-hooks） |
+| **agents-actions** | 共享页脚：保存 / 删除，位于三 tab 之外，任一 tab 均可操作 |
+| **agents-save-btn** | 保存配置档：主档 agent.upsert(config) + loops.upsert(hooks)，其它档 agent.upsert（含 prompt/loops/tools.json） |
 | **agents-delete-btn** | 删除配置档（agent.delete）；被通道绑定时被后端拒绝 |
 | **compaction-card** | 聊天区 checkpoint 卡：按最新 `compaction/summary` 事件的 `boundaryMessageId` 插在**边界消息之后**（切点可能落在 turn 内部；找不到消息时退回 `boundaryTurnSeq` 的 turn 末尾）；标题显示压缩 turn 数 / `~tokensBefore → ~tokensAfter` / 边界 message / 模型 / 时间，正文为模型写的 8 段 summary（默认展开；preamble 与 `<compacted-summary>` 标签只给模型看，卡片不显示）。原始 turns/steps 仍然全部展示（DSH transcript 语义），卡片只标出模型视角被替换的位置 |
 | **compaction-notice** | 压缩状态提示行（`compaction` 事件驱动）：start / prune / overflow / done / failed 的短文案，压缩完成后由重建的会话视图与 checkpoint 卡取代 |
@@ -234,21 +247,6 @@
 | **permission-select** | 路径权限选择（allow / deny；先扫 deny 命中即拒） |
 | **add-fs-rule-btn** | 新增 fs 规则行 |
 | **reset-defaults-btn** | 恢复默认按钮（default=ask，清空所有显式档位与规则）；在 view-header-slot 的「更多」菜单内 |
-| **loops-page** | 循环编排页（主视图一页）：节点拓扑 + hooks 覆写编辑 |
-| **engine-indicator** | 当前引擎指示器（view-header-slot；只读，显示 `AGENT_LOOP_ENGINE` 值；点击弹出提示：引擎来源（重启生效）、节点数（含 builtin）、循环边数） |
-| **loops-viewport** | 循环页视口 |
-| **loop-topology** | 左侧只读拓扑：静态 `next` 链 + `decide-next→pre-step` 回环 + 实时 hooks 虚线指向 target 节点 |
-| **loop-nodes-table** | 右侧可编辑节点表 |
-| **loop-node-row*** | 单个节点行（core + builtin 均展示） |
-| **loop-node-id-label** | 节点 id（只读） |
-| **loop-node-type-label** | 节点类型（只读） |
-| **loop-next-label** | `next` 指向（只读；`next` 不可编辑） |
-| **loop-hooks-editor** | hooks 编辑器（唯一可编辑区域） |
-| **hook-slot*** | 单条 hook（on/slot/target 三元组） |
-| **hook-add-btn** | 新增 hook 行 |
-| **hook-target-select** | hook target 下拉（列出所有节点 id：core + builtin） |
-| **hook-remove-btn** | 删除 hook 行 |
-
 | **meta-page** | 本体页（主视图一页，项目本体内省窗口；左侧页导航 + 中间视口，节点详情为浮层抽屉） |
 | **meta-sidebar** | 本体页左侧页导航栏 |
 | **meta-codegraph-btn** | 代码图页入口（→ meta-codegraph-tab） |
@@ -293,14 +291,13 @@
 | **provider-header** | 供应者头部（选中/展开态） |
 | **provider-collapse-toggle** | 展开/折叠模型列表 |
 | **provider-name-label** | 供应者名称（providers.name） |
-| **provider-rename-btn** | 快捷重命名供应者 |
-| **provider-delete-btn** | 删除供应者（级联删 models） |
 | **add-model-btn** | 新增模型按钮 → model-add-tab |
+| **row-menu-btn** | 行内「⋯」更多操作按钮（state.js `App.buildRowMenu` 提供，模型页与工作区共用）：展开 row-menu，点空白处或再次点击即关闭 |
+| **row-menu** | ⋯ 展开的菜单，含 row-menu-item*；删除项 danger 红字 |
+| **row-menu-item*** | 菜单项（改名 / 删除） |
 | **model** | 模型节点，可重复（展开时渲染） |
 | **model-name-label** | 模型名称（存储于 providers.json 的 provider.models[].name） |
 | **model-fee-badge** | 模型费用徽标（providers.json 模型 fee，缺省 "unknown"） |
-| **model-rename-btn** | 快捷重命名模型 |
-| **model-delete-btn** | 删除模型 |
 | **settings-viewport** | 设置弹窗中间视口 |
 | **provider-add-tab** | 新增供应者标签页 |
 | **tab-header** | 标签头部 |
@@ -352,7 +349,6 @@
 | **flow-return-btn** | 返回聊天按钮（flow-foot） |
 | **flow-save-btn** | 保存当前流程图（flow-foot） |
 | **flow-run-btn** | 运行当前流程图（flow-foot；需先保存） |
-| **loops-viewport-split** | 循环页左右分栏容器（拓扑 / 节点表） |
 | **mode-display** | 工具读写特性行（tool-meta，只读） |
 | **tool-source-tabs** | 工具目录来源子标签组（内置工具 / MCP 工具） |
 | **tool-source-tab*** | 单个来源标签（`data-source`＝builtin / mcp） |
@@ -421,7 +417,6 @@ shell
 │     │  ├─ skills-btn
 │     │  ├─ agents-btn
 │     │  ├─ flow-btn-sidebar
-│     │  ├─ loops-btn
 │     │  └─ meta-btn
 │     └─ sidebar-nav-group（配置，贴底）
 │        ├─ sidebar-nav-title
@@ -444,7 +439,6 @@ shell
 │  │     │  ├─ flow-header-name?                 （flow）
 │  │     │  ├─ tree-search-input?                （models / tools / skills）
 │  │     │  ├─ meta-graph-search + view-actions? （meta）
-│  │     │  ├─ engine-indicator? + view-actions? （loops）
 │  │     │  └─ view-actions?                     （models / permissions）
 │  │     │     ├─ view-actions-toggle
 │  │     │     └─ view-actions-menu?
@@ -516,7 +510,9 @@ shell
 │     │  │  └─ channels-refresh
 │     │  └─ channels-body
 │     │     ├─ channels-list
-│     │     │  ├─ channels-list-item*
+│     │     │  ├─ channels-platform*
+│     │     │  │  ├─ channels-platform-header（channels-platform-collapse-toggle / channels-platform-name-label / channels-platform-count）
+│     │     │  │  └─ channels-list-item*
 │     │     │  └─ channels-empty?
 │     │     └─ channels-detail
 │     │        ├─ channels-detail-head
@@ -534,7 +530,16 @@ shell
 │     │     │  ├─ agents-list-item*
 │     │     │  └─ agents-new-btn
 │     │     └─ agents-editor
-│     │        ├─ agents-field*
+│     │        ├─ agents-tabs
+│     │        │  └─ agents-tab*（配置 / 提示词 / 流程图）
+│     │        ├─ agents-config-panel
+│     │        │  └─ agents-field*
+│     │        ├─ agents-prompt-panel
+│     │        │  └─ agents-field*
+│     │        ├─ agents-graph-panel
+│     │        │  ├─ agents-topology
+│     │        │  └─ agents-hooks
+│     │        │     └─ agents-hook-row*
 │     │        └─ agents-actions
 │     │           ├─ agents-save-btn
 │     │           └─ agents-delete-btn?
@@ -561,14 +566,12 @@ shell
 │     │  │          ├─ provider-header
 │     │  │          │  ├─ provider-collapse-toggle
 │     │  │          │  ├─ provider-name-label
-│     │  │          │  ├─ provider-rename-btn
-│     │  │          │  ├─ provider-delete-btn
-│     │  │          │  └─ add-model-btn
+│     │  │          │  ├─ add-model-btn
+│     │  │          │  └─ row-menu-btn → row-menu（改名 / 删除）
 │     │  │          └─ model*
 │     │  │              ├─ model-name-label
 │     │  │              ├─ model-fee-badge
-│     │  │              ├─ model-rename-btn
-│     │  │              └─ model-delete-btn
+│     │  │              └─ row-menu-btn → row-menu（改名 / 删除）
 │     │  └─ models-viewport
 │     │     ├─ provider-add-tab
 │     │     │  ├─ tab-header
@@ -735,23 +738,6 @@ shell
 │     │        └─ config-footer
 │     │           ├─ reset-btn
 │     │           └─ save-btn
-│     ├─ loops-page
-│     │  └─ loops-viewport
-│     │     ├─ loops-viewport-split
-│     │     │  ├─ loop-topology
-│     │     │  └─ loop-nodes-table
-│     │     │     └─ loop-node-row*
-│     │     │        ├─ loop-node-id-label
-│     │     │        ├─ loop-node-type-label
-│     │     │        ├─ loop-next-label
-│     │     │        └─ loop-hooks-editor
-│     │     │           └─ hook-slot*
-│     │     │              ├─ hook-target-select
-│     │     │              ├─ hook-remove-btn
-│     │     │              └─ hook-add-btn
-│     │     └─ config-footer
-│     │        ├─ reset-btn（撤销修改）
-│     │        └─ save-btn
 │     ├─ meta-page
 │     │  ├─ meta-sidebar
 │     │  │  └─ meta-codegraph-btn
@@ -809,7 +795,6 @@ models-btn -> models-page
 skills-btn -> skills-page
 tools-btn -> tools-page
 permissions-btn -> permissions-page
-loops-btn -> loops-page
 meta-btn -> meta-page
 settings-btn -> settings-page
 channels-view-btn -> channels-page
@@ -820,6 +805,7 @@ agents-btn -> agents-page
 
 add-provider-btn -> provider-add-tab（打开新增供应者标签页）
 add-model-btn(provider_id) -> model-add-tab（打开新增模型标签页，携带 provider_id）
+row-menu-btn(click) -> row-menu（改名 / 删除；供应者删除级联其 models，模型删除只删该条）；点空白处或再次点击 ⋯ 关闭
 model-edit-btn(model.id) -> model-edit-tab（打开模型编辑标签页）
 save-btn(providers) -> AgentClient.call("providers", {op:"upsert", payload:<整体 providers 数组>}) -> 整体写回 user/providers.json
 fetch-models-btn -> AgentClient.call("fetchModels", {baseurl, apikey}) -> remote-models-section（渲染 remote-model-item*，并写入 remote-model-response 原始响应）
@@ -839,15 +825,7 @@ user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文
   取消按钮 -> AgentClient.call("answerUserJob", {id, cancel:true}) -> 工具结果标记为已取消
   user-job-update(event:{id,status}) -> 将对应 user-job 卡片置为已结束/已取消
 
-### 3.5 loops-page
-
-loops-btn -> loops-page（首次进入时 loops.get 拉取 engines / nodes / builtins / hooks 覆写）
-engine-indicator(click) -> uiAlert 提示：当前引擎（AGENT_LOOP_ENGINE，重启生效）、节点数（含 builtin）、循环边数
-save-btn(hooks) -> AgentClient.call("loops", {op:"upsert", payload:{hooks}}) -> 整体写回 agent/loops.json（数组顺序即执行顺序，校验 slot / on / target 且禁止重复三元组）；无未保存改动时禁用
-reset-btn(撤销修改) -> 放弃未保存编辑，重新 loops.get 拉取；无未保存改动时禁用
-reset-defaults-btn -> AgentClient.call("loops", {op:"upsert", payload:{hooks:<仓库默认两条 translate hook: builtin.translate-input / builtin.translate-output>}}) -> 恢复出厂（需 uiConfirm）；位于「更多」菜单
-
-### 3.6 meta-page
+### 3.5 meta-page
 
 meta-btn -> meta-page（打开；首次打开时 fetch "graph-data.json" 渲染依赖图）
 meta-codegraph-btn -> meta-codegraph-tab（页切换；当前仅代码图一页）
@@ -864,7 +842,7 @@ meta-detail-drawer-close -> 收起详情抽屉
 
 ---
 
-### 3.7 快捷键
+### 3.6 快捷键
 
 Ctrl/⌘ + N -> 新建会话（同 new-session-button）
 Ctrl/⌘ + K -> 聚焦会话过滤框（自动展开 search-input）
@@ -873,7 +851,7 @@ Esc        -> 关闭最上层弹层：modal-overlay（走取消路径）/ row-me
 
 规则：有弹层打开时 Esc 优先且只关最上层；弹层打开期间其余快捷键不生效；焦点在输入控件内时不抢单键快捷键，Ctrl/⌘ 组合键仍生效。
 
-### 3.8 terminal-page（运行期交互）
+### 3.7 terminal-page（运行期交互）
 
 terminal-view-btn -> terminal-page（主视图页，左栏会话组入口）
 terminal-new-btn / terminal-empty-new -> terminal.panel.open({session_id}) -> 刷新 terminal-tabs 并选中新终端
@@ -883,24 +861,27 @@ agent 新建终端 -> toast 提示，不自动切页
 切换主视图 -> onViewChange：隐藏时保持 WebSocket 连接与 xterm 写入，可见时重新 fit 与聚焦
 选择会话 -> setSession 按 session_id 重建终端列表，随后回到 chat-view
 
-### 3.9 channels-page（运行期交互）
+### 3.8 channels-page（运行期交互）
 
 channels-view-btn -> channels-page（配置组入口，普通主视图页）
 首次进入 -> channel.subscribe（streaming）：订阅建立即推全量实例快照，此后每次状态变化推全量快照
 首次进入 -> config.get / config.permissions.get / workspace.list / agent.list -> 详情区背后 agent 信息模型/provider/工作区/权限默认/ask 工具数与配置档列表；活动固定 chat；会话映射见 data/channels/sessions.json
-channels-list-item(click) -> 选中实例；默认选第一个，切页后保留选中
+快照按 `type` 分组为 channels-platform*（默认全展开），channels-platform-collapse-toggle(click) -> 展开/折叠该平台的实例列表；channels-list-item(click) -> 选中实例；默认选第一个，切页后保留选中
 channels-agent-select(change) -> channel.setAgent({id, agent}) -> 写回 channels.json agent 字段并推送新快照；绑定只影响新平台会话
 channels-action-btn(click) -> uiConfirm -> channel.start / channel.stop({id}) -> 用返回快照更新详情；失败时详情顶部错误条 + toast
 推送断开/失败 -> channels-banner 常驻提示 + channels-refresh -> channel.list 刷新快照；不自动重连、不轮询
 离开页面 -> 订阅不取消；页面卸载时客户端取消订阅
 无实例 -> channels-empty 提示配置 user/channels.json 与模板路径 channels/channels.example.json
 
-### 3.10 agents-page（运行期交互）
+### 3.9 agents-page（运行期交互）
 
 agents-btn -> agents-page（编排组入口，普通主视图页）
-首次进入 -> agent.list -> { main, agents }：左列表置顶「主智能（默认）」，下面列 agents/<id>；默认选主档
-agents-save-btn(click) -> agent.upsert({payload})：主档不传 id 写 agent/config.json，其它档带 id 写 agents/<id>/config.json
-主档字段含 identity/persona/provider/model/effort/tools；provider 下拉来自 providers.json，留空表示自动选择
+首次进入 -> agent.list + tools.list + loops.get：左列表置顶「主智能（默认）」，下面列 agents/<id>；默认选主档，tab 默认配置
+agents-tab(click) -> 切换配置 / 提示词 / 流程图面板；只改显隐不重建 DOM，未保存编辑不丢；tab 选择跨配置档保留
+agents-hook-row 的 on/slot/target 变更或增删 -> 实时刷新 agents-topology（复用 App.renderLoopTopology）；流图 tab 标签显示当前档 hook 数
+agents-reset-hooks(click, 仅主档) -> uiConfirm -> loops.upsert({hooks:默认两条 translate hook}) -> 重新加载
+agents-save-btn(click) -> 主档 agent.upsert(config) 后 loops.upsert(hooks) 写 agent/loops.json；其它档 agent.upsert 带 id 写 agents/<id>/{config.json,prompt,tools.json,loops.json}
+主档字段含 identity/persona/provider/model/effort/tools；provider 下拉来自 providers.json，留空表示自动选择；非主档额外有 prompt
 composer 的 model-selector / effort-selector 变更 -> agent.get({}) + agent.upsert 写回主档（不写 settings.json）
 agents-delete-btn(click) -> uiConfirm -> agent.delete({id}) -> 只针对其它档；被通道绑定时后端拒绝
 配置档只在新的平台会话生效；已有会话继续使用 session.prompt 中已存的 system prompt
@@ -914,7 +895,7 @@ shell
 thread-sidebar
    children: sidebar-header, new-session-button, workspace-bar, workspace-session-tree-list, deleted-sessions-list, sidebar-nav
    arrange: vertical
-   nav-groups: 会话（chat-view-btn / trajectory-view-btn / terminal-view-btn）| 编排（sidebar-nav-title + models / tools / skills / agents / flow / loops / meta）| 配置（sidebar-nav-title + channels / permissions / settings，贴底）
+   nav-groups: 会话（chat-view-btn / trajectory-view-btn / terminal-view-btn）| 编排（sidebar-nav-title + models / tools / skills / agents / flow / meta）| 配置（sidebar-nav-title + channels / permissions / settings，贴底）
    row-actions: 工作区头部常显「+ 会话」，会话行常显名称；重命名 / 删除收进行内「⋯」菜单（点击「⋯」不触发选中会话，点菜单外关闭）
    note: 导航按钮组在会话树之下，settings-btn 以 margin-top:auto 固定在最底部；当前页按钮带 active 高亮
 
@@ -931,7 +912,7 @@ chat-viewport
    arrange: vertical
 
 main-view
-   children: chat-view, terminal-page, channels-page, agents-page, flow-page, models-page, tools-page, skills-page, permissions-page, loops-page, meta-page, settings-page
+   children: chat-view, terminal-page, channels-page, agents-page, flow-page, models-page, tools-page, skills-page, permissions-page, meta-page, settings-page
    arrange: 单页显示（同一时刻只显示 data-view 与当前视图名相同的一页；各页首次进入时懒建）
    note: chat-view 承载 chat / trajectory 两个视图（内容由 tab-body 内的 data-view 切换）
 
@@ -943,12 +924,12 @@ terminal-page
 channels-page
    children: channels-banner, channels-body
    arrange: vertical（body 横向：channels-list 固定 240px + channels-detail 自适应）
-   note: 只展示 manager.list() 快照（附 channels.json 的 agent 绑定字段），enabled:false 实例不出现。订阅全量快照驱动状态，断连后不重连、不轮询，靠 channels-refresh 手动刷新。启停只在详情区、需二次确认且不受权限预设约束；agent 下拉写回 channels.json，绑定只影响新平台会话。channel turn 在入口层强制 autonomous（ask 自动 deny），trust 未接线
+   note: 只展示 manager.list() 快照（附 channels.json 的 agent 绑定字段），enabled:false 实例不出现。左栏按快照 type 分组为 channels-platform*（默认全展开，可折叠），实例嵌在各自平台下；分组只改视图，不改 channels.json。订阅全量快照驱动状态，断连后不重连、不轮询，靠 channels-refresh 手动刷新。启停只在详情区、需二次确认且不受权限预设约束；agent 下拉写回 channels.json，绑定只影响新平台会话。channel turn 在入口层强制 autonomous（ask 自动 deny），trust 未接线
 
 agents-page
    children: agents-body
-   arrange: body 横向（agents-list 固定 240px + agents-editor 自适应）
-   note: 主档存 agent/config.json（无 id），其它代理存 agents/<id>/config.json（目录名即 id）；字段为 name/identity/persona/provider/model/effort/tools。主档为空时从 assets/agent/config.json 物化一次；identity/persona/provider/model/effort 已全局提取进主档，settings.json 只留 stream/reasoningControl/translate/web/autoCompact。工具白名单按配置档裁剪请求工具清单（前缀缓存随之失效）。未绑定实例用主档；绑定只影响新会话，被绑定的档拒绝删除
+   arrange: body 横向（agents-list 固定 176px + agents-editor 自适应）
+   note: 主档存 agent/config.json 与 agent/loops.json（无 id），其它代理存 agents/<id>/{config.json,prompt,tools.json,loops.json}（目录名即 id）。右栏 agents-tabs 分配置 / 提示词 / 流程图三个面板，共享页脚保存/删除；配置为 name/provider/model/effort/tools（非主档另有 id），提示词为 identity/persona（非主档另有 prompt），流程图显示当前档 hooks 与节点拓扑（主档 hooks 由 loops.upsert 写，预设 hooks 由 agent.upsert 写）。主档为空时从 assets/agent/config.json 物化一次。工具白名单按配置档裁剪请求工具清单（前缀缓存随之失效）。未绑定实例用主档；绑定只影响新会话，被绑定的档拒绝删除
 
 chat-header
    contains: left-collapse-button, session-name? / view-title?, header-controls-group
@@ -966,21 +947,18 @@ view-header-slot
      tools           → tree-search-input
      skills          → tree-search-input
      permissions     → view-actions（恢复默认）
-     loops           → engine-indicator + view-actions（恢复默认 hooks）
      meta            → meta-graph-search + view-actions（适应窗口 / 重新加载 / 架构规则）
      settings        → 无
 
 未保存状态
    来源: 各页自己的 dirty 状态，经 App.setViewDirty(name, dirty) 写入 view-dirty-badge
    flow-page: 加载后干净；新增/删除节点、连线、拖动节点、改属性、改名称均置为未保存；保存成功清除
-   loops-page: 编辑 hook 后未保存；保存 / 撤销修改 / 恢复默认 hooks 后清除
    models-page / permissions-page: 表单级脏检查（App.watchFormDirty）；控件值与进入表单时的基线不同即未保存，
      改回原值自动清除；保存成功后基线刷新；增删规则行 / 切换 tab 也会重新判定
    规则: 切换主视图时，若当前页有未保存改动，弹确认（确定 = 离开并放弃，取消 = 留在当前页）
 
 页尾操作
    flow-page.flow-foot: flow-return-btn, flow-save-btn, flow-run-btn
-   loops-page.config-footer: reset-btn（撤销修改）, save-btn
    models-page 各表单的 form-footer: save-btn / reset-btn（随编辑对象）
    permissions-page 各标签页的 config-footer: reset-btn, save-btn
 
@@ -1029,11 +1007,6 @@ collapse
 attachment
    no AttachmentDropzone node; 文件引用由 ref-btn 的「引用本地文件」承接
 
-loops-page
-   children: loops-viewport
-   loops-viewport: loops-viewport-split (loop-topology 左，只读; loop-nodes-table 右，可编辑) + config-footer
-   note: engine-indicator 只读（表头展示 AGENT_LOOP_ENGINE，点击弹出引擎来源 + 节点数 + 循环边数，不提供引擎切换）；loop-next-label 只读（next 链不可编辑）；id/type/entry 只读，仅 loop-hooks-editor 可编辑 hooks；loop-topology 含静态 next 链 + decide-next→pre-step 回环 + 实时 hooks 虚线；保存/撤销修改仅在无未保存改动以外时才可点
-
 meta-page
    children: meta-sidebar | meta-viewport
    meta-sidebar: meta-codegraph-btn（页导航，可扩展为多页）
@@ -1079,7 +1052,7 @@ graph LR
     CT --> APP
     CU --> APP
     CO --> APP
-    APP --> MD2["models/settings/permissions/loops/skills/tools/graph/flow/channels (各主视图页)"]
+    APP --> MD2["models/settings/permissions/skills/tools/graph/flow/channels (各主视图页)"]
 ```
 
 通道页的后端契约由 `channels/manager.js` 的全量快照订阅与 `core/rpc/handlers/channels.js` 的 `channel.list/start/stop/setAgent/subscribe` 提供。智能页的契约由 `core/rpc/handlers/agents.js` 的 `agent.list/get/upsert/delete` 提供；配置档经 `lib/agent-profile/index.js` 在 channel sink 中生效。
@@ -1100,8 +1073,9 @@ graph TD
     CU["compaction-ui.js<br/>handleCompactionEvent / runCompact / renderCompactionCard"]
     CO["composer.js<br/>onSend / runBareChat / 模型·推理选择器 / @引用 / initHeaderCompact"]
     TP["terminal-panel.js<br/>终端页：xterm / WebSocket / 会话绑定 / onViewChange"]
-    CH["channel-ui.js<br/>通道页：订阅快照 / 启停确认 / 手动刷新 / agent 绑定"]
-    AU["agent-ui.js<br/>智能页：配置档列表 / 编辑 / 保存删除"]
+    CH["channel-ui.js<br/>通道页：订阅快照 / 平台分组 / 启停确认 / 手动刷新 / agent 绑定"]
+    AU["agent-ui.js<br/>智能页：配置档列表 / 配置·提示词·流程图三 tab / hooks 编辑 / 保存删除"]
+    LP["loops.js<br/>共享组件：App.renderLoopTopology（被 agent-ui.js 调用）"]
 
     APP -->|调 init*| M
     APP -->|调 init*| SB
@@ -1115,6 +1089,8 @@ graph TD
     APP -->|调 init*| CH
     APP -->|调 init*| AU
     APP -.填 DOM 根.-> ST
+
+    AU -->|渲染节点流图| LP
 
     SB -->|selectSession 渲染消息| CT
     SB -->|新建/恢复会话| CO

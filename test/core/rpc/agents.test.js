@@ -61,6 +61,59 @@ test("profiles are stored as agent/config.json and agents/<id>/config.json", asy
   }
 });
 
+test("bot upsert writes prompt/tools/loops as separate files and delete removes them", async () => {
+  const fx = fixture();
+  try {
+    const rpc = fx.rpc();
+    const hooks = [{ on: "model-call", slot: "after", target: "channel-send" }];
+    const saved = await rpc.handle("agent.upsert", {
+      payload: {
+        id: "curator", name: "采集", persona: "Terse.", model: "m", effort: "high",
+        tools: ["read", "web_fetch"], prompt: "Collect sources.", loops: hooks,
+      },
+    });
+    const botDir = path.join(fx.agentsDir, "curator");
+    assert.deepEqual(saved.tools, ["read", "web_fetch"]);
+    assert.deepEqual(saved.prompt, "Collect sources.");
+    assert.deepEqual(saved.loops, hooks);
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(botDir, "config.json"), "utf8")).tools,
+      undefined,
+      "tools.json is authoritative for bot agents"
+    );
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(botDir, "tools.json"), "utf8")), ["read", "web_fetch"]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(botDir, "loops.json"), "utf8")), hooks);
+    assert.equal(fs.readFileSync(path.join(botDir, "prompt"), "utf8"), "Collect sources.");
+
+    const detail = await rpc.handle("agent.get", { id: "curator" });
+    assert.deepEqual(detail.tools, ["read", "web_fetch"]);
+    assert.deepEqual(detail.loops, hooks);
+    assert.equal(detail.prompt, "Collect sources.");
+    assert.deepEqual((await rpc.handle("agent.list", {})).agents[0].tools, ["read", "web_fetch"]);
+
+    assert.deepEqual(await rpc.handle("agent.delete", { id: "curator" }), { deleted: true });
+    assert.equal(fs.existsSync(botDir), false, "all profile files are removed");
+  } finally {
+    fs.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("bot upsert rejects invalid hooks before writing any file", async () => {
+  const fx = fixture();
+  try {
+    const rpc = fx.rpc();
+    await assert.rejects(
+      rpc.handle("agent.upsert", {
+        payload: { id: "bad", name: "x", loops: [{ on: "nope", slot: "after", target: "channel-send" }] },
+      }),
+      /is not an existing core node/
+    );
+    assert.equal(fs.existsSync(path.join(fx.agentsDir, "bad")), false);
+  } finally {
+    fs.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
 test("agent upsert validates id and effort", async () => {
   const fx = fixture();
   try {
