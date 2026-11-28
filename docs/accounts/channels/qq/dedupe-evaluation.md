@@ -1,5 +1,7 @@
 # dedupe 事务性存储迁移评估
 
+> 状态说明（2026-11）：DuckDB adapter 已从依赖与代码中移除，本文方案 B 仅作为历史评估保留。当前消息历史统一使用 SQLite WAL。
+
 ## 现状
 
 `channels/inbound/dedupe.js` 用内存 Map + JSON 文件（`data/channels/dedupe-<id>.json`）：

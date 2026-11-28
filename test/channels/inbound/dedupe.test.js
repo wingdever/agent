@@ -2,6 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { createDedupe } from "../../../channels/inbound/dedupe.js";
 
 test("an id is claimed only once", () => {
@@ -35,6 +36,28 @@ test("state survives a restart through the state file", () => {
   first.claim("persisted");
   const second = createDedupe({ capacity: 4, file });
   assert.equal(second.claim("persisted"), false);
+});
+
+test("commit mode does not persist an unfinished claim", () => {
+  const file = "/tmp/channel-dedupe-commit-test.json";
+  try { fs.unlinkSync(file); } catch (_) {}
+  const first = createDedupe({ capacity: 4, file, persistOn: "commit" });
+  assert.equal(first.claim("inflight"), true);
+  assert.equal(first.isPending("inflight"), true);
+  // A restart loses the in-memory claim, so the event can be replayed.
+  const second = createDedupe({ capacity: 4, file, persistOn: "commit" });
+  assert.equal(second.claim("inflight"), true);
+  second.commit("inflight");
+  const third = createDedupe({ capacity: 4, file, persistOn: "commit" });
+  assert.equal(third.claim("inflight"), false, "a committed event stays deduped");
+});
+
+test("release lets a failed claim be retried", () => {
+  const dedupe = createDedupe({ capacity: 4, persistOn: "commit" });
+  assert.equal(dedupe.claim("retry-me"), true);
+  assert.equal(dedupe.claim("retry-me"), false);
+  dedupe.release("retry-me");
+  assert.equal(dedupe.claim("retry-me"), true);
 });
 
 test("persist writes an atomic rename and leaves no temp file", async () => {

@@ -14,6 +14,7 @@ import { sessionIdFor } from "./../session-namespace.js";
  * @param {Object} options
  * @param {(message: Object, emit: (event: Object) => void) => Promise<void>} options.runTurn
  * @param {(message: Object, event: Object) => Promise<void>} options.project
+ * @param {(message: Object) => Promise<void>} [options.beforeRun] durable write / publish hook before a turn
  * @param {ReturnType<typeof import("./dedupe.js").createDedupe>} [options.dedupe]
  * @param {number} [options.maxInFlightPerSession] must stay 1: platform retries make concurrent turns on one conversation self-defeating
  * @param {(err: unknown, message: Object) => void} [options.onError]
@@ -21,6 +22,7 @@ import { sessionIdFor } from "./../session-namespace.js";
 export function createInboundPipeline({
   runTurn,
   project,
+  beforeRun = null,
   dedupe = null,
   maxInFlightPerSession = 1,
   onError = null,
@@ -109,6 +111,10 @@ export function createInboundPipeline({
 
     try {
       stats.turns++;
+      // Persist (and publish) before the turn starts. The platform ack already
+      // happened at intake, but this closes the "event accepted, history not
+      // written" window that a fire-and-forget publish left open.
+      if (typeof beforeRun === "function") await beforeRun(message);
       await runTurn(message, emit);
     } catch (err) {
       const kind = classifyError(err);

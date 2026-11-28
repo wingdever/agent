@@ -255,8 +255,193 @@ test("attach dedupes replayed eventIds: no second turn, but ACK still sent", asy
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(turns, 1, "only one turn for a duplicated eventId");
   const ackPosts = posts.filter((p) => p.status === "ack");
-  assert.equal(ackPosts.length, 1, "duplicate event still ACKed");
+  assert.equal(ackPosts.length, 2, "success consumption + duplicate event both ACKed");
   assert.equal(ackPosts[0].ackEventId, "same-id");
+  listener.stop();
+  stopAllListeners();
+});
+
+test("a thrown turn releases the claim without ACKing, so the event can retry", async () => {
+  stopAllListeners();
+  const posts = [];
+  let released = null;
+  const core = { agent: { chat: async () => { throw new Error("model crashed"); } } };
+  const fetchImpl = async (url, init) => {
+    if (String(url).includes("/proactive") && init && init.method === "POST") {
+      posts.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    return {
+      ok: true, status: 200,
+      body: new ReadableStream({ start(c) {
+        c.enqueue(new TextEncoder().encode(
+          'data: {"type":"message","eventId":"throw-1","instanceId":"bot","conversationKey":"G1","messages":[{"role":"user","content":"x"}]}\n\n'
+        ));
+        c.close();
+      } }),
+    };
+  };
+  const dedupe = {
+    claim: () => true,
+    release: (id) => { released = id; },
+    commit: () => {},
+    isPending: () => false,
+  };
+  const listener = attach(core, {
+    endpoint: "http://svc", instanceId: "bot", fetchImpl, schedule: () => {}, log: () => {}, dedupe,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(released, "throw-1");
+  assert.equal(posts.filter((p) => p.ackEventId === "throw-1").length, 0, "failure must not ACK");
+  listener.stop();
+  stopAllListeners();
+});
+
+test("a delivery failure leaves the event pending instead of ACKing it", async () => {
+  stopAllListeners();
+  const posts = [];
+  const events = [];
+  const core = {
+    agent: {
+      chat: async (ctx) => {
+        ctx.channelDelivery.deliveryError = "QQ send failed";
+        return { role: "assistant", content: "unused" };
+      },
+    },
+  };
+  const fetchImpl = async (url, init) => {
+    if (String(url).includes("/proactive") && init && init.method === "POST") {
+      posts.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    return {
+      ok: true, status: 200,
+      body: new ReadableStream({ start(c) {
+        c.enqueue(new TextEncoder().encode(
+          'data: {"type":"message","eventId":"send-fail","instanceId":"bot","conversationKey":"G1","messages":[{"role":"user","content":"x"}]}\n\n'
+        ));
+        c.close();
+      } }),
+    };
+  };
+  const listener = attach(core, {
+    endpoint: "http://svc", instanceId: "bot", fetchImpl, schedule: () => {}, log: () => {},
+    emit: (e) => events.push(e),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(posts.filter((p) => p.ackEventId === "send-fail").length, 0, "send failure must not ACK");
+  assert.equal(events.some((e) => e.phase === "retry"), true);
+  listener.stop();
+  stopAllListeners();
+});
+
+test("attach subscribes to interactions and applies a button callback", async () => {
+  stopAllListeners();
+  const calls = [];
+  const core = {
+    agent: { chat: async () => ({ role: "assistant", content: "ok" }) },
+    interactions: {
+      approve: (id, decision) => { calls.push({ id, decision }); return true; },
+    },
+  };
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/interactions/subscribe")) {
+      return {
+        ok: true, status: 200,
+        body: new ReadableStream({ start(c) {
+          c.enqueue(new TextEncoder().encode(
+            'data: {"type":"interaction","kind":"approval","id":7,"decision":"approve","eventId":"i7"}\n\n'
+          ));
+          // Keep the stream open; the listener is stopped explicitly.
+        } }),
+      };
+    }
+    return {
+      ok: true, status: 200,
+      body: new ReadableStream({ start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"type":"snapshot","count":0}\n\n'));
+      } }),
+    };
+  };
+  const listener = attach(core, {
+    endpoint: "http://svc", instanceId: "bot", canPromptUser: true,
+    fetchImpl, schedule: () => {}, log: () => {},
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(calls, [{ id: 7, decision: "approve" }]);
+  listener.stop();
+  stopAllListeners();
+});
+
+test("enableInteractions upgrades a late service without restarting core", async () => {
+  stopAllListeners();
+  const calls = [];
+  const core = {
+    agent: { chat: async () => ({ role: "assistant", content: "ok" }) },
+    interactions: { approve: (id, decision) => { calls.push({ id, decision }); return true; } },
+  };
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/interactions/subscribe")) {
+      return {
+        ok: true, status: 200,
+        body: new ReadableStream({ start(c) {
+          c.enqueue(new TextEncoder().encode(
+            'data: {"type":"interaction","kind":"approval","id":11,"decision":"approve","eventId":"i11"}\n\n'
+          ));
+        } }),
+      };
+    }
+    return { ok: true, status: 200, body: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('data: {"type":"snapshot","count":0}\n\n')); } }) };
+  };
+  const listener = attach(core, {
+    endpoint: "http://svc", instanceId: "bot", canPromptUser: false, interactions: false,
+    fetchImpl, schedule: () => {}, log: () => {},
+  });
+  assert.equal(listener.interactionListener, null);
+  listener.enableInteractions();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(calls, [{ id: 11, decision: "approve" }]);
+  assert.equal(listener.interactionListener.state, "open");
+  listener.stop();
+  stopAllListeners();
+});
+
+test("attach projects approval cards before the suspended turn finishes", async () => {
+  stopAllListeners();
+  const posts = [];
+  const core = {
+    agent: {
+      chat: async (ctx) => {
+        ctx.onEvent({ type: "approval-request", id: 5, name: "Bash", arguments: { cmd: "ls" }, permission: "ask" });
+        ctx.onEvent({ type: "final", content: "not a card" });
+        return { role: "assistant", content: "done" };
+      },
+    },
+  };
+  const fetchImpl = async (url, init) => {
+    if (String(url).includes("/proactive") && init && init.method === "POST") {
+      posts.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    return {
+      ok: true, status: 200,
+      body: new ReadableStream({ start(c) {
+        c.enqueue(new TextEncoder().encode(
+          'data: {"type":"message","eventId":"card-1","instanceId":"bot","conversationKey":"G1","senderId":"U1","recvType":"group","replyTo":"m1","messages":[{"role":"user","content":"x"}]}\n\n'
+        ));
+        c.close();
+      } }),
+    };
+  };
+  const listener = attach(core, {
+    endpoint: "http://svc", instanceId: "bot", canPromptUser: true,
+    fetchImpl, schedule: () => {}, log: () => {},
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const cards = posts.filter((p) => p.event);
+  assert.equal(cards.length, 1, "one approval card, final text is left to channel-send");
+  assert.equal(cards[0].event.type, "approval-request");
+  assert.equal(cards[0].replyTo, "m1");
   listener.stop();
   stopAllListeners();
 });

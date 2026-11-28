@@ -26,7 +26,6 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
-    "@duckdb/node-api": "2.0.1-r.1",
     "@joplin/turndown-plugin-gfm": "^1.0.68",
     "@larksuiteoapi/node-sdk": "^1.76.0",
     "@modelcontextprotocol/sdk": "1.32.2",

@@ -98,6 +98,6 @@ Agent {
 
 channel 实例在 `user/channels.json` 里用 `agent` 字段绑定一个代理，绑定在通道页选择；字段为空表示使用主档。运行时仍由 binder 把平台会话键映射到普通会话，sink 从配置档取 `persona/model/effort/toolNames` 传给 `chat(ctx)`；工具白名单按配置档裁剪请求工具清单（前缀缓存随之失效，这是明确的取舍）。主档 `config.json` 缺失时视为空覆盖，行为与全局设置一致。
 
-主档也是全局默认：`identity/persona/provider/model/effort` 已从 `user/settings.json` 一次性搬入 `agent/config.json` 并从 settings 中删除，`config.readSettings()` 把主档字段合并进设置视图，所有读取点无需改动。`settings.json` 只保留 `stream/reasoningControl/translate/web/autoCompact`。主档文件不存在或为空对象时，首次读取从 `assets/agent/config.json` 物化一次（默认 `identity/persona/effort=high/tools=[]`，不含机器相关的 provider/model），之后不再覆盖。composer 底栏的 model/effort 选择器也改为读主档并写回主档。
+主档也是全局默认：`identity/persona/provider/model/effort` 已从 `user/settings.json` 一次性搬入 `agent/config.json` 并从 settings 中删除，`config.readSettings()` 把主档字段合并进设置视图，所有读取点无需改动。`settings.json` 只保留 `stream/reasoningControl/translate/web/autoCompact`。主档文件不存在或为空对象时，首次读取从 `assets/agent/config.json` 物化一次（默认 `identity/persona/effort=high`，工具白名单为 `["bash", "str_replace_editor"]`，对齐 DSH Minimal 的双工具形态；不含机器相关的 provider/model），之后不再覆盖。composer 底栏的 model/effort 选择器也改为读主档并写回主档。
 
 配置只在新的平台会话生效：系统提示在会话首轮装配后写入 `session.prompt` 并复用，已有会话不会因绑定变化而改人格。需要迁移时由人手动处理会话映射。被通道绑定的代理拒绝删除，删除前必须先改绑定。

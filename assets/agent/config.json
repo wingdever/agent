@@ -2,5 +2,5 @@
   "identity": "You are an AI agent powered by DeepSeek Harness.",
   "persona": "",
   "effort": "high",
-  "tools": []
+  "tools": ["bash", "str_replace_editor"]
 }

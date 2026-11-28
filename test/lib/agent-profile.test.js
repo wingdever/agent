@@ -87,9 +87,24 @@ test("loadAgentProfile rejects invalid names and tolerates missing files", () =>
     const bare = loadAgentProfile("empty", { agentsDir: path.join(fx.dir, "agents") });
     assert.deepEqual(bare.loops, []);
     assert.deepEqual(bare.tools, []);
+    assert.equal(bare.toolsDeclared, false);
     assert.equal(bare.prompt, "");
   } finally {
     fs.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("an explicit empty bot allowlist stays empty instead of inheriting all tools", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bot-empty-tools-"));
+  const agentDir = path.join(dir, "agents", "emptybot");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "tools.json"), JSON.stringify([]));
+  try {
+    const profile = loadAgentProfile("emptybot", { agentsDir: path.join(dir, "agents") });
+    assert.equal(profile.toolsDeclared, true);
+    assert.deepEqual(chatOptions(profile), { toolNames: [] });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

@@ -17,13 +17,25 @@ function fakeDb() {
       if (/CREATE INDEX/.test(sql)) { schema.push("index"); return; }
       if (/INSERT OR IGNORE/.test(sql)) {
         const [id, instance, conv, payload] = params;
-        if (!rows.has(id)) rows.set(id, { event_id: id, instance_id: instance, conversation_key: conv, payload, delivered_at: null, attempts: 0 });
+        if (!rows.has(id)) rows.set(id, { event_id: id, instance_id: instance, conversation_key: conv, payload, delivered_at: null, attempts: 0, dead_lettered_at: null });
         return;
       }
       if (/UPDATE messages SET attempts/.test(sql)) {
+        const cap = Number((sql.match(/attempts \+ 1 >= (\d+)/) || [])[1]) || 5;
         for (const id of params) {
           const row = rows.get(id);
-          if (row) { row.attempts = (row.attempts || 0) + 1; row.last_attempt_at = "now"; }
+          if (row && !row.delivered_at && !row.dead_lettered_at) {
+            row.attempts = (row.attempts || 0) + 1;
+            row.last_attempt_at = "now";
+            if (row.attempts >= cap) row.dead_lettered_at = "now";
+          }
+        }
+        return;
+      }
+      if (/UPDATE messages SET dead_lettered_at = NULL/.test(sql)) {
+        for (const id of params) {
+          const row = rows.get(id);
+          if (row && row.dead_lettered_at) { row.dead_lettered_at = null; row.attempts = 0; row.last_attempt_at = null; }
         }
         return;
       }
@@ -45,6 +57,8 @@ function fakeDb() {
         if (lit) list = list.filter((r) => r.instance_id === lit[1]);
       }
       if (/delivered_at IS NULL/.test(sql)) list = list.filter((r) => !r.delivered_at);
+      if (/dead_lettered_at IS NULL/.test(sql)) list = list.filter((r) => !r.dead_lettered_at);
+      if (/dead_lettered_at IS NOT NULL/.test(sql)) list = list.filter((r) => r.dead_lettered_at);
       const cap = sql.match(/attempts < (\d+)/);
       if (cap) list = list.filter((r) => (r.attempts || 0) < Number(cap[1]));
       const limit = Number(params[params.length - 1]) || list.length;
@@ -114,7 +128,7 @@ test("forConversation filters by instance and conversation key", async () => {
   assert.deepEqual((await history.forConversation("bot-a", "G1")).map((m) => m.eventId), ["a"]);
 });
 
-test("ACK semantics: published stays pending, ack removes it, attempts cap drops it", async () => {
+test("ACK semantics: published stays pending, ack removes it, attempts cap dead-letters it", async () => {
   const { createSqliteAdapter } = await import("../../lib/channel-history/sqlite-adapter.js");
   const db = await createSqliteAdapter({ file: ":memory:" });
   const history = createChannelHistory({ db });
@@ -132,7 +146,10 @@ test("ACK semantics: published stays pending, ack removes it, attempts cap drops
       ["ack-2", "ack-3"], "ACK removes only that message");
 
     await history.markPublished(["ack-2", "ack-3"], { maxAttempts: 2 });
-    assert.deepEqual(await history.getPending("qq-bot"), [], "attempts cap auto-drops");
+    assert.deepEqual(await history.getPending("qq-bot"), [], "attempts cap removes it from pending");
+    assert.deepEqual((await history.getDeadLetters("qq-bot")).map((m) => m.eventId).sort(), ["ack-2", "ack-3"]);
+    await history.requeueDeadLetters(["ack-2"]);
+    assert.deepEqual((await history.getPending("qq-bot")).map((m) => m.eventId), ["ack-2"]);
   } finally {
     db.close();
   }

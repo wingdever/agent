@@ -5,6 +5,10 @@ import assert from "assert/strict";
 
 import { createChannelManager } from "../../channels/manager.js";
 import { createChannel as createFakeChannel } from "../../channels/fake/index.js";
+import { acquireChannelLock } from "../../lib/channel-lock.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 function message(overrides = {}) {
   return {
@@ -54,6 +58,7 @@ test("publish hook receives accepted inbound messages", async () => {
 
   await fake.inject(message({ eventId: "evt-pub-1" }));
   await fake.inject(message({ eventId: "evt-pub-2" }));
+  await manager.idle();
   assert.deepEqual(published, ["evt-pub-1", "evt-pub-2"]);
   await manager.stopAll();
 });
@@ -70,6 +75,7 @@ test("publish hook skips duplicate eventIds", async () => {
 
   await fake.inject(message({ eventId: "evt-dup-pub" }));
   await fake.inject(message({ eventId: "evt-dup-pub" }));
+  await manager.idle();
   assert.deepEqual(published, ["evt-dup-pub"]);
   await manager.stopAll();
 });
@@ -84,6 +90,7 @@ test("without a sink the service still dedupes and publishes inbound messages", 
   assert.equal((await manager.start("bot")).status, "running");
   await fake.inject(message({ eventId: "standalone-1" }));
   await fake.inject(message({ eventId: "standalone-1" }));
+  await manager.idle();
   assert.deepEqual(published, ["standalone-1"], "no sink, no turn, dedupe still works");
   assert.equal(manager.status("bot").turns, 0);
   await manager.stopAll();
@@ -324,4 +331,45 @@ test("the sink receives the channel instance so it can choose supervised vs auto
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(seen.channel.type, "fake");
   assert.equal(seen.channel.capabilities.canPromptUser, false);
+});
+
+test("a standalone interaction publisher receives button callbacks without a sink", async () => {
+  const fake = createFakeChannel({ instance: { id: "bot" } });
+  const interactions = [];
+  const manager = createChannelManager({
+    channels: [fake],
+    publishInteraction: (i) => interactions.push(i),
+  });
+  await manager.start("bot");
+  await fake.injectInteraction({ kind: "approval", id: 3, decision: "deny", eventId: "i3" });
+  assert.equal(interactions.length, 1);
+  assert.equal(interactions[0].id, 3);
+  await manager.stopAll();
+});
+
+test("the instance lock prevents a second manager from opening the same channel", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "channel-lock-test-"));
+  const lockFactory = (id) => acquireChannelLock(id, { dir });
+  const a = createChannelManager({ channels: [createFakeChannel({ instance: { id: "bot" } })], lockFactory });
+  const b = createChannelManager({ channels: [createFakeChannel({ instance: { id: "bot" } })], lockFactory });
+  try {
+    assert.equal((await a.start("bot")).status, "running");
+    await assert.rejects(() => b.start("bot"), /already running/);
+    assert.equal(b.status("bot").status, "error");
+    await a.stopAll();
+    assert.equal(fs.existsSync(path.join(dir, "run-bot.lock")), false);
+    assert.equal((await b.start("bot")).status, "running", "lock is released after stop");
+    await b.stopAll();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a service-mode instance is not startable in the local manager", async () => {
+  const fake = createFakeChannel({ instance: { id: "svc" } });
+  const manager = createChannelManager({ channels: [fake], externalServiceIds: ["svc"] });
+  manager.setSink(createSink());
+  await assert.rejects(manager.start("svc"), /standalone service/);
+  assert.equal(fake.started, false);
+  assert.equal(manager.status("svc").status, "stopped");
 });

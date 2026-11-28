@@ -1,5 +1,5 @@
 {
-  "$comment": "Template for user/channels.json. Copy to user/channels.json and fill credentials. Credentials may also come from env: CHANNEL_<ID>_<FIELD>, which wins over this file. `enabled` decides whether the instance is built, never whether it connects: channels only start when the user asks (channels tool / tools/channels). Credentials are checked at that moment only, so leaving appSecret empty keeps the app bootable.",
+  "$comment": "Template for user/channels.json. Copy to user/channels.json and fill credentials. Credentials may also come from env: CHANNEL_<ID>_<FIELD>, which wins over this file. `enabled` decides whether the instance is built, never whether it connects: channels only start when the user asks (channels tool / tools/channels). Credentials are checked at that moment only, so leaving appSecret empty keeps the app bootable. `options.serviceMode` chooses embedded vs service; `service` needs its own `serviceEndpoint`/port (see docs/accounts/channels/channel-service.md).",
   "channels": [
     {
       "id": "feishu-main",
@@ -29,7 +29,10 @@
       "options": {
         "mode": "ws",
         "qps": 3,
-        "throttleMs": 800
+        "throttleMs": 800,
+        "serviceMode": "embedded",
+        "serviceEndpoint": "http://127.0.0.1:18767",
+        "servicePort": 18767
       }
     },
     {

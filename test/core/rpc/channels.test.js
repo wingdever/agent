@@ -93,3 +93,21 @@ test("channel.list exposes the agent binding and setAgent writes it back", async
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("channel.list reports the service entry for its own instance", async () => {
+  const { core } = makeCore();
+  core.channelServices = new Map([
+    ["bot", {
+      endpoint: "http://127.0.0.1:18767",
+      features: ["messages", "interactions"],
+      listener: { state: "connected", interactionListener: { state: "connected" } },
+    }],
+  ]);
+  const rpc = new RpcRegistry(core);
+  defineChannelCommands(rpc);
+  const row = (await rpc.handle("channel.list", {}))[0];
+  assert.equal(row.service.endpoint, "http://127.0.0.1:18767");
+  assert.equal(row.service.external, true);
+  assert.equal(row.service.messages, "connected");
+  assert.equal(row.service.interactions, "connected");
+});

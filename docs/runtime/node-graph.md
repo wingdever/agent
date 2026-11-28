@@ -9,7 +9,7 @@ core/loops/
   index.js          引擎注册表 + getLoop(name)
   node-graph.js     调度器：hook、节点执行、终止收尾与 [turn] 日志
   registry.js       loadNodes()：扫描 nodes/* 与 builtins/*
-  loops-config.js   user/loops.json 的 hook overlay
+  loops-config.js   agent/loops.json 的 hook overlay
   nodes/*/          主干节点（registry.json + run.js）
   builtins/*/       二级节点，不在默认 next 链上，仅由 hook 调用
 ```
@@ -49,7 +49,7 @@ core/loops/
 
 ## 4. Hook 与 translate
 
-`registerHook(nodeId, slot, fn)` 把回调挂到节点的 `before` / `after` / `onError` 槽；同槽多个按注册顺序成管道执行。`user/loops.json` 的扁平数组在引擎启动时装配成 hook（`loops-config.js`）：
+`registerHook(nodeId, slot, fn)` 把回调挂到节点的 `before` / `after` / `onError` 槽；同槽多个按注册顺序成管道执行。`agent/loops.json` 的扁平数组在引擎启动时装配成 hook（`loops-config.js`）：
 
 | on | slot | target |
 |---|---|---|

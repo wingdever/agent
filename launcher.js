@@ -12,6 +12,10 @@ import { createChannelManager } from "./channels/manager.js";
 import { createSessionBinder } from "./channels/inbound/sessions.js";
 import { attach as attachChannelListen } from "./core/loops/builtins/channel-listen/run.js";
 import { stopAllListeners } from "./lib/channel-listen/index.js";
+import { applyInteraction } from "./lib/channel-interactions/index.js";
+import { acquireChannelLock } from "./lib/channel-lock.js";
+import { ensureServiceToken, readServiceToken } from "./lib/channel-token.js";
+import { channelEnv, channelServiceMode, channelServiceEndpoint } from "./lib/channel-service/mode.js";
 import { PROJECT_ROOT } from "./lib/paths/index.js";
 import { profileFor, chatOptions } from "./lib/agent-profile/index.js";
 import { startTransport } from "./core/transport.js";
@@ -20,6 +24,8 @@ const AGENT_UI = process.env.AGENT_UI || "electron";
 const TRANSPORT = process.env.AGENT_TRANSPORT || "http";
 const LOOP_ENGINE = process.env.AGENT_LOOP_ENGINE || "node-graph";
 const channelListeners = [];
+
+const channelHealthTimers = [];
 
 // UI 子项目注册表：将来新增 UI（如 web）在此登记即可，无需改协调逻辑。
 const UIS = {
@@ -54,32 +60,112 @@ app.whenReady()
     // open connection tells an external platform this machine is online, and
     // that must never be a side effect of launching the app.
     const channelInstances = await createChannels();
-    channels = createChannelManager({ channels: channelInstances, log: (line) => console.log(line) });
+    const externalServiceIds = channelInstances
+      .filter((instance) => channelServiceMode(instance) === "service")
+      .map((instance) => instance.instanceId);
+    channels = createChannelManager({
+      channels: channelInstances,
+      externalServiceIds,
+      lockFactory: (id) => acquireChannelLock(id),
+      log: (line) => console.log(line),
+    });
     console.log(`[launcher] channels=${channels.list().length} configured, none started`);
     core = await createCore({ proxies, channels });
 
-    // When a standalone channel service is configured, subscribe to it. Each
-    // message it publishes opens a turn whose entry node is channel-listen.
-    // Without the endpoint, local channels keep using the sink below.
-    const channelEndpoint = process.env.CHANNEL_SERVICE_ENDPOINT || "";
-    if (channelEndpoint) {
-      for (const instance of channelInstances.filter((i) => i.type === "qq")) {
-        channelListeners.push(attachChannelListen(core, {
-          endpoint: channelEndpoint,
-          instanceId: instance.instanceId,
-          // SQLite WAL allows core to open the channel service's history file
-          // read-only across processes — no HTTP history endpoint needed.
-          historyFile: process.env.CHANNEL_HISTORY_DB ||
-            path.join(PROJECT_ROOT, "data", "channels", `history-${instance.instanceId}.db`),
-          archiveDir: process.env.CHANNEL_ARCHIVE_DIR ||
-            path.join(PROJECT_ROOT, "data", "archive", "qq"),
-          // Core-side eventId dedupe survives restarts so a replay after a
-          // process restart does not run the same turn twice.
-          dedupeFile: path.join(PROJECT_ROOT, "data", "channels", `core-dedupe-${instance.instanceId}.json`),
-          log: (line) => console.log(line),
-        }));
+    // Standalone services are selected per instance. Embedded channels keep
+    // using the local manager and sink below; service-mode channels are only
+    // consumed from their own HTTP/SSE endpoint.
+    const serviceTargets = channelInstances
+      .filter((instance) => channelServiceMode(instance) === "service")
+      .map((instance) => ({ instance, endpoint: channelServiceEndpoint(instance) }))
+      .filter((target) => {
+        if (target.endpoint) return true;
+        console.error(`[launcher] channel ${target.instance.instanceId} is service-mode but has no service endpoint`);
+        return false;
+      });
+    if (serviceTargets.length) {
+      const channelToken = readServiceToken() || ensureServiceToken();
+      const groups = new Map();
+      for (const target of serviceTargets) {
+        const endpoint = String(target.endpoint).replace(/\/+$/, "");
+        if (!groups.has(endpoint)) {
+          groups.set(endpoint, { endpoint, targets: [], listeners: [], features: [] });
+        }
+        groups.get(endpoint).targets.push(target.instance);
       }
-      console.log(`[launcher] channel-listen attached to ${channelEndpoint}`);
+      core.channelServices = new Map();
+      for (const group of groups.values()) {
+        let probing = false;
+        // Health is re-probed: the systemd service may start after the app. A
+        // late-arriving interaction stream flips future turns to supervised
+        // without restarting core.
+        const probeChannelService = async ({ quiet = false } = {}) => {
+          if (probing) return group.features;
+          probing = true;
+          try {
+            const health = await fetch(`${group.endpoint}/health`);
+            const body = await health.json();
+            group.features = Array.isArray(body && body.features) ? body.features : [];
+            for (const [id, entry] of core.channelServices) {
+              if (entry.endpoint === group.endpoint) entry.features = group.features;
+            }
+            if (!health.ok && !quiet) console.log(`[launcher] channel service ${group.endpoint} health: http ${health.status}`);
+            if (group.features.includes("interactions")) {
+              for (const listener of group.listeners) {
+                if (typeof listener.enableInteractions === "function" && !listener.interactionListener) {
+                  listener.enableInteractions();
+                  console.log(`[launcher] interactions enabled for ${listener.instanceId}`);
+                }
+              }
+              const timer = group.healthTimer;
+              if (timer) {
+                clearInterval(timer);
+                group.healthTimer = null;
+              }
+            }
+          } catch (err) {
+            if (!quiet) console.log(`[launcher] channel service ${group.endpoint} health failed: ${(err && err.message) || err}; interactions stay autonomous`);
+          } finally {
+            probing = false;
+          }
+          return group.features;
+        };
+        for (const instance of group.targets) {
+          // Only a service that advertises the interaction stream can carry a
+          // supervised turn. Otherwise ask tools would hang waiting for a click.
+          const listener = attachChannelListen(core, {
+            endpoint: group.endpoint,
+            instanceId: instance.instanceId,
+            token: channelToken,
+            canPromptUser: false,
+            interactions: false,
+            historyFile: process.env[channelEnv(instance.instanceId, "HISTORY_DB")]
+              || process.env.CHANNEL_HISTORY_DB
+              || path.join(PROJECT_ROOT, "data", "channels", `history-${instance.instanceId}.db`),
+            archiveDir: process.env[channelEnv(instance.instanceId, "ARCHIVE_DIR")]
+              || process.env.CHANNEL_ARCHIVE_DIR
+              || path.join(PROJECT_ROOT, "data", "archive", instance.type || "channel", instance.instanceId),
+            // Completed-event dedupe is commit-based: an interrupted turn is
+            // replayable after a restart, not suppressed as a duplicate.
+            dedupeFile: path.join(PROJECT_ROOT, "data", "channels", `core-dedupe-${instance.instanceId}.json`),
+            log: (line) => console.log(line),
+          });
+          channelListeners.push(listener);
+          group.listeners.push(listener);
+          core.channelServices.set(instance.instanceId, {
+            endpoint: group.endpoint,
+            features: group.features,
+            tokenPresent: Boolean(channelToken),
+            listener,
+          });
+        }
+        await probeChannelService();
+        console.log(`[launcher] channel service ${group.endpoint} attached (interactions=${group.features.includes("interactions")})`);
+        if (!group.features.includes("interactions")) {
+          group.healthTimer = setInterval(() => { probeChannelService({ quiet: true }); }, 30_000);
+          channelHealthTimers.push(group.healthTimer);
+        }
+      }
     }
     // A channel turn is an ordinary agent turn: the sink maps one inbound message
     // to one chat call, whose events the channel projects into cards.
@@ -106,24 +192,7 @@ app.whenReady()
         }, chatOptions(profileFor(message.instanceId))));
       },
       interact: async (interaction) => {
-        const id = Number(interaction && interaction.id);
-        if (!Number.isInteger(id) || id <= 0) throw new Error("interaction id is missing");
-        const kind = interaction.kind;
-        let accepted = false;
-        if (kind === "approval") {
-          accepted = core.interactions.approve(id, interaction.decision === "approve" ? "approve" : "deny");
-        } else if (kind === "question") {
-          accepted = core.interactions.answerQuestions(id, interaction.answers || []);
-        } else if (kind === "plan-review") {
-          accepted = core.interactions.answerPlanReview(id, {
-            approved: interaction.approved === true,
-            feedback: interaction.feedback || "",
-          });
-        } else {
-          throw new Error(`unknown interaction kind "${kind}"`);
-        }
-        if (!accepted) throw new Error(`interaction ${kind}:${id} is no longer pending`);
-        return { accepted };
+        return applyInteraction(core, interaction);
       },
     });
     // A paused turn only survives a restart through its snapshot
@@ -167,6 +236,7 @@ app.on("before-quit", async () => {
       console.error("[launcher] pause snapshot failed:", (e && e.message) || e);
     }
   }
+  for (const timer of channelHealthTimers) clearInterval(timer);
   if (channels) await channels.stopAll();
   for (const listener of channelListeners) { if (listener && listener.closeHistory) listener.closeHistory(); }
   stopAllListeners();

@@ -54,8 +54,11 @@ export function createChannelCallback({
   onAck = async () => {},
   getPending = () => [],
   onReplay = () => {},
+  getStatus = () => null,
+  features = ["messages", "interactions", "proactive", "auth"],
   port = 0,
   host = "127.0.0.1",
+  token = null,
   log = () => {},
 } = {}) {
   if (typeof lookupChannel !== "function") throw new TypeError("callback needs lookupChannel");
@@ -64,6 +67,22 @@ export function createChannelCallback({
   let boundPort = port;
   /** @type {Set<{res: Object, instanceId: string|null}>} */
   const subscribers = new Set();
+  /** @type {Set<{res: Object, instanceId: string|null}>} */
+  const interactionSubscribers = new Set();
+
+  function authorized(req) {
+    if (!token) return true;
+    const header = String(req.headers.authorization || "");
+    const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
+    const direct = String(req.headers["x-channel-token"] || "");
+    return bearer === token || direct === token;
+  }
+
+  function rejectUnauthorized(res) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+  }
+
 
   async function deliver(payload) {
     const instanceId = String((payload && payload.instanceId) || "");
@@ -74,12 +93,24 @@ export function createChannelCallback({
     // message is consumed without another send or another turn.
     const ackOnly = payload && (payload.status === "failed" || payload.status === "ack");
 
-    if (!ackOnly && (!instanceId || !conversationKey || !text)) {
+    // A card event (approval / question / plan review) is projected through
+    // the driver without sending or acknowledging a message. It must not be
+    // mistaken for a text send: the turn is suspended waiting for the click.
+    const event = payload && payload.event && typeof payload.event === "object"
+      ? payload.event
+      : null;
+
+    if (!ackOnly && !event && (!instanceId || !conversationKey || !text)) {
       return { ok: false, error: "instanceId, conversationKey and text are required" };
     }
     if (ackOnly && ackEventId) {
-      await onAck([ackEventId]);
-      return { ok: true, ackOnly: true };
+      try {
+        await onAck([ackEventId]);
+        return { ok: true, ackOnly: true, acked: true };
+      } catch (err) {
+        log(`[channel-callback] ack-only failed: ${(err && err.stack) || err}`);
+        return { ok: false, sent: false, acked: false, error: (err && err.message) || String(err) };
+      }
     }
 
     const channel = lookupChannel(instanceId);
@@ -87,28 +118,46 @@ export function createChannelCallback({
       return { ok: false, error: `unknown channel instance "${instanceId}"` };
     }
 
-    // Proactive messages carry no passive reply id. project()'s final branch
-    // sends them as active messages; QQ's active quota decides delivery.
     const message = {
       type: channel.type,
       instanceId,
       conversationKey,
       senderId: String(payload.senderId || ""),
       recvType: payload.recvType === "user" ? "user" : "group",
-      replyTo: "",
+      // Keep the passive reply window for cards: an approval card is a reply
+      // to the message that triggered the turn, not an active push.
+      replyTo: String(payload.replyTo || ""),
       eventId: String(payload.eventId || ""),
       messages: [],
       attachments: [],
     };
+    if (event) {
+      try {
+        await channel.project(message, event);
+        return { ok: true, sent: true, acked: false, event: true };
+      } catch (err) {
+        log(`[channel-callback] ${instanceId} project event failed: ${(err && err.stack) || err}`);
+        return { ok: false, sent: false, acked: false, error: (err && err.message) || String(err) };
+      }
+    }
 
+    let sent = false;
+    let acked = false;
     try {
       await channel.project(message, { type: "final", content: text });
+      sent = true;
       await onDeliver({ ...payload, message });
-      if (ackEventId) await onAck([ackEventId]);
-      return { ok: true };
+      if (ackEventId) {
+        await onAck([ackEventId]);
+        acked = true;
+      }
+      return { ok: true, sent: true, acked };
     } catch (err) {
       log(`[channel-callback] ${instanceId} deliver failed: ${(err && err.stack) || err}`);
-      return { ok: false, error: (err && err.message) || String(err) };
+      // sent=true distinguishes "the user already received it, only the ACK
+      // failed" from "nothing was delivered". The former must not be retried
+      // into a duplicate QQ message.
+      return { ok: false, sent, acked, error: (err && err.message) || String(err) };
     }
   }
 
@@ -127,6 +176,42 @@ export function createChannelCallback({
       if (writeFrame(sub.res, message)) sent += 1;
     }
     return { sent, eventIds: message.eventId ? [String(message.eventId)] : [] };
+  }
+
+  /**
+   * Push a button/approval/question callback to core. The platform click is
+   * already acknowledged by the driver; this is the decision hand-off, not a
+   * new inbound message, so it never enters message history.
+   */
+  function publishInteraction(interaction) {
+    if (!interaction || typeof interaction !== "object") return { sent: 0 };
+    const instanceId = String(interaction.instanceId || "");
+    let sent = 0;
+    for (const sub of interactionSubscribers) {
+      if (sub.instanceId && instanceId && sub.instanceId !== instanceId) continue;
+      if (writeFrame(sub.res, { type: "interaction", ...interaction })) sent += 1;
+    }
+    return { sent };
+  }
+
+  async function subscribeInteractions(req, res) {
+    const instanceId = parseInstanceFilter(req.url);
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    const subscriber = { res, instanceId };
+    interactionSubscribers.add(subscriber);
+    log(`[channel-callback] interactions subscribed ${instanceId || "all"}`);
+    const remove = () => {
+      if (!interactionSubscribers.delete(subscriber)) return;
+      log(`[channel-callback] interactions unsubscribed ${instanceId || "all"}`);
+    };
+    req.on("close", remove);
+    res.on("close", remove);
+    res.on("error", remove);
+    writeFrame(res, { type: "snapshot", stream: "interactions", instanceId });
   }
 
   async function subscribe(req, res) {
@@ -170,14 +255,37 @@ export function createChannelCallback({
     if (server) return Promise.resolve(address());
     server = http.createServer((req, res) => {
       const path = (req.url || "").split("?")[0];
+      if (path === "/health" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          ok: true,
+          service: "channel",
+          features,
+          authRequired: Boolean(token),
+          status: (() => { try { return getStatus(); } catch (_) { return null; } })(),
+          host,
+          port: boundPort,
+        }));
+        return;
+      }
       if (path === "/messages/subscribe" && req.method === "GET") {
+        if (!authorized(req)) return rejectUnauthorized(res);
         subscribe(req, res).catch((err) => {
           log(`[channel-callback] subscribe failed: ${(err && err.message) || err}`);
           if (!res.writableEnded) res.end();
         });
         return;
       }
+      if (path === "/interactions/subscribe" && req.method === "GET") {
+        if (!authorized(req)) return rejectUnauthorized(res);
+        subscribeInteractions(req, res).catch((err) => {
+          log(`[channel-callback] interaction subscribe failed: ${(err && err.message) || err}`);
+          if (!res.writableEnded) res.end();
+        });
+        return;
+      }
       if (path === "/proactive" && req.method === "POST") {
+        if (!authorized(req)) return rejectUnauthorized(res);
         return readBody(req, () => res.writeHead(413).end("too large")).then(async (body) => {
           if (body === null) return;
           let payload;
@@ -209,7 +317,9 @@ export function createChannelCallback({
       host,
       port: boundPort,
       url: `http://${host}:${boundPort}`,
+      healthUrl: `http://${host}:${boundPort}/health`,
       subscribeUrl: `http://${host}:${boundPort}/messages/subscribe`,
+      interactionsUrl: `http://${host}:${boundPort}/interactions/subscribe`,
       sendUrl: `http://${host}:${boundPort}/proactive`,
     };
   }
@@ -220,6 +330,10 @@ export function createChannelCallback({
         if (!sub.res.writableEnded) sub.res.end();
       }
       subscribers.clear();
+      for (const sub of interactionSubscribers) {
+        if (!sub.res.writableEnded) sub.res.end();
+      }
+      interactionSubscribers.clear();
       if (!server) return resolve();
       const current = server;
       server = null;
@@ -227,5 +341,14 @@ export function createChannelCallback({
     });
   }
 
-  return { listen, close, address, deliver, publish, subscriberCount: () => subscribers.size };
+  return {
+    listen,
+    close,
+    address,
+    deliver,
+    publish,
+    publishInteraction,
+    subscriberCount: () => subscribers.size,
+    interactionSubscriberCount: () => interactionSubscribers.size,
+  };
 }

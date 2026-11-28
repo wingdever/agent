@@ -843,7 +843,7 @@ user-job-request(event) -> renderUserJob(card) -> 展示任务描述 + 结果文
 
 loops-btn -> loops-page（首次进入时 loops.get 拉取 engines / nodes / builtins / hooks 覆写）
 engine-indicator(click) -> uiAlert 提示：当前引擎（AGENT_LOOP_ENGINE，重启生效）、节点数（含 builtin）、循环边数
-save-btn(hooks) -> AgentClient.call("loops", {op:"upsert", payload:{hooks}}) -> 整体写回 user/loops.json（数组顺序即执行顺序，校验 slot / on / target 且禁止重复三元组）；无未保存改动时禁用
+save-btn(hooks) -> AgentClient.call("loops", {op:"upsert", payload:{hooks}}) -> 整体写回 agent/loops.json（数组顺序即执行顺序，校验 slot / on / target 且禁止重复三元组）；无未保存改动时禁用
 reset-btn(撤销修改) -> 放弃未保存编辑，重新 loops.get 拉取；无未保存改动时禁用
 reset-defaults-btn -> AgentClient.call("loops", {op:"upsert", payload:{hooks:<仓库默认两条 translate hook: builtin.translate-input / builtin.translate-output>}}) -> 恢复出厂（需 uiConfirm）；位于「更多」菜单
 

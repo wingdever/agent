@@ -310,6 +310,15 @@ M2 的断言落点（`channels/feishu/*.test.js`，19 条）：
 6. **首条 token 立即发送，之后编辑同一条**。平台没有「正在输入」接口，进度只能靠消息本身。第一条增量 `send` 拿到 `msgId`，后续按 `throttleMs` 走 `edit`（带上 `recvId`/`recvType`）；`msgId` 拿不到就退化成「只发一次，不编辑」。
 7. **静态 token 不做重认证重试**。`createStaticAuth` 带 `rotates: false`，出站队列据此跳过「invalidate 后重试」——固定 token 换不出新 token，重试只会撞同一个 1003。
 
+### 14.5.1 嵌入式与微服务
+
+云湖的 `options.mode` 选的是平台事件投递方式（`ws` / `webhook`）；`options.serviceMode` 选的是宿主方式（`embedded` / `service`）。两者正交，可以写成 `mode:"ws", serviceMode:"service"`。
+
+- `embedded`：`launcher.js` 的本地 manager + sink，保留原有的首条 send / 后续 edit 流式。
+- `service`：`channel-run.js` + `lib/channel-service/runtime.js` 独立进程，core 通过 SSE 拉消息；当前只发最终文本，token 流式尚未投影。
+- 云湖 `canPromptUser=false`，服务端 `/health` 不声明 `interactions`，core 不会为它建立交互订阅。
+- 公共运行时、按实例 endpoint 与回滚步骤见 `docs/accounts/channels/channel-service.md`。
+
 **实机证据**（真 token、真群 `agent-dev` / 846015667、机器人 `ami` / 83683850）：
 
 - 长连接帧：`header.eventType` + `event.{sender,chat,message}`，`content` 里没有 `at` 键（那条没人被 @），`instructionId` 为 0——与第三方适配器反推的结构一致。

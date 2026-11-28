@@ -242,6 +242,41 @@ PUT /interactions/{encodeURIComponent(interactionId)}
 
 `code` 取值：`0` 成功、`1` 失败、`2` 太频繁、`3` 重复、`4` 无权限。
 
+### 发送结果与 ACK
+
+`POST /proactive` 返回结构体，不是单一布尔：
+
+```ts
+{ ok: boolean, sent: boolean, acked: boolean, sentCount?: number, error?: string }
+```
+
+- `ok:true, sent:true, acked:true`——QQ 已发送且入站事件已 ACK。
+- `ok:false, sent:true`——QQ 已发送，但 ACK 失败。调用方不能重发，否则用户收到重复消息；只能下次重放时补 ACK。
+- `ok:false, sent:false`——没有发出，可重试。
+- 纯确认 `status:"ack"` 不发送消息，只 ACK `ackEventId`。
+
+发送节点默认重试 2 次、间隔 200ms；最终失败写入 `deliveryError`，`channel-listen` 不 ACK 并保留事件待重放。
+
+### 历史库字段
+
+`data/channels/history-<id>.db` 的 `messages` 表：
+
+```ts
+{
+  event_id: string,          // 主键，幂等
+  instance_id: string,
+  conversation_key: string,
+  payload: string,           // 原始 InboundMessage JSON
+  created_at: string,
+  delivered_at: string|null, // 显式 ACK 或出站消息
+  attempts: number,
+  last_attempt_at: string|null,
+  dead_lettered_at: string|null // attempts 达上限后进入 dead-letter
+}
+```
+
+`getPending` 只返回 `delivered_at IS NULL AND dead_lettered_at IS NULL` 的行。dead-letter 不归档，需人工检查或 `requeueDeadLetters()` 重置 attempts 后重新入队。
+
 ## 字段对接关系
 
 | 入站字段 | 出站去向 | 规则 |

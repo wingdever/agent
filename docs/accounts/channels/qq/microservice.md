@@ -1,5 +1,7 @@
 # QQ channel 微服务
 
+> 公共运行时已抽到 `lib/channel-service/runtime.js`，QQ 与云湖试点共用；本文的进程模型、SQLite 写权与 core-pull 约束仍然适用，启动细节见 `docs/accounts/channels/channel-service.md`。
+
 将 QQ 机器人 channel 拆成独立常驻服务。它只做三件事：收消息、存消息、接受发送调用。bot agent 在 core 里，由 core 主动订阅 channel 的消息流并发起 turn——core-pull 模型，channel 不依赖 core。
 
 ## 目标与边界
@@ -12,8 +14,8 @@
 
 - 独立进程 + 独立数据文件，复用 `channels/qq/` 驱动代码，不复制源码。
 - systemd 用户服务负责开机自启与崩溃重启，日志交 journald。
-- 同机不同进程，经 `127.0.0.1` 通信，不引入 token 鉴权。
-- channel 服务对外暴露两类接口：消息订阅流（core 来拉）与发送端点（core 来调）。它从不主动调用 core。
+- 同机不同进程，经 `127.0.0.1` 通信。本机回环不是身份边界：同一用户下的任意进程都能读 SSE 或冒充机器人发消息，因此所有端点共享一个 0600 的 bearer token（`CHANNEL_SERVICE_TOKEN` 或 `data/channels/service-token`）。
+- channel 服务对外暴露消息订阅流、交互订阅流、发送端点和健康端点。它从不主动调用 core。
 
 ### 不在范围内
 
@@ -34,7 +36,9 @@ flowchart LR
     D["channels/qq/ 驱动<br/>gateway / events / api / cards"]
     W["历史写入器<br/>入站消息 + 出站消息"]
     SUB["消息订阅流<br/>/messages/subscribe<br/>core 来拉"]
+    INT["交互订阅流<br/>/interactions/subscribe<br/>core 来拉"]
     SEND["发送端点<br/>/proactive<br/>core 来调"]
+    HEALTH["健康端点<br/>/health"]
     DB[("SQLite WAL<br/>消息镜像与全部状态")]
     D --> W --> DB
     DB --> SUB
@@ -55,6 +59,7 @@ flowchart LR
   WSS --> D
   D --> REST
   SUB -->|"SSE 消息流"| PULL
+  INT -->|"SSE 按钮回调"| INT_CORE["core.interactions"]
   NODE -->|"POST /proactive"| SEND
   CTX -.->|"只读查询"| DB
 ```
@@ -99,9 +104,9 @@ flowchart LR
 
 ### 保留与归档
 
-消息永久保留。热库只保留最近 90 天；更旧的数据由定时任务按月滚动导出为独立的 SQLite 文件（`YYYY-MM.db`），按月份分目录存放在 `data/archive/qq/`。core 的只读 reader 把热库与全部归档库一起读，按 `conversationKey` 和时间合并，回放不受影响。未投递消息不归档。
+消息永久保留。热库只保留最近 90 天；更旧的数据由定时任务（启动时 + 每 24h 扫描一次）按月滚动导出为独立的 SQLite 文件（`YYYY-MM.db`），按月份分目录存放在 `data/archive/qq/`。core 的只读 reader 把热库与全部归档库一起读，按 `conversationKey` 和时间合并，回放不受影响。未投递消息不归档。
 
-归档任务每月运行一次：先导出满 90 天的月份，再从热表删除已归档行。导出与删除在同一事务内完成，避免中途失败造成重复或缺口。
+归档任务每次先导出满 90 天的月份，再从热表删除已归档行。归档文件写入和热表删除分别在各自 SQLite 连接的事务内完成；两个文件之间不是全局事务，极端崩溃点仍可能留下可重放的重复行（event_id 幂等可挡住）。
 
 ## 与 core 的交互
 
@@ -109,7 +114,7 @@ flowchart LR
 
 channel 服务暴露 streaming 订阅端点 `/messages/subscribe`，推送已归一化的消息。它沿用 `channel.subscribe`（`core/rpc/handlers/channels.js:106`）的 streaming 形态：订阅建立时发全量未处理消息快照，之后每来一条新消息推一条增量。
 
-每条消息携带：`instanceId`、`conversationKey`、`eventId`、`type`、`messages`、`attachments`、`raw`。channel 服务不关心谁来消费，也不等待消费结果——core 不在时消息留在库里，下次订阅重放。
+每条消息携带：`instanceId`、`conversationKey`、`eventId`、`type`、`messages`、`attachments`、`raw`。channel 服务不关心谁来消费，也不等待消费结果——core 不在时消息留在库里，下次订阅重放。重放只计数，不 ACK；只有 core 明确 ACK 后才从 pending 移除。
 
 ### core 发起 turn
 
@@ -127,7 +132,9 @@ core 要向 QQ 发消息时，经 node-graph 的 `channel-send` 节点调用 `li
 
 - 节点由编排层注入 `ctx.channelDelivery`（`endpoint`、`instanceId`、`conversationKey`、`text`），由编排 hook 的 `goto` 跳入；text 可为函数，从当前模型响应取值。
 - 端点按 `instanceId` 找 channel，经 `channel.project()` 发出消息并写入出站历史。无 `replyTo` 时按主动消息发送，由 QQ 的主动配额决定投递。
-- 按钮回调由 channel 服务直接 ack，并按 `pendingActors` 校验点击者身份；结果需要回灌 core 时走一个独立的交互端点，不进消息订阅流。
+- 按钮回调由 channel 服务直接 ack，并按 `pendingActors` 校验点击者身份；结果经 `/interactions/subscribe` 回灌 core，不进消息订阅流。
+- 发送端点返回 `{ok, sent, acked}`：`ok:false, sent:true` 表示 QQ 已发出但 ACK 失败，core 不应重发。
+- 审批卡、提问卡、计划审批卡在 turn 挂起时由 `channel-listen` 经 `/proactive` 的 `event` 字段回传；callback 直接调 `channel.project(message,event)`，不发送文本、不 ACK。final 文本仍由 `channel-send` 发送，不重复投影。
 
 ### 上下文读取
 
@@ -165,9 +172,9 @@ channel 服务只做收消息、存消息、接受发送调用。sink 接口可�
 
 ### 服务框架：沿用自建 HTTP，不引入 NestJS
 
-channel 服务的端点是三个：`/messages/subscribe`（SSE）、`/proactive`（POST）、以及一个交互端点。沿用项目现有的 `http.createServer` 模式（`core/transports/http.js`、`core/a2a/http.js`、`channels/yunhu/webhook-server.js`、`channels/callback.js`），扩展 `channels/callback.js` 即可。
+channel 服务的端点是四个：`/messages/subscribe`（SSE）、`/interactions/subscribe`（SSE）、`/proactive`（POST，兼作 ACK）和 `/health`（GET）。沿用项目现有的 `http.createServer` 模式（`core/transports/http.js`、`core/a2a/http.js`、`channels/yunhu/webhook-server.js`、`channels/callback.js`），扩展 `channels/callback.js` 即可。
 
-不引入 NestJS：它的模块/DI/装饰器体系是为多租户、认证中间件、ORM、OpenAPI 这类大型应用准备的，三个端点没有它要解决的问题；而且它与项目现有的纯 ESM、零框架、显式组合根装配风格冲突，还要为装饰器和反射引入额外依赖与运行时。SSE 订阅的"快照 + 增量 + 重放"是 channel 服务的核心逻辑，框架帮不上忙。
+不引入 NestJS：它的模块/DI/装饰器体系是为多租户、认证中间件、ORM、OpenAPI 这类大型应用准备的，这几个端点没有它要解决的问题；而且它与项目现有的纯 ESM、零框架、显式组合根装配风格冲突，还要为装饰器和反射引入额外依赖与运行时。SSE 订阅的"快照 + 增量 + 重放"是 channel 服务的核心逻辑，框架帮不上忙。
 
 若后续服务规模增长到需要框架，优先评估 Fastify（轻量、原生 ESM、SSE 支持好、无装饰器魔法），而非 NestJS。
 
@@ -175,7 +182,7 @@ channel 服务的端点是三个：`/messages/subscribe`（SSE）、`/proactive`
 
 "激活"在两个不同层次上使用，对象不同，不构成冲突：
 
-- **UI 激活 channel**：启动或关闭 channel 微服务进程。UI 通过 `channel.start` / `channel.stop`（`core/rpc/handlers/channels.js:67-77`）控制服务的启停，作用对象是服务进程的生命周期。
+- **UI 激活 channel**：启动或关闭 channel 微服务进程。UI 通过 `channel.start` / `channel.stop`（`core/rpc/handlers/channels.js:67-77`）控制服务；独立服务与 UI 本地 manager 共用 `data/channels/run-<id>.lock`，同一实例只允许一条 WebSocket。
 - **节点激活**：服务已运行时，core 与 channel 服务建立消息通讯。`channel-subscribe` 激活节点在引擎构造时建立到 `/messages/subscribe` 的 SSE 订阅，使 `channel-listen` 入口节点可用。作用对象是通讯链路。
 
-UI 启停的是消息源，节点激活建立的是消费端——前者决定"有没有消息"，后者决定"消息来了有没有 turn 接"。两者的时序无需协调：`subscribeChannel` 自带断线重连，服务晚于 core 启动时订阅会自动连上。
+UI 启停的是消息源，节点激活建立的是消费端——前者决定"有没有消息"，后者决定"消息来了有没有 turn 接"。消息订阅与交互订阅都自带断线重连；health probe 每 30s 重试，服务晚于 core 启动时会在探测到 `interactions` 后自动打开交互流，后续 turn 切到 supervised。

@@ -10,17 +10,17 @@
 // No real QQ credentials are touched. Verifies the transport boundary that
 // unit tests (which stub fetch) cannot.
 
-import fs from "node:fs";
-import path from "node:path";
-
 import { createChannelCallback } from "../channels/callback.js";
 import { createChannelManager } from "../channels/manager.js";
 import { createChannel as createFakeChannel } from "../channels/fake/index.js";
 import { createChannelHistory } from "../lib/channel-history/index.js";
-import { createMemoryAdapter } from "../lib/channel-history/adapters.js";
+import { createSqliteAdapter } from "../lib/channel-history/sqlite-adapter.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createChannelListener } from "../lib/channel-listen/index.js";
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname));
+const TOKEN = "verify-token";
 
 function message(overrides = {}) {
   return {
@@ -37,11 +37,15 @@ function message(overrides = {}) {
 async function main() {
   // --- channel service role ---------------------------------------------
   const fake = createFakeChannel({ instance: { id: "fake-verify" } });
-  const history = createChannelHistory({ db: createMemoryAdapter() });
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "channel-verify-"));
+  const db = await createSqliteAdapter({ file: path.join(tmpDir, "history.db") });
+  const history = createChannelHistory({ db });
   const callback = createChannelCallback({
+    token: TOKEN,
     lookupChannel: (id) => (String(id) === "fake-verify" ? fake : null),
     getPending: (id) => history.getPending(id),
-    onReplay: (msgs) => history.markDelivered(msgs.map((m) => m.eventId)),
+    onReplay: (msgs) => history.markPublished(msgs.map((m) => m.eventId)),
+    onAck: (ids) => history.ack(ids),
     log: () => {},
   });
   const addr = await callback.listen();
@@ -53,7 +57,7 @@ async function main() {
     publish: async (m) => {
       await history.append(m);
       const result = callback.publish(m);
-      if (result.sent > 0) await history.markDelivered(result.eventIds);
+      if (result.sent > 0) await history.markPublished(result.eventIds);
     },
   });
   await manager.start("fake-verify");
@@ -63,7 +67,15 @@ async function main() {
   const listener = createChannelListener({
     endpoint: addr.url,
     instanceId: "fake-verify",
-    onMessage: async (m) => received.push(m),
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    onMessage: async (m) => {
+      received.push(m);
+      await fetch(addr.sendUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify({ instanceId: "fake-verify", conversationKey: m.conversationKey, text: "", status: "ack", ackEventId: m.eventId }),
+      });
+    },
     schedule: () => {}, // no reconnect loop in a verification run
     log: (line) => console.log(`[verify] listener: ${line}`),
   });
@@ -82,12 +94,14 @@ async function main() {
   listener.stop();
   await manager.stopAll();
   await callback.close();
+  db.close();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 
-  if (!ok) {
-    console.error("[verify] FAIL: message did not cross the HTTP/SSE boundary");
+  if (!ok || pending.length !== 0) {
+    console.error("[verify] FAIL: message/ACK did not cross the HTTP/SSE boundary");
     process.exit(1);
   }
-  console.log("[verify] PASS: fake message crossed the boundary over real HTTP/SSE");
+  console.log("[verify] PASS: message + ACK crossed the boundary over real HTTP/SSE");
 }
 
 main().catch((err) => {

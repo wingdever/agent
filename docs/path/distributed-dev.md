@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | `tools/<name>/` | `registry.json` + `entry` 指向的 `run.js` | 无（`core/tools/registry.js` 目录扫描） |
 | `core/loops/nodes/<id>/` | `registry.json`（`id/next/type/entry`） | 只有改链路时才碰别人的 `next` |
-| `core/loops/builtins/<id>/` | 同上，`type:"builtin"`，不进默认链 | `user/loops.json`（运行时覆盖，不是源码） |
+| `core/loops/builtins/<id>/` | 同上，`type:"builtin"`，不进默认链 | `agent/loops.json`（运行时覆盖，不是源码） |
 | `channels/<type>/` | 导出一个符合 `channels/contract.js` 的对象，由 `channels/registry.js` 断言 | 无 |
 | `proxies/<type>/` | 导出一个符合 `proxies/contract.js` 的对象 | 无 |
 | `core/rpc/handlers/<domain>.js` | 命令描述符 + handler，由 `handlers/index.js` 汇总 | 一行登记 |
@@ -30,7 +30,7 @@
 | `core/storage/schema.js` | 25 张表的 DDL 数组 | 两人加表改同一数组 | 改为号段迁移文件，`schema.js` 只负责按号执行 |
 | `proxies/lark/actions.js` | 22 个具名动作 + 1 个 `api` 逃生口，单对象 | 按业务域并行必冲突 | 先拆 `actions/<domain>.js` 片段，再由 `actions/index.js` 合并 |
 | `channels/manager.js` | 生命周期 + pipeline + 去重装配 | 入站策略改动互相覆盖 | 策略下沉到独立模块，manager 只做编排 |
-| `core/loops/loops-config.js` | 默认钩子两条写死 | 加钩子要改源码默认 | 默认只读；扩展走 `user/loops.json` |
+| `core/loops/loops-config.js` | 默认钩子两条写死 | 加钩子要改源码默认 | 默认只读；扩展走 `agent/loops.json` |
 | `package.json` | 依赖与 npm scripts | 各任务各加各的 | 单一构建负责人 |
 | `docs/path/feature_list.json` | 55 条人工维护 | 状态互相覆盖 | 任务只追加自己的条目；状态由集成者改 |
 | `core/rpc/handlers/index.js` | 命令汇总 | 每人加一行 | 只在登记区块追加 |

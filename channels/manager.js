@@ -15,6 +15,7 @@
 
 import { createInboundPipeline } from "./inbound/pipeline.js";
 import { createDedupe } from "./inbound/dedupe.js";
+import { releaseChannelLock } from "./../lib/channel-lock.js";
 
 const STATUS = Object.freeze(["stopped", "starting", "running", "stopping", "error"]);
 
@@ -26,6 +27,8 @@ const STATUS = Object.freeze(["stopped", "starting", "running", "stopping", "err
  * @param {Function} [options.log]
  * @param {Function} [options.dedupeFactory]
  * @param {(message: Object) => void} [options.publish] called for accepted inbound messages
+ * @param {(interaction: Object) => void} [options.publishInteraction] standalone interaction sink
+ * @param {(id: string) => {ok: boolean, pid?: number, file?: string}} [options.lockFactory]
  */
 export function createChannelManager({
   channels = [],
@@ -34,9 +37,13 @@ export function createChannelManager({
   log = () => {},
   dedupeFactory = () => createDedupe(),
   publish = null,
+  publishInteraction = null,
+  lockFactory = null,
+  externalServiceIds = [],
 } = {}) {
   /** @type {Map<string, Object>} */
   const entries = new Map();
+  const external = new Set((externalServiceIds || []).map(String));
   /** @type {Set<Function>} */
   const subscribers = new Set();
 
@@ -59,6 +66,7 @@ export function createChannelManager({
       pipeline: null,
       pending: null,
       stopRequested: false,
+      lock: null,
     });
   }
 
@@ -143,15 +151,23 @@ export function createChannelManager({
       return;
     }
     entry.interactions++;
-    if (!currentSink || typeof currentSink.interact !== "function") {
-      log(`[channel:${entry.id}] no interaction sink; dropped ${eventId}`);
+    if (currentSink && typeof currentSink.interact === "function") {
+      Promise.resolve()
+        .then(() => currentSink.interact(interaction))
+        .catch((err) => {
+          log(`[channel:${entry.id}] interaction ${eventId} failed: ${(err && err.stack) || err}`);
+        });
       return;
     }
-    Promise.resolve()
-      .then(() => currentSink.interact(interaction))
-      .catch((err) => {
-        log(`[channel:${entry.id}] interaction ${eventId} failed: ${(err && err.stack) || err}`);
-      });
+    if (typeof publishInteraction === "function") {
+      Promise.resolve()
+        .then(() => publishInteraction(interaction))
+        .catch((err) => {
+          log(`[channel:${entry.id}] interaction ${eventId} publish failed: ${(err && err.stack) || err}`);
+        });
+      return;
+    }
+    log(`[channel:${entry.id}] no interaction sink; dropped ${eventId}`);
   }
 
   function ensurePipeline(entry) {
@@ -165,6 +181,7 @@ export function createChannelManager({
         return currentSink.runTurn(message, emit, { channel: entry.channel });
       },
       project: (message, event) => entry.channel.project(message, event),
+      beforeRun: typeof publish === "function" ? (message) => publish(message) : null,
       dedupe: dedupeFactory(),
       onError: (err, message) => {
         log(`[channel:${entry.id}] ${message ? message.eventId + " " : ""}${(err && err.stack) || err}`);
@@ -175,10 +192,28 @@ export function createChannelManager({
 
   async function start(id, { by = "user" } = {}) {
     const entry = requireEntry(id);
+    if (external.has(entry.id)) {
+      throw new Error(`channel "${entry.id}" runs in a standalone service; start channel-run.js instead`);
+    }
     // Starting twice must not open a second connection: the platform would treat
     // that as a duplicate bot session, and the old one would keep delivering.
     if (entry.status === "running") return snapshot(entry);
     if (entry.pending) return entry.pending;
+
+    // Cross-process ownership: the standalone channel service uses the same
+    // lock file. Without this, UI "start" could open a second WebSocket while
+    // systemd already owns one.
+    if (lockFactory && !entry.lock) {
+      const acquired = lockFactory(entry.id);
+      if (!acquired || acquired.ok !== true) {
+        const owner = acquired && acquired.pid ? ` (pid ${acquired.pid})` : "";
+        entry.status = "error";
+        entry.error = `channel "${entry.id}" is already running${owner}`;
+        emit();
+        throw new Error(entry.error);
+      }
+      entry.lock = acquired.file || acquired;
+    }
 
     entry.status = "starting";
     entry.error = null;
@@ -205,14 +240,6 @@ export function createChannelManager({
             const result = pipeline.handle(message);
             if (result && result.accepted === false) {
               log(`[channel:${entry.id}] dropped event ${message.eventId || "?"}: ${result.reason || "refused"}`);
-            } else if (typeof publish === "function") {
-              // Only accepted (non-duplicate) messages reach subscribers. A
-              // platform redelivery is deduped by the pipeline and never published.
-              // publish may be async (history write); don't await it here — the
-              // driver's ack must not wait on storage.
-              Promise.resolve()
-                .then(() => publish(message))
-                .catch((err) => log(`[channel:${entry.id}] publish failed: ${(err && err.message) || err}`));
             }
           },
           (interaction) => routeInteraction(entry, interaction),
@@ -232,6 +259,10 @@ export function createChannelManager({
         const reason = (err && err.message) || String(err);
         entry.status = "error";
         entry.error = reason;
+        if (entry.lock) {
+          releaseChannelLock(entry.lock);
+          entry.lock = null;
+        }
         emit();
         // A preflight refusal is not a connection failure: say what is missing,
         // without claiming that connecting was attempted.
@@ -262,7 +293,13 @@ export function createChannelManager({
       entry.stopRequested = true;
       await entry.pending.catch(() => {});
     }
-    if (entry.status === "stopped") return snapshot(entry);
+    if (entry.status === "stopped") {
+      if (entry.lock) {
+        releaseChannelLock(entry.lock);
+        entry.lock = null;
+      }
+      return snapshot(entry);
+    }
     entry.status = "stopping";
     emit();
     try {
@@ -273,6 +310,10 @@ export function createChannelManager({
       entry.interactionDedupe = dedupeFactory();
       entry.startedAt = 0;
       entry.startedBy = null;
+      if (entry.lock) {
+        releaseChannelLock(entry.lock);
+        entry.lock = null;
+      }
       emit();
       return snapshot(entry);
     } catch (err) {
@@ -294,5 +335,12 @@ export function createChannelManager({
     }
   }
 
-  return { list, status, has, start, stop, stopAll, setSink, subscribe, emit, STATUS };
+  /** Resolve when every active pipeline has drained (tests / graceful shutdown). */
+  async function idle() {
+    await Promise.all([...entries.values()].map((entry) => (
+      entry.pipeline && typeof entry.pipeline.idle === "function" ? entry.pipeline.idle() : Promise.resolve()
+    )));
+  }
+
+  return { list, status, has, start, stop, stopAll, setSink, subscribe, emit, idle, STATUS };
 }

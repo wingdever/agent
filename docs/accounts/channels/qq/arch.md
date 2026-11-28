@@ -64,9 +64,9 @@ flowchart TB
 
 `launcher.js:53` 在应用启动时构建全部通道但不自动连接——建立连接会让外部平台认为本机在线，这必须是显式请求。`launcher.js:65` 注入 sink：`runTurn` 把一条入站消息映射成一次 `core.agent.chat`，`interact` 把按钮回调交给 `core.interactions`。
 
-`channel-run.js:97` 是无界面运行器：`data/channels/run-<id>.lock` 防止同一实例开第二条连接；`--echo` 模式直接回显文本，不调用模型。
+`channel-run.js:97` 是无界面运行器：`data/channels/run-<id>.lock` 防止同一实例开第二条连接，这把锁与 UI 本地 `channel.start` 共用，是跨进程的原子锁（`lib/channel-lock.js`），不是内存标志；`--echo` 模式直接回显文本，不调用模型。
 
-`manager.js:172` 的 `start()` 先执行 `channel.check()` 做启动前检查，缺凭据时抛出 `ChannelPreflightError`，不发起连接。消息经 `ensurePipeline()` 进入共享入站管道；按钮经 `routeInteraction()` 独立去重后直送 `sink.interact`，不进消息管道。
+`manager.js:172` 的 `start()` 先拿实例锁，再执行 `channel.check()` 做启动前检查，缺凭据时抛出 `ChannelPreflightError` 并释放锁，不发起连接。消息经 `ensurePipeline()` 进入共享入站管道；按钮经 `routeInteraction()` 独立去重后直送 `sink.interact`，不进消息管道。独立 channel 服务没有本地 sink，按钮改发 `/interactions/subscribe`，core 侧用 `applyInteraction()` 回灌 `core.interactions`；审批卡、提问卡、计划审批卡由 `channel-listen` 在 turn 挂起时通过 `/proactive` 的 `event` 字段回传，callback 直接 `channel.project`，不发送文本、不 ACK。
 
 ## 驱动构成
 
@@ -89,6 +89,12 @@ flowchart TB
 - `canAttachFiles: true`，单条文本上限默认 4000 字节，出站默认 3 QPS。
 
 `INTENTS` 由 `gateway.js:16` 定义：`GROUP_AND_C2C`（1<<25）接收群消息与私聊，`INTERACTION`（1<<26）接收按钮回调。缺少后者时卡片能发出但点击不会回传。
+
+## 服务边界与鉴权
+
+独立 channel 服务的 HTTP 面绑定 `127.0.0.1`，但回环不是身份边界：同用户进程可以读 SSE 或冒充机器人。所有端点（除 `/health`）要求共享 bearer token（`Authorization: Bearer <token>` 或 `x-channel-token`）；token 来自 `CHANNEL_SERVICE_TOKEN`，否则 `data/channels/service-token`（0600，原子创建）。core 启动时 `readServiceToken() || ensureServiceToken()`，与 channel 服务用同一个值。
+
+`GET /health` 返回 `features`（`messages`、`interactions`、`proactive`、`auth`）、`authRequired` 和运行状态。`launcher` 启动时 probe；若服务尚未声明 `interactions`，每 30s 重试。一旦可用就调用 `enableInteractions()` 打开 SSE，之后的消息以 `supervised` 运行——服务晚于 core 启动不需要重启 core。
 
 ## 交互状态
 

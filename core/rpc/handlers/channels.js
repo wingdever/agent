@@ -47,21 +47,56 @@ export default function defineChannelCommands(
 
   // The runtime snapshot has no profile field; the binding is a config fact,
   // so it is attached here for both list responses and pushed snapshots.
-  function withBindings(rows) {
+  function serviceFor(core, instanceId) {
+    if (!core) return null;
+    if (core.channelServices instanceof Map) {
+      const entry = core.channelServices.get(String(instanceId));
+      if (entry) return entry;
+    }
+    const svc = core.channelService;
+    if (!svc) return null;
+    if (svc.listeners && Array.isArray(svc.listeners)) {
+      const listener = svc.listeners.find((item) => String(item.instanceId) === String(instanceId));
+      if (listener) return { ...svc, listener };
+    }
+    return svc;
+  }
+
+  function withBindings(rows, core) {
     const config = readJson(channelsFile, { channels: [] });
     const bindings = new Map();
     (config.channels || []).forEach((row) => {
       if (row && row.id != null) bindings.set(String(row.id), row.agent || null);
     });
-    return rows.map((row) => Object.assign({}, row, {
-      agent: bindings.get(String(row.instanceId)) || null,
-    }));
+    return rows.map((row) => {
+      const base = Object.assign({}, row, {
+        agent: bindings.get(String(row.instanceId)) || null,
+      });
+      const svc = serviceFor(core, row.instanceId);
+      if (!svc) return base;
+      const listener = svc.listener || null;
+      const state = listener
+        ? {
+            messages: listener.state,
+            interactions: listener.interactionListener ? listener.interactionListener.state : "disabled",
+          }
+        : null;
+      return Object.assign(base, {
+        service: {
+          endpoint: svc.endpoint,
+          features: svc.features || [],
+          external: true,
+          messages: state ? state.messages : "unknown",
+          interactions: state ? state.interactions : "unknown",
+        },
+      });
+    });
   }
 
   rpc.define({
     name: "channel.list",
     params: noParams,
-    handler: (core) => withBindings(service(core).list()),
+    handler: (core) => withBindings(service(core).list(), core),
   });
 
   rpc.define({
@@ -96,7 +131,7 @@ export default function defineChannelCommands(
       fs.writeFileSync(channelsFile, JSON.stringify(config, null, 2));
       const channels = service(core);
       if (typeof channels.emit === "function") channels.emit();
-      return withBindings(channels.list()).find((entry) => String(entry.instanceId) === id) || null;
+      return withBindings(channels.list(), core).find((entry) => String(entry.instanceId) === id) || null;
     },
   });
 
@@ -120,7 +155,7 @@ export default function defineChannelCommands(
       onCancel(finish);
       off = channels.subscribe((roster) => {
         if (done) return;
-        onEvent({ type: "snapshot", channels: withBindings(roster) });
+        onEvent({ type: "snapshot", channels: withBindings(roster, core) });
       });
       if (done) off();
     }),

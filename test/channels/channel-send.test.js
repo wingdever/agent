@@ -65,6 +65,20 @@ test("sendToChannel throws on http failure and on ok:false payload", async () =>
   );
 });
 
+test("sendToChannel sends the bearer token and returns a sent-but-unacked receipt", async () => {
+  const calls = [];
+  const receipt = await sendToChannel({
+    endpoint: "http://x", instanceId: "i", conversationKey: "G", text: "t", token: "s3cret",
+    fetchImpl: async (url, init) => {
+      calls.push(init);
+      return jsonResponse({ ok: false, sent: true, acked: false, error: "ack store offline" });
+    },
+  });
+  assert.equal(calls[0].headers.Authorization, "Bearer s3cret");
+  assert.equal(receipt.sent, true);
+  assert.equal(receipt.acked, false);
+});
+
 function nodeCtx(delivery, events, fetchImpl) {
   return {
     channelDelivery: delivery,
@@ -118,13 +132,11 @@ test("channel-send node is a no-op without delivery parameters", async () => {
 
 test("channel-send node emits an error event but does not throw on send failure", async () => {
   const events = [];
-  const ctx = nodeCtx(
-    { endpoint: "http://x", instanceId: "qq-bot", conversationKey: "G1", text: "t" },
-    events,
-    async () => jsonResponse({ ok: false, error: "boom" })
-  );
-  const result = await runNode({}, ctx);
+  const delivery = { endpoint: "http://x", instanceId: "qq-bot", conversationKey: "G1", text: "t" };
+  const ctx2 = nodeCtx(delivery, events, async () => jsonResponse({ ok: false, error: "boom" }));
+  const result = await runNode({}, ctx2);
   assert.equal(result.next, "decide-next");
   assert.deepEqual(events.map((e) => e.phase), ["start", "error"]);
   assert.match(events[1].error, /boom/);
+  assert.equal(delivery.deliveryError.includes("boom"), true);
 });

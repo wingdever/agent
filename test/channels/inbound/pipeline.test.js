@@ -147,3 +147,26 @@ test("a message without eventId is refused at intake", () => {
   const pipeline = pipelineWith({ runTurn: async () => {}, project: async () => {} });
   assert.throws(() => pipeline.handle(message({ eventId: "" })), /requires eventId/);
 });
+
+test("beforeRun completes before the turn and a failure skips the turn", async () => {
+  const order = [];
+  let runs = 0;
+  const pipeline = pipelineWith({
+    beforeRun: async () => { await sleep(10); order.push("persist"); },
+    runTurn: async () => { runs++; order.push("turn"); },
+    project: async () => {},
+  });
+  pipeline.handle(message({ eventId: "before-ok" }));
+  await pipeline.idle();
+  assert.deepEqual(order, ["persist", "turn"]);
+
+  const failing = pipelineWith({
+    beforeRun: async () => { throw new Error("db down"); },
+    runTurn: async () => { runs++; },
+    project: async () => {},
+  });
+  failing.handle(message({ eventId: "before-fail" }));
+  await failing.idle();
+  assert.equal(runs, 1, "failed persist does not run a turn");
+  assert.equal(failing.stats.failures, 1);
+});

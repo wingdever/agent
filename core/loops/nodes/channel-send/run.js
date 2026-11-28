@@ -44,32 +44,51 @@ export default async function run(input, ctx) {
     conversationKey: delivery.conversationKey,
     text,
   });
-  try {
-    await sendToChannel({
-      endpoint: delivery.endpoint,
-      instanceId: delivery.instanceId,
-      conversationKey: delivery.conversationKey,
-      text,
-      senderId: delivery.senderId,
-      recvType: delivery.recvType,
-      ackEventId: delivery.ackEventId || (ctx.channelMessage && ctx.channelMessage.eventId),
-      fetchImpl: ctx.fetchImpl,
-    });
-    ctx.emit({
-      type: "channel-send",
-      phase: "done",
-      instanceId: delivery.instanceId,
-      conversationKey: delivery.conversationKey,
-      text,
-    });
-  } catch (err) {
-    ctx.emit({
-      type: "channel-send",
-      phase: "error",
-      instanceId: delivery.instanceId,
-      conversationKey: delivery.conversationKey,
-      error: String((err && err.message) || err),
-    });
+  const attempts = Math.max(1, Number(ctx.channelSendAttempts ?? delivery.attempts ?? 2) || 1);
+  const retryDelayMs = Math.max(0, Number(ctx.channelSendRetryDelayMs ?? delivery.retryDelayMs ?? 200) || 0);
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const result = await sendToChannel({
+        endpoint: delivery.endpoint,
+        instanceId: delivery.instanceId,
+        conversationKey: delivery.conversationKey,
+        text,
+        senderId: delivery.senderId,
+        recvType: delivery.recvType,
+        ackEventId: delivery.ackEventId || (ctx.channelMessage && ctx.channelMessage.eventId),
+        token: delivery.token || ctx.channelToken || null,
+        fetchImpl: ctx.fetchImpl,
+      });
+      delivery.sent = true;
+      if (result && result.acked === false) delivery.ackPending = true;
+      ctx.emit({
+        type: "channel-send",
+        phase: "done",
+        instanceId: delivery.instanceId,
+        conversationKey: delivery.conversationKey,
+        text,
+        attempt,
+      });
+      return { output: input, next: "decide-next" };
+    } catch (err) {
+      lastError = err;
+      if (attempt < attempts && retryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+    }
   }
+  // Do not swallow: channel-listen uses deliveryError to leave the event
+  // pending so the channel service can replay it instead of ACKing a message
+  // the user never received.
+  delivery.deliveryError = String((lastError && lastError.message) || lastError);
+  ctx.emit({
+    type: "channel-send",
+    phase: "error",
+    instanceId: delivery.instanceId,
+    conversationKey: delivery.conversationKey,
+    error: delivery.deliveryError,
+    attempts,
+  });
   return { output: input, next: "decide-next" };
 }
